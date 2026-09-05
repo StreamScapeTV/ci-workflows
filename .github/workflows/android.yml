@@ -171,9 +171,74 @@ jobs:
             fi
           fi
           source_sha="$(git rev-parse HEAD)"
+          dependency_fingerprint=""
+          if test "${SOURCE_REPOSITORY}" = StreamScapeTV/iptv-android; then
+            dependency_fingerprint="$(python3 - <<'PY_ANDROID_DEPENDENCY_FINGERPRINT'
+          from __future__ import annotations
+
+          import hashlib
+          import re
+          from pathlib import Path
+
+          root = Path(".")
+          records: list[str] = []
+
+          def add_file(path: Path) -> None:
+              if path.is_file():
+                  records.append(f"FILE {path.as_posix()}\n{path.read_text(encoding='utf-8')}\n")
+
+          def add_dependency_blocks(path: Path) -> None:
+              if not path.is_file():
+                  return
+              lines = path.read_text(encoding="utf-8").splitlines()
+              block_name = ""
+              depth = 0
+              captured: list[str] = []
+              for line in lines:
+                  if not block_name:
+                      match = re.match(r"^\s*(plugins|dependencies)\s*\{", line)
+                      if match:
+                          block_name = match.group(1)
+                          depth = line.count("{") - line.count("}")
+                          captured = [line.strip()]
+                          if depth <= 0:
+                              records.append(f"BLOCK {path.as_posix()}:{block_name}\n" + "\n".join(captured) + "\n")
+                              block_name = ""
+                              captured = []
+                      continue
+                  stripped = line.strip()
+                  if stripped and not stripped.startswith("//"):
+                      captured.append(" ".join(stripped.split()))
+                  depth += line.count("{") - line.count("}")
+                  if depth <= 0:
+                      records.append(f"BLOCK {path.as_posix()}:{block_name}\n" + "\n".join(captured) + "\n")
+                      block_name = ""
+                      captured = []
+
+          add_file(root / "gradle" / "wrapper" / "gradle-wrapper.properties")
+          for path in sorted((root / "gradle").glob("**/*.toml")):
+              add_file(path)
+          for path in sorted(root.glob("settings.gradle*")):
+              if path.is_file():
+                  settings = "\n".join(
+                      line for line in path.read_text(encoding="utf-8").splitlines()
+                      if not re.match(r"^\s*rootProject\.name\s*=", line)
+                  )
+                  records.append(f"SETTINGS {path.as_posix()}\n{settings}\n")
+          for path in sorted(root.glob("**/build.gradle*")):
+              add_dependency_blocks(path)
+
+          if not records:
+              raise SystemExit("Android dependency fingerprint has no inputs")
+          digest = hashlib.sha256("\n".join(records).encode("utf-8")).hexdigest()
+          print(digest)
+          PY_ANDROID_DEPENDENCY_FINGERPRINT
+            )"
+          fi
           printf 'enabled=%s\n' "${enabled}" >> "${GITHUB_OUTPUT}"
           printf 'default_branch=%s\n' "${default_branch}" >> "${GITHUB_OUTPUT}"
           printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
+          printf 'dependency_fingerprint=%s\n' "${dependency_fingerprint}" >> "${GITHUB_OUTPUT}"
 
       - name: Restore IPTV Android default-branch dependency cache
         id: gradle_dependency_cache
@@ -184,15 +249,7 @@ jobs:
             ~/.gradle/wrapper
             ~/.gradle/caches/modules-2
           key: >-
-            iptv-android-default-gradle-deps-v2-${{ runner.os }}-${{ runner.arch }}-${{
-              hashFiles(
-                'gradle/wrapper/gradle-wrapper.properties',
-                'gradle/**/*.toml',
-                'settings.gradle*',
-                'build.gradle*',
-                '**/build.gradle*'
-              )
-            }}
+            iptv-android-default-gradle-deps-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.android_default_cache_scope.outputs.dependency_fingerprint }}
 
       - name: Resolve IPTV Android non-default cache reader scope
         id: android_branch_cache_scope
@@ -234,48 +291,9 @@ jobs:
             ~/.gradle/wrapper
             ~/.gradle/caches/modules-2
           key: >-
-            iptv-android-default-gradle-deps-v2-${{ runner.os }}-${{ runner.arch }}-${{
-              hashFiles(
-                'gradle/wrapper/gradle-wrapper.properties',
-                'gradle/**/*.toml',
-                'settings.gradle*',
-                'build.gradle*',
-                '**/build.gradle*'
-              )
-            }}
+            iptv-android-default-gradle-deps-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.android_default_cache_scope.outputs.dependency_fingerprint }}
           restore-keys: |
             iptv-android-default-gradle-deps-v2-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Restore IPTV Android Gradle build cache
-        id: gradle_build_cache
-        if: >-
-          ${{
-            steps.android_default_cache_scope.outputs.enabled == 'true'
-            || steps.android_branch_cache_scope.outputs.enabled == 'true'
-          }}
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.gradle/caches/build-cache-1
-          key: >-
-            iptv-android-default-gradle-build-v2-${{ runner.os }}-${{ runner.arch }}-${{
-              hashFiles(
-                'gradle/wrapper/gradle-wrapper.properties',
-                'gradle/**/*.toml',
-                'settings.gradle*',
-                'build.gradle*',
-                '**/build.gradle*'
-              )
-            }}-${{ steps.android_default_cache_scope.outputs.source_sha }}
-          restore-keys: |
-            iptv-android-default-gradle-build-v2-${{ runner.os }}-${{ runner.arch }}-${{
-              hashFiles(
-                'gradle/wrapper/gradle-wrapper.properties',
-                'gradle/**/*.toml',
-                'settings.gradle*',
-                'build.gradle*',
-                '**/build.gradle*'
-              )
-            }}-
 
       - name: Validate generic Android hosted request
         if: >-
@@ -779,7 +797,6 @@ jobs:
         env:
           DEVELOP_DEPENDENCY_HIT: ${{ steps.gradle_dependency_cache.outputs.cache-hit }}
           BRANCH_DEPENDENCY_HIT: ${{ steps.gradle_branch_dependency_cache.outputs.cache-hit }}
-          BUILD_CACHE_HIT: ${{ steps.gradle_build_cache.outputs.cache-hit }}
         run: |
           set -Eeuo pipefail
           measure_bytes() {
@@ -799,11 +816,9 @@ jobs:
             printf 'branch_reader=%s\n' "${{ steps.android_branch_cache_scope.outputs.enabled }}"
             printf 'default_dependency_hit=%s\n' "${DEVELOP_DEPENDENCY_HIT}"
             printf 'branch_dependency_hit=%s\n' "${BRANCH_DEPENDENCY_HIT}"
-            printf 'build_cache_hit=%s\n' "${BUILD_CACHE_HIT}"
           } >> "${CI_LOG}"
           measure_bytes gradle_wrapper "${HOME}/.gradle/wrapper"
           measure_bytes gradle_modules "${HOME}/.gradle/caches/modules-2"
-          measure_bytes gradle_build_cache "${HOME}/.gradle/caches/build-cache-1"
 
       - name: Save IPTV Android default-branch dependency cache
         id: gradle_dependency_cache_save
@@ -820,20 +835,6 @@ jobs:
             ~/.gradle/wrapper
             ~/.gradle/caches/modules-2
           key: ${{ steps.gradle_dependency_cache.outputs.cache-primary-key }}
-
-      - name: Save IPTV Android Gradle build cache
-        id: gradle_build_cache_save
-        if: >-
-          ${{
-            steps.android_default_cache_scope.outputs.enabled == 'true'
-            && steps.commands.outcome == 'success'
-            && (inputs.test_profile == 'full' || inputs.test_profile == 'release')
-            && steps.gradle_build_cache.outputs.cache-hit != 'true'
-          }}
-        uses: actions/cache/save@v4
-        with:
-          path: ~/.gradle/caches/build-cache-1
-          key: ${{ steps.gradle_build_cache.outputs.cache-primary-key }}
 
       - name: Scrub configured CI secrets from private log
         id: scrub
@@ -901,4 +902,4 @@ jobs:
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}
-          status: ${{ steps.commands.outcome == 'success' && (steps.play_cleanup.outcome == 'success' || steps.play_cleanup.outcome == 'skipped') && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && (steps.android_cache_measurements.outcome == 'success' || steps.android_cache_measurements.outcome == 'skipped') && (steps.gradle_dependency_cache_save.outcome == 'success' || steps.gradle_dependency_cache_save.outcome == 'skipped') && (steps.gradle_build_cache_save.outcome == 'success' || steps.gradle_build_cache_save.outcome == 'skipped') && 'succeeded' || 'failed' }}
+          status: ${{ steps.commands.outcome == 'success' && (steps.play_cleanup.outcome == 'success' || steps.play_cleanup.outcome == 'skipped') && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && (steps.android_cache_measurements.outcome == 'success' || steps.android_cache_measurements.outcome == 'skipped') && (steps.gradle_dependency_cache_save.outcome == 'success' || steps.gradle_dependency_cache_save.outcome == 'skipped') && 'succeeded' || 'failed' }}

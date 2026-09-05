@@ -95,7 +95,12 @@ class AndroidSharedCacheContractTest(unittest.TestCase):
             subprocess.run(["git", "config", "user.email", "ci@example.invalid"], cwd=root, check=True)
             subprocess.run(["git", "config", "user.name", "CI"], cwd=root, check=True)
             (root / "README.md").write_text("fixture\n", encoding="utf-8")
-            subprocess.run(["git", "add", "README.md"], cwd=root, check=True)
+            (root / "gradle" / "wrapper").mkdir(parents=True)
+            (root / "gradle" / "wrapper" / "gradle-wrapper.properties").write_text(
+                "distributionUrl=https://services.gradle.org/distributions/gradle-9.7.1-bin.zip\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "add", "."], cwd=root, check=True)
             subprocess.run(["git", "commit", "-m", "fixture"], cwd=root, check=True, capture_output=True)
             fake_bin = root / "bin"
             fake_bin.mkdir()
@@ -134,6 +139,80 @@ class AndroidSharedCacheContractTest(unittest.TestCase):
             subprocess.run(["git", "switch", "-c", "main"], cwd=root, check=True, capture_output=True)
             self.assertEqual(writer_enabled("main", "main"), "true")
 
+    def test_dependency_fingerprint_tracks_dependencies_not_release_metadata(self) -> None:
+        script = self.by_name["Resolve IPTV Android default-branch cache scope"]["run"]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            subprocess.run(["git", "init", "-b", "develop"], cwd=root, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "ci@example.invalid"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "CI"], cwd=root, check=True)
+            (root / "gradle" / "wrapper").mkdir(parents=True)
+            (root / "gradle" / "wrapper" / "gradle-wrapper.properties").write_text(
+                "distributionUrl=https://services.gradle.org/distributions/gradle-9.7.1-bin.zip\n",
+                encoding="utf-8",
+            )
+            (root / "gradle" / "libs.versions.toml").write_text(
+                "[versions]\nalpha = \"1.0\"\nbeta = \"1.0\"\n"
+                "[libraries]\nalpha = { module = \"example:alpha\", version.ref = \"alpha\" }\n"
+                "beta = { module = \"example:beta\", version.ref = \"beta\" }\n"
+                "[plugins]\nandroid-application = { id = \"com.android.application\", version = \"9.4.0\" }\n",
+                encoding="utf-8",
+            )
+            (root / "settings.gradle.kts").write_text(
+                'rootProject.name = "Fixture"\ndependencyResolutionManagement { repositories { mavenCentral() } }\n',
+                encoding="utf-8",
+            )
+            app = root / "app"
+            app.mkdir()
+            build = app / "build.gradle.kts"
+            build.write_text(
+                "plugins {\n    alias(libs.plugins.android.application)\n}\n"
+                "android { defaultConfig { versionCode = 1 } }\n"
+                "dependencies {\n    implementation(libs.alpha)\n}\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "add", "."], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-m", "fixture"], cwd=root, check=True, capture_output=True)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            fake_curl = fake_bin / "curl"
+            fake_curl.write_text("#!/bin/sh\nprintf '%s\\n' '{\"default_branch\":\"develop\"}'\n", encoding="utf-8")
+            fake_curl.chmod(0o755)
+
+            def fingerprint() -> str:
+                output = root / "github-output"
+                output.write_text("", encoding="utf-8")
+                env = os.environ.copy()
+                env.update(
+                    {
+                        "SOURCE_REPOSITORY": "StreamScapeTV/iptv-android",
+                        "REQUESTED_REF": "develop",
+                        "CURRENT_REF_NAME": "",
+                        "CURRENT_REF_TYPE": "branch",
+                        "SOURCE_TOKEN": "token",
+                        "GITHUB_OUTPUT": str(output),
+                        "PATH": f"{fake_bin}:{env['PATH']}",
+                    }
+                )
+                result = subprocess.run(
+                    ["bash"], cwd=root, env=env, input=script, text=True, capture_output=True, check=False
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                return values["dependency_fingerprint"]
+
+            baseline = fingerprint()
+            build.write_text(build.read_text().replace("versionCode = 1", "versionCode = 2"), encoding="utf-8")
+            self.assertEqual(fingerprint(), baseline)
+
+            build.write_text(build.read_text().replace("implementation(libs.alpha)", "implementation(libs.beta)"), encoding="utf-8")
+            dependency_changed = fingerprint()
+            self.assertNotEqual(dependency_changed, baseline)
+
+            wrapper = root / "gradle" / "wrapper" / "gradle-wrapper.properties"
+            wrapper.write_text(wrapper.read_text().replace("9.7.1", "9.8.0"), encoding="utf-8")
+            self.assertNotEqual(fingerprint(), dependency_changed)
+
     def test_branch_dependency_restore_is_read_only_and_uses_trusted_default_family(self) -> None:
         restore = self.by_name["Restore IPTV Android non-default dependency cache"]
         self.assertEqual(
@@ -152,56 +231,34 @@ class AndroidSharedCacheContractTest(unittest.TestCase):
         )
         self.assertNotIn("actions/cache/save", str(restore))
 
-    def test_gradle_build_cache_has_per_source_default_generations_and_prefix_restore(self) -> None:
-        restore = self.by_name["Restore IPTV Android Gradle build cache"]
-        save = self.by_name["Save IPTV Android Gradle build cache"]
-        self.assertEqual(restore["uses"], "actions/cache/restore@v4")
-        self.assertEqual(restore["with"]["path"], "~/.gradle/caches/build-cache-1")
-        self.assertIn("iptv-android-default-gradle-build-v2-", restore["with"]["key"])
-        self.assertIn(
-            "steps.android_default_cache_scope.outputs.source_sha",
-            restore["with"]["key"],
-        )
-        self.assertIn(
-            "iptv-android-default-gradle-build-v2-",
-            restore["with"]["restore-keys"],
-        )
-        self.assertNotIn("source_sha", restore["with"]["restore-keys"])
-        self.assertEqual(save["uses"], "actions/cache/save@v4")
-        self.assertEqual(save["with"]["path"], "~/.gradle/caches/build-cache-1")
-        self.assertEqual(
-            save["with"]["key"],
-            "${{ steps.gradle_build_cache.outputs.cache-primary-key }}",
-        )
+    def test_gradle_task_output_cache_is_not_persisted(self) -> None:
+        self.assertNotIn("Restore IPTV Android Gradle build cache", self.by_name)
+        self.assertNotIn("Save IPTV Android Gradle build cache", self.by_name)
+        self.assertNotIn("~/.gradle/caches/build-cache-1", self.workflow_text)
+        self.assertNotIn("iptv-android-default-gradle-build-", self.workflow_text)
 
-    def test_only_default_branch_full_or_release_can_save_either_cache_layer(self) -> None:
-        for name in (
-            "Save IPTV Android default-branch dependency cache",
-            "Save IPTV Android Gradle build cache",
-        ):
-            step = self.by_name[name]
-            condition = step["if"]
-            self.assertIn(
-                "steps.android_default_cache_scope.outputs.enabled == 'true'",
-                condition,
-            )
-            self.assertIn("steps.commands.outcome == 'success'", condition)
-            self.assertIn("inputs.test_profile == 'full'", condition)
-            self.assertIn("inputs.test_profile == 'release'", condition)
-            self.assertIn("cache-hit != 'true'", condition)
+    def test_only_default_branch_full_or_release_can_save_dependency_cache(self) -> None:
+        step = self.by_name["Save IPTV Android default-branch dependency cache"]
+        condition = step["if"]
+        self.assertIn(
+            "steps.android_default_cache_scope.outputs.enabled == 'true'",
+            condition,
+        )
+        self.assertIn("steps.commands.outcome == 'success'", condition)
+        self.assertIn("inputs.test_profile == 'full'", condition)
+        self.assertIn("inputs.test_profile == 'release'", condition)
+        self.assertIn("cache-hit != 'true'", condition)
 
-    def test_cache_paths_exclude_raw_build_outputs_source_credentials_and_full_gradle_home(self) -> None:
+    def test_cache_paths_exclude_task_outputs_source_credentials_and_full_gradle_home(self) -> None:
         cache_steps = (
             self.by_name["Restore IPTV Android default-branch dependency cache"],
             self.by_name["Restore IPTV Android non-default dependency cache"],
-            self.by_name["Restore IPTV Android Gradle build cache"],
             self.by_name["Save IPTV Android default-branch dependency cache"],
-            self.by_name["Save IPTV Android Gradle build cache"],
         )
         cached_paths = "\n".join(str(step["with"]["path"]) for step in cache_steps)
         self.assertIn("~/.gradle/wrapper", cached_paths)
         self.assertIn("~/.gradle/caches/modules-2", cached_paths)
-        self.assertIn("~/.gradle/caches/build-cache-1", cached_paths)
+        self.assertNotIn("~/.gradle/caches/build-cache-1", cached_paths)
         for forbidden in (
             "app/build",
             "build/outputs",
@@ -220,13 +277,13 @@ class AndroidSharedCacheContractTest(unittest.TestCase):
         self.assertIn("===== android-cache =====", script)
         self.assertIn("gradle_wrapper", script)
         self.assertIn("gradle_modules", script)
-        self.assertIn("gradle_build_cache", script)
+        self.assertNotIn("gradle_build_cache", script)
         self.assertIn('>> "${CI_LOG}"', script)
         finish = self.by_name["Finish Agent State run"]
         status = finish["with"]["status"]
         self.assertIn("steps.android_cache_measurements.outcome == 'success'", status)
         self.assertIn("steps.gradle_dependency_cache_save.outcome == 'success'", status)
-        self.assertIn("steps.gradle_build_cache_save.outcome == 'success'", status)
+        self.assertNotIn("gradle_build_cache_save", status)
 
 
 class AndroidGenericHostedProfileContractTest(unittest.TestCase):
