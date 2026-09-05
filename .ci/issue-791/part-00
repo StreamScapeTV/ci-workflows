@@ -1,0 +1,164 @@
+diff -ruN '--exclude=__pycache__' ci-workflows-baseline/.github/workflows/android.yml ci-workflows-791/.github/workflows/android.yml
+--- ci-workflows-baseline/.github/workflows/android.yml	2026-09-05 01:54:05.000000000 +0000
++++ ci-workflows-791/.github/workflows/android.yml	2026-09-05 13:21:29.789529822 +0000
+@@ -22,6 +22,14 @@
+         type: string
+         required: false
+         default: ""
++      test_selectors:
++        type: string
++        required: false
++        default: "[]"
++      test_platform:
++        type: string
++        required: false
++        default: ""
+       room_schema:
+         type: boolean
+         required: false
+@@ -278,6 +286,8 @@
+         env:
+           PROJECT_DIRECTORY: ${{ inputs.project_directory }}
+           TEST_FILTER: ${{ inputs.test_filter }}
++          TEST_SELECTORS: ${{ inputs.test_selectors }}
++          TEST_PLATFORM: ${{ inputs.test_platform }}
+           ROOM_SCHEMA: ${{ inputs.room_schema }}
+         run: |
+           set -Eeuo pipefail
+@@ -289,6 +299,14 @@
+             echo "Generic Android hosted profiles do not accept test_filter" >&2
+             exit 2
+           }
++          test "${TEST_SELECTORS}" = "[]" || {
++            echo "Generic Android hosted profiles do not accept test_selectors" >&2
++            exit 2
++          }
++          test -z "${TEST_PLATFORM}" || {
++            echo "Generic Android hosted profiles do not accept test_platform" >&2
++            exit 2
++          }
+           test "${ROOM_SCHEMA}" = "false" || {
+             echo "Generic Android hosted profiles do not accept room_schema" >&2
+             exit 2
+@@ -365,7 +383,7 @@
+ 
+       - name: Prepare generic Android emulator
+         id: android_emulator
+-        if: ${{ inputs.test_profile == 'emulator' }}
++        if: ${{ inputs.test_profile == 'emulator' || (inputs.test_profile == 'targeted-tests' && inputs.test_platform == 'instrumentation') }}
+         shell: bash
+         run: |
+           set -Eeuo pipefail
+@@ -431,6 +449,8 @@
+           TEST_PROFILE: ${{ inputs.test_profile }}
+           PROJECT_DIRECTORY: ${{ inputs.project_directory }}
+           TEST_FILTER: ${{ inputs.test_filter }}
++          TEST_SELECTORS: ${{ inputs.test_selectors }}
++          TEST_PLATFORM: ${{ inputs.test_platform }}
+           ROOM_SCHEMA: ${{ inputs.room_schema }}
+           CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+           CI_ANDROID_PLAY_BUILD_NUMBER: ${{ env.CI_ANDROID_PLAY_BUILD_NUMBER }}
+@@ -456,6 +476,43 @@
+           }
+ 
+           case "${TEST_PROFILE}" in
++            targeted-tests)
++              test -z "${TEST_FILTER}" || {
++                echo "targeted-tests does not accept legacy test_filter" >&2
++                exit 2
++              }
++              case "${TEST_PLATFORM}" in
++                jvm|instrumentation) ;;
++                *) echo "targeted-tests requires test_platform=jvm or instrumentation" >&2; exit 2 ;;
++              esac
++              ;;
++            targeted-unit)
++              test "${TEST_SELECTORS}" = "[]" || {
++                echo "legacy targeted-unit does not accept test_selectors" >&2
++                exit 2
++              }
++              test -z "${TEST_PLATFORM}" || {
++                echo "legacy targeted-unit does not accept test_platform" >&2
++                exit 2
++              }
++              ;;
++            *)
++              test -z "${TEST_FILTER}" || {
++                echo "test_filter is accepted only by the legacy targeted-unit profile" >&2
++                exit 2
++              }
++              test "${TEST_SELECTORS}" = "[]" || {
++                echo "test_selectors is accepted only by the targeted-tests profile" >&2
++                exit 2
++              }
++              test -z "${TEST_PLATFORM}" || {
++                echo "test_platform is accepted only by the targeted-tests profile" >&2
++                exit 2
++              }
++              ;;
++          esac
++
++          case "${TEST_PROFILE}" in
+             build|test|emulator)
+               wrapper="${repository_root}/scripts/ci/run-android-hosted-validation.sh"
+               export CI_ANDROID_HOSTED_PROFILE="${TEST_PROFILE}"
+@@ -510,6 +567,45 @@
+           policy_root="${repository_root}/scripts/ci"
+           performance_test_class='com.streamscapetv.app.foundation.performance.testing.PerformanceBudgetTest'
+ 
++          load_test_selectors() {
++            test_selectors=()
++            while IFS= read -r selector; do
++              test_selectors+=("${selector}")
++            done < <(
++              TEST_SELECTORS_JSON="${TEST_SELECTORS}" TEST_PLATFORM_VALUE="${TEST_PLATFORM}" python3 - <<'PY_TEST_SELECTORS'
++          import json
++          import os
++          import re
++
++          raw = os.environ.get("TEST_SELECTORS_JSON", "")
++          platform = os.environ.get("TEST_PLATFORM_VALUE", "")
++          if len(raw) > 2048:
++              raise SystemExit("targeted-tests test_selectors payload is too large")
++          try:
++              values = json.loads(raw)
++          except json.JSONDecodeError as exc:
++              raise SystemExit("targeted-tests test_selectors must be valid JSON") from exc
++          if not isinstance(values, list) or not 1 <= len(values) <= 20:
++              raise SystemExit("targeted-tests requires 1 through 20 test selectors")
++          if any(not isinstance(value, str) for value in values):
++              raise SystemExit("targeted-tests selectors must be strings")
++          if len(values) != len(set(values)):
++              raise SystemExit("targeted-tests test selectors must be unique")
++          if platform == "jvm":
++              pattern = re.compile(r"[A-Za-z0-9_.$*?-]{1,240}")
++          elif platform == "instrumentation":
++              pattern = re.compile(r"(?:[A-Za-z_][A-Za-z0-9_$]*\.)+[A-Za-z_][A-Za-z0-9_$]*(?:#[A-Za-z_][A-Za-z0-9_$]*)?")
++          else:
++              raise SystemExit("targeted-tests has an unsupported Android test_platform")
++          for value in values:
++              if not pattern.fullmatch(value) or value.startswith("-"):
++                  raise SystemExit("targeted-tests contains an invalid Android test selector")
++              print(value)
++          PY_TEST_SELECTORS
++            )
++            test "${#test_selectors[@]}" -ge 1
++          }
++
+           case "${TEST_PROFILE}" in
+             smoke)
+               run_gradle help
+@@ -521,12 +617,34 @@
+               run_gradle testDebugUnitTest
+               ;;
+             targeted-unit)
++              # Transitional compatibility for active Agent State callers. New requests should use targeted-tests.
+               [[ "${TEST_FILTER}" =~ ^[A-Za-z0-9_.$*?-]{1,240}$ ]] || {
+                 echo "targeted-unit requires a bounded test_filter" >&2
+                 exit 2
+               }
+               run_gradle testDebugUnitTest --tests "${TEST_FILTER}"
+               ;;
++            targeted-tests)
++              test "${ROOM_SCHEMA}" = false || {
++
