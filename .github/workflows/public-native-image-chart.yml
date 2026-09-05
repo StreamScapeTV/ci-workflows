@@ -205,7 +205,7 @@ jobs:
           publication_version="$(
             printf '%s\n' "${chart_metadata}" |
               awk '
-                $1 == "version:" {
+                /^version:[[:space:]]+/ {
                   if (found++) exit 2
                   if (NF != 2) exit 2
                   value = $2
