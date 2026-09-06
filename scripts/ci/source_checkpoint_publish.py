@@ -29,6 +29,7 @@ MAX_UNCOMPRESSED_BYTES = 512 * 1024 * 1024
 MAX_MEMBERS = 20_000
 MAX_PATH_BYTES = 1024
 MAX_COMMIT_MESSAGE_BYTES = 16 * 1024
+MAX_COMPARE_COMMITS = 250
 ALLOWED_COMPRESSION = {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}
 
 
@@ -168,6 +169,74 @@ class GitHubClient:
         observed = metadata.get("commit", {}).get("sha") if isinstance(metadata.get("commit"), dict) else None
         if observed != expected_head:
             raise CheckpointPublishError("checkpoint expected head is stale")
+
+    def _compare(self, base: str, head: str, *, page: int = 1, per_page: int = 100) -> dict[str, Any]:
+        if not SHA40.fullmatch(base) or not SHA40.fullmatch(head):
+            raise CheckpointPublishError("GitHub checkpoint comparison requires exact commit SHAs")
+        params = urllib.parse.urlencode({"page": page, "per_page": per_page})
+        value = self._json(f"{self.repo_path}/compare/{base}...{head}?{params}")
+        if not isinstance(value, dict):
+            raise CheckpointPublishError("GitHub checkpoint comparison returned invalid metadata")
+        return value
+
+    @staticmethod
+    def _proves_ancestor(value: dict[str, Any], ancestor: str) -> bool:
+        base = value.get("base_commit")
+        merge_base = value.get("merge_base_commit")
+        return (
+            value.get("status") in {"ahead", "identical"}
+            and isinstance(base, dict)
+            and base.get("sha") == ancestor
+            and isinstance(merge_base, dict)
+            and merge_base.get("sha") == ancestor
+        )
+
+    def checkpoint_tree_is_published_ancestor(self, *, base: str, head: str, tree_sha: str) -> bool:
+        """Prove an exact checkpoint tree is published between base and requested head."""
+        if not SHA40.fullmatch(tree_sha):
+            raise CheckpointPublishError("checkpoint ancestry classification requires an exact tree SHA")
+        if base == head:
+            return False
+
+        first = self._compare(base, head)
+        if not self._proves_ancestor(first, base):
+            return False
+        total = first.get("total_commits")
+        if isinstance(total, bool) or not isinstance(total, int) or total < 0:
+            raise CheckpointPublishError("GitHub checkpoint comparison returned invalid commit count")
+        if total == 0:
+            return False
+        if total > MAX_COMPARE_COMMITS:
+            raise CheckpointPublishError("GitHub checkpoint ancestry exceeds bounded comparison history")
+
+        pages = (total + 99) // 100
+        seen: set[str] = set()
+        for page in range(1, pages + 1):
+            value = first if page == 1 else self._compare(base, head, page=page)
+            if not self._proves_ancestor(value, base):
+                raise CheckpointPublishError("GitHub checkpoint ancestry changed during comparison")
+            commits = value.get("commits")
+            if not isinstance(commits, list):
+                raise CheckpointPublishError("GitHub checkpoint comparison returned invalid commit metadata")
+            for commit in commits:
+                if not isinstance(commit, dict):
+                    raise CheckpointPublishError("GitHub checkpoint comparison returned invalid commit metadata")
+                commit_sha = commit.get("sha")
+                metadata = commit.get("commit")
+                tree = metadata.get("tree") if isinstance(metadata, dict) else None
+                commit_tree = tree.get("sha") if isinstance(tree, dict) else None
+                if not isinstance(commit_sha, str) or not SHA40.fullmatch(commit_sha):
+                    raise CheckpointPublishError("GitHub checkpoint comparison returned invalid commit SHA")
+                if not isinstance(commit_tree, str) or not SHA40.fullmatch(commit_tree):
+                    raise CheckpointPublishError("GitHub checkpoint comparison returned invalid tree SHA")
+                seen.add(commit_sha)
+                if commit_tree != tree_sha:
+                    continue
+                if self._proves_ancestor(self._compare(base, commit_sha, per_page=1), base):
+                    return True
+        if len(seen) < total:
+            raise CheckpointPublishError("GitHub checkpoint comparison did not return complete bounded history")
+        return False
 
 
 def _unique(values: list[dict[str, Any]], label: str) -> dict[str, Any]:
@@ -319,6 +388,7 @@ def resume_snapshot_action(
     is_tag: bool,
     source_head: str,
     source_tree: str,
+    github_client: GitHubClient | None = None,
 ) -> str:
     """Return preserve/refresh without ever mutating the canonical Drive checkpoint."""
     if not REPOSITORY.fullmatch(repository):
@@ -376,6 +446,10 @@ def resume_snapshot_action(
     if base == source_head:
         return "preserve"
     if tree_sha == source_tree:
+        return "refresh"
+    if github_client is not None and github_client.checkpoint_tree_is_published_ancestor(
+        base=base, head=source_head, tree_sha=tree_sha
+    ):
         return "refresh"
     raise CheckpointPublishError(
         "GitHub branch moved away from an unpublished canonical Drive checkpoint; refusing to overwrite it"
@@ -604,6 +678,8 @@ def main() -> int:
             root = os.environ.get("GOOGLE_DRIVE_ROOT_FOLDER_ID", "")
             if not token:
                 raise CheckpointPublishError("GOOGLE_DRIVE_ACCESS_TOKEN is required")
+            target_token = os.environ.get("TARGET_TOKEN", "")
+            github_client = GitHubClient(target_token, args.repository) if target_token else None
             action = resume_snapshot_action(
                 DriveClient(token, args.api_root),
                 root_folder_id=root,
@@ -612,6 +688,7 @@ def main() -> int:
                 is_tag=args.is_tag == "true",
                 source_head=args.source_head,
                 source_tree=args.source_tree,
+                github_client=github_client,
             )
             print(action)
             return 0
