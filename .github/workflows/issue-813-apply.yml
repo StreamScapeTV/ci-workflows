@@ -28,6 +28,7 @@ jobs:
           set -Eeuo pipefail
           python3 - <<'PY'
           from pathlib import Path
+          import json
 
           def replace_once(path: Path, old: str, new: str) -> None:
               text = path.read_text(encoding='utf-8')
@@ -35,14 +36,23 @@ jobs:
                   raise SystemExit(f'expected one replacement target in {path}')
               path.write_text(text.replace(old, new, 1), encoding='utf-8')
 
-          apple_runner = "${{ fromJSON(((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && inputs.test_profile == 'build') && '[\"macOS\",\"ARM64\"]' || '[\"macos-latest\"]') }}"
+          opener = '$' + '{{'
+          apple_runner = (
+              opener
+              + " fromJSON(((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' "
+                "&& inputs.test_profile == 'build') && '[\"macOS\",\"ARM64\"]' || '[\"macos-latest\"]') }}"
+          )
+          binary_runner = (
+              opener
+              + " fromJSON((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' "
+                "&& '[\"macOS\",\"ARM64\"]' || '[\"macos-latest\"]') }}"
+          )
+
           replace_once(
               Path('.github/workflows/apple.yml'),
               '    runs-on: macos-latest\n    timeout-minutes: 120\n',
               f'    runs-on: {apple_runner}\n    timeout-minutes: 120\n',
           )
-
-          binary_runner = "${{ fromJSON((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && '[\"macOS\",\"ARM64\"]' || '[\"macos-latest\"]') }}"
           replace_once(
               Path('.github/workflows/apple-binary.yml'),
               '  publish:\n    runs-on: macos-latest\n    timeout-minutes: 120\n',
@@ -50,22 +60,55 @@ jobs:
           )
 
           apple_test = Path('tests/test_apple_workflow.py')
+          apple_assert = (
+              '        self.assertEqual(\n'
+              '            execute["runs-on"],\n'
+              f'            {json.dumps(apple_runner)},\n'
+              '        )\n\n'
+              '    def test_media_native_build_uses_fixed_self_hosted_mac_without_central_cache(self) -> None:\n'
+              '        execute = self.workflow["jobs"]["execute"]\n'
+              '        runner = execute["runs-on"]\n'
+              '        self.assertIn("StreamScapeTV/streamscape-media", runner)\n'
+              '        self.assertIn("inputs.test_profile == \'build\'", runner)\n'
+              '        self.assertIn("[\\\"macOS\\\",\\\"ARM64\\\"]", runner)\n'
+              '        self.assertIn("[\\\"macos-latest\\\"]", runner)\n'
+              '        self.assertNotIn("self-hosted", runner)\n'
+              '        self.assertNotIn("runner_label", self.text)\n\n'
+              '        cache_scope = next(\n'
+              '            step\n'
+              '            for step in execute["steps"]\n'
+              '            if step.get("name") == "Resolve Apple default-branch dependency cache scope"\n'
+              '        )\n'
+              '        self.assertIn("inputs.test_profile != \'build\'", cache_scope["if"])\n\n'
+          )
           replace_once(
               apple_test,
               '        self.assertEqual(execute["runs-on"], "macos-latest")\n',
-              '''        self.assertEqual(\n            execute["runs-on"],\n            "${{ fromJSON(((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && inputs.test_profile == 'build') && '[\\\"macOS\\\",\\\"ARM64\\\"]' || '[\\\"macos-latest\\\"]') }}",\n        )\n\n    def test_media_native_build_uses_fixed_self_hosted_mac_without_central_cache(self) -> None:\n        execute = self.workflow["jobs"]["execute"]\n        runner = execute["runs-on"]\n        self.assertIn("StreamScapeTV/streamscape-media", runner)\n        self.assertIn("inputs.test_profile == 'build'", runner)\n        self.assertIn("[\\\"macOS\\\",\\\"ARM64\\\"]", runner)\n        self.assertIn("[\\\"macos-latest\\\"]", runner)\n        self.assertNotIn("self-hosted", runner)\n        self.assertNotIn("runner_label", self.text)\n\n        cache_scope = next(\n            step\n            for step in execute["steps"]\n            if step.get("name") == "Resolve Apple default-branch dependency cache scope"\n        )\n        self.assertIn("inputs.test_profile != 'build'", cache_scope["if"])\n\n''',
+              apple_assert,
           )
 
           binary_test = Path('tests/test_apple_binary_workflow.py')
+          binary_assert = (
+              '        self.assertEqual(\n'
+              '            self.job["runs-on"],\n'
+              f'            {json.dumps(binary_runner)},\n'
+              '        )\n'
+          )
           replace_once(
               binary_test,
               '        self.assertEqual(self.job["runs-on"], "macos-latest")\n',
-              '''        self.assertEqual(\n            self.job["runs-on"],\n            "${{ fromJSON((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && '[\\\"macOS\\\",\\\"ARM64\\\"]' || '[\\\"macos-latest\\\"]') }}",\n        )\n''',
+              binary_assert,
           )
           replace_once(
               binary_test,
               '        self.assertEqual(set(self.workflow["on"]), {"workflow_call"})\n\n        for forbidden in (\n',
-              '''        self.assertEqual(set(self.workflow["on"]), {"workflow_call"})\n        self.assertIn("StreamScapeTV/streamscape-media", self.job["runs-on"])\n        self.assertIn("[\\\"macOS\\\",\\\"ARM64\\\"]", self.job["runs-on"])\n        self.assertIn("[\\\"macos-latest\\\"]", self.job["runs-on"])\n        self.assertNotIn("self-hosted", self.job["runs-on"])\n        self.assertNotIn("actions/cache", self.text)\n\n        for forbidden in (\n''',
+              '        self.assertEqual(set(self.workflow["on"]), {"workflow_call"})\n'
+              '        self.assertIn("StreamScapeTV/streamscape-media", self.job["runs-on"])\n'
+              '        self.assertIn("[\\\"macOS\\\",\\\"ARM64\\\"]", self.job["runs-on"])\n'
+              '        self.assertIn("[\\\"macos-latest\\\"]", self.job["runs-on"])\n'
+              '        self.assertNotIn("self-hosted", self.job["runs-on"])\n'
+              '        self.assertNotIn("actions/cache", self.text)\n\n'
+              '        for forbidden in (\n',
           )
           replace_once(
               binary_test,
