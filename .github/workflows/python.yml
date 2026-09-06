@@ -129,6 +129,11 @@ jobs:
         shell: bash
         env:
           TEST_PROFILE: ${{ inputs.test_profile }}
+          SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
+          SOURCE_REF: ${{ inputs.ref || github.ref_name }}
+          GITHUB_TOKEN: ${{ inputs.test_profile == 'agent-state-issue-reconcile' && inputs.repository == 'StreamScapeTV/agent-state-supabase' && inputs.ref == 'main' && steps.source.outputs.token || '' }}
+          SUPABASE_URL: ${{ inputs.test_profile == 'agent-state-issue-reconcile' && inputs.repository == 'StreamScapeTV/agent-state-supabase' && inputs.ref == 'main' && secrets.AGENT_STATE_SUPABASE_URL || '' }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ inputs.test_profile == 'agent-state-issue-reconcile' && inputs.repository == 'StreamScapeTV/agent-state-supabase' && inputs.ref == 'main' && secrets.AGENT_STATE_SUPABASE_SECRET_KEY || '' }}
         run: |
           set -Eeuo pipefail
           run_logged() {
@@ -228,6 +233,57 @@ jobs:
               ;;
             backend-postgres)
               run_backend_postgres
+              ;;
+            agent-state-issue-reconcile)
+              test "${SOURCE_REPOSITORY}" = "StreamScapeTV/agent-state-supabase" || {
+                echo "agent-state-issue-reconcile is restricted to StreamScapeTV/agent-state-supabase" >&2
+                exit 2
+              }
+              test "${SOURCE_REF}" = "main" || {
+                echo "agent-state-issue-reconcile is restricted to protected main" >&2
+                exit 2
+              }
+              test -n "${GITHUB_TOKEN}" && test -n "${SUPABASE_URL}" && test -n "${SUPABASE_SERVICE_ROLE_KEY}" || {
+                echo "agent-state-issue-reconcile requires the existing Central source-app and Agent State service credentials" >&2
+                exit 2
+              }
+              test -f scripts/reconcile_github_issue_inventory.py
+              run_logged agent-state-issue-reconcile-dry-run \
+                python scripts/reconcile_github_issue_inventory.py --owner StreamScapeTV
+
+              apply_result="${RUNNER_TEMP}/agent-state-issue-reconcile-apply.jsonl"
+              printf '\n===== agent-state-issue-reconcile-apply =====\n' >> "$CI_LOG"
+              if ! python scripts/reconcile_github_issue_inventory.py \
+                --owner StreamScapeTV --apply > "$apply_result" 2>&1; then
+                cat "$apply_result" >> "$CI_LOG"
+                echo "agent-state-issue-reconcile apply failed; inspect the private Google Drive CI log." >&2
+                exit 1
+              fi
+              cat "$apply_result" >> "$CI_LOG"
+              python3 - "$apply_result" <<'PY_ASSERT_RECONCILE' >> "$CI_LOG"
+          import json
+          from pathlib import Path
+          import sys
+
+          path = Path(sys.argv[1])
+          rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+          after_rows = [row for row in rows if isinstance(row, dict) and isinstance(row.get("after"), dict)]
+          if not after_rows:
+              raise SystemExit("agent-state-issue-reconcile produced no authoritative post-apply repository reads")
+          violations = []
+          for row in after_rows:
+              after = row["after"]
+              for key in ("missing", "extra", "github_navigation_mismatches"):
+                  values = after.get(key)
+                  if values:
+                      violations.append({"repository": row.get("repository"), key: values})
+          summaries = [row for row in rows if row.get("mode") == "apply"]
+          if not summaries or summaries[-1].get("ok") is not True:
+              violations.append({"summary": "missing or unsuccessful apply summary"})
+          if violations:
+              raise SystemExit("post-apply GitHub/Agent State equality failed: " + json.dumps(violations, sort_keys=True))
+          print(json.dumps({"ok": True, "exact_post_apply_repositories": len(after_rows)}, sort_keys=True))
+          PY_ASSERT_RECONCILE
               ;;
             *) echo "Unsupported Python test_profile: $TEST_PROFILE" >&2; exit 2 ;;
           esac
