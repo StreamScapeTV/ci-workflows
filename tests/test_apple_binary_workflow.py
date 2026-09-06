@@ -119,6 +119,33 @@ class AppleBinaryWorkflowTests(unittest.TestCase):
         for forbidden in ("COMMAND", "SCRIPT", "RUNNER", "REGISTRY_URL", "PACKAGE_NAME"):
             self.assertFalse(any(forbidden in key for key in env), forbidden)
 
+
+    def test_package_credentials_fail_closed_before_wrapper(self) -> None:
+        credentials = self.step("Validate fixed Apple package credentials")
+        self.assertEqual(
+            credentials["env"],
+            {
+                "CI_APPLE_BINARY_PACKAGE_USERNAME": "${{ secrets.PACKAGE_PUBLISH_USERNAME }}",
+                "CI_APPLE_BINARY_PACKAGE_TOKEN": "${{ secrets.PACKAGE_PUBLISH_TOKEN }}",
+                "CI_APPLE_BINARY_PACKAGE_READ_TOKEN": "${{ secrets.PACKAGE_READ_TOKEN }}",
+            },
+        )
+        script = credentials["run"]
+        values = {
+            "CI_APPLE_BINARY_PACKAGE_USERNAME": "forgejo-user",
+            "CI_APPLE_BINARY_PACKAGE_TOKEN": "publish-secret-value",
+            "CI_APPLE_BINARY_PACKAGE_READ_TOKEN": "read-secret-value",
+        }
+        success = subprocess.run(["bash", "-c", script], env={**os.environ, **values}, capture_output=True, text=True)
+        self.assertEqual(success.returncode, 0, success.stderr)
+        for missing in values:
+            env = {**os.environ, **values, missing: ""}
+            failed = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertIn(missing, failed.stderr)
+            for secret in values.values():
+                self.assertNotIn(secret, failed.stdout + failed.stderr)
+
     def test_generic_evidence_validation_does_not_parse_product_manifest(self) -> None:
         script = self.step("Validate generic Apple binary publication evidence")["run"]
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -207,9 +234,9 @@ class AppleBinaryWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(job["uses"], "./.github/workflows/apple-binary.yml")
         self.assertEqual(set(job["with"]), {"repository", "ref", "ci_run_id"})
-        self.assertEqual(job["secrets"]["PACKAGE_PUBLISH_USERNAME"], "${{ secrets.MAVEN_PUBLISH_USERNAME }}")
-        self.assertEqual(job["secrets"]["PACKAGE_PUBLISH_TOKEN"], "${{ secrets.MAVEN_PUBLISH_TOKEN }}")
-        self.assertEqual(job["secrets"]["PACKAGE_READ_TOKEN"], "${{ secrets.MAVEN_READ_TOKEN }}")
+        self.assertEqual(job["secrets"]["PACKAGE_PUBLISH_USERNAME"], "${{ secrets.FORGEJO_REGISTRY_USERNAME }}")
+        self.assertEqual(job["secrets"]["PACKAGE_PUBLISH_TOKEN"], "${{ secrets.FORGEJO_REGISTRY_TOKEN }}")
+        self.assertEqual(job["secrets"]["PACKAGE_READ_TOKEN"], "${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}")
         self.assertFalse(job["concurrency"]["cancel-in-progress"])
 
     def test_inventory_and_self_check_have_only_generic_apple_binary_surface(self) -> None:

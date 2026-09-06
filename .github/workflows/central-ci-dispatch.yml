@@ -363,9 +363,9 @@ jobs:
       GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
       TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
       TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
-      PACKAGE_PUBLISH_USERNAME: ${{ secrets.MAVEN_PUBLISH_USERNAME }}
-      PACKAGE_PUBLISH_TOKEN: ${{ secrets.MAVEN_PUBLISH_TOKEN }}
-      PACKAGE_READ_TOKEN: ${{ secrets.MAVEN_READ_TOKEN }}
+      PACKAGE_PUBLISH_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+      PACKAGE_PUBLISH_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
+      PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
 
   android:
     needs: request
@@ -456,7 +456,21 @@ jobs:
       ref: ${{ needs.request.outputs.ref }}
       build_number: ${{ fromJSON(needs.request.outputs.inputs_json).build_number }}
       ci_run_id: ${{ inputs.ci_run_id }}
-    secrets: inherit
+    secrets:
+      SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
+      SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+      AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+      AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+      GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+      GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+      GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+      MAVEN_PUBLISH_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+      MAVEN_PUBLISH_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
+      MAVEN_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
 
   container_service:
     needs: request

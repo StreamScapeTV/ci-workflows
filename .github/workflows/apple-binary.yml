@@ -139,6 +139,22 @@ jobs:
           ci_run_id: ${{ inputs.ci_run_id }}
           observed_source_sha: ${{ steps.source_identity.outputs.source_sha }}
 
+      - name: Validate fixed Apple package credentials
+        shell: bash
+        env:
+          CI_APPLE_BINARY_PACKAGE_USERNAME: ${{ secrets.PACKAGE_PUBLISH_USERNAME }}
+          CI_APPLE_BINARY_PACKAGE_TOKEN: ${{ secrets.PACKAGE_PUBLISH_TOKEN }}
+          CI_APPLE_BINARY_PACKAGE_READ_TOKEN: ${{ secrets.PACKAGE_READ_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          for name in CI_APPLE_BINARY_PACKAGE_USERNAME CI_APPLE_BINARY_PACKAGE_TOKEN CI_APPLE_BINARY_PACKAGE_READ_TOKEN; do
+            value="${!name-}"
+            test -n "${value}" || {
+              echo "Missing fixed Apple package credential: ${name}" >&2
+              exit 1
+            }
+          done
+
       - name: Resolve optional private-Git scope
         id: private_git_scope
         shell: bash
