@@ -22,9 +22,9 @@ test "${FLUTTER_HOME}" = /opt/flutter
 java -version 2>&1 | grep -F '25.0.3'
 javac -version 2>&1 | grep -F 'javac 25.0.3'
 python3 --version | grep -F 'Python 3.12.14'
-node --version | grep -F 'v24.19.0'
+node --version | grep -F 'v26.8.1'
 npm --version >/dev/null
-corepack --version >/dev/null
+corepack --version | grep -Fx '0.35.0'
 flutter --version | grep -F 'Flutter 3.44.8'
 dart --version 2>&1 | grep -F 'Dart SDK version: 3.12.2'
 sdkmanager --version >/dev/null
