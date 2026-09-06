@@ -120,6 +120,29 @@ class StubGitHubClient(GitHubClient):
         return self.values.pop(0)
 
 
+def comparison_payload(base: str, commits: list[tuple[str, str]], *, status: str = "ahead", merge_base: str | None = None):
+    return {
+        "status": status,
+        "total_commits": len(commits),
+        "base_commit": {"sha": base},
+        "merge_base_commit": {"sha": merge_base or base},
+        "commits": [
+            {"sha": commit_sha, "commit": {"tree": {"sha": tree_sha}}}
+            for commit_sha, tree_sha in commits
+        ],
+    }
+
+
+class StaticHistory:
+    def __init__(self, result: bool):
+        self.result = result
+        self.calls: list[dict[str, str]] = []
+
+    def checkpoint_tree_is_published_ancestor(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.result
+
+
 class SourceCheckpointPublishTests(unittest.TestCase):
     def test_request_is_branch_only_and_compact(self) -> None:
         validate_request("StreamScapeTV/example", "feature/checkpoint", "a" * 40)
@@ -152,6 +175,35 @@ class SourceCheckpointPublishTests(unittest.TestCase):
         ])
         with self.assertRaisesRegex(CheckpointPublishError, "stale"):
             client.verify_branch("feature/checkpoint", expected)
+
+    def test_published_checkpoint_ancestry_requires_exact_tree_and_history(self) -> None:
+        base = "1" * 40
+        candidate = "2" * 40
+        head = "3" * 40
+        tree = "4" * 40
+        other_tree = "5" * 40
+
+        published = StubGitHubClient([
+            comparison_payload(base, [(candidate, tree), (head, other_tree)]),
+            comparison_payload(base, [(candidate, tree)]),
+        ])
+        self.assertTrue(published.checkpoint_tree_is_published_ancestor(base=base, head=head, tree_sha=tree))
+
+        unpublished = StubGitHubClient([comparison_payload(base, [(head, other_tree)])])
+        self.assertFalse(unpublished.checkpoint_tree_is_published_ancestor(base=base, head=head, tree_sha=tree))
+
+        published_on_divergent_history = StubGitHubClient([
+            comparison_payload(base, [(candidate, tree), (head, other_tree)]),
+            comparison_payload(base, [(candidate, tree)], status="diverged", merge_base="6" * 40),
+        ])
+        self.assertFalse(
+            published_on_divergent_history.checkpoint_tree_is_published_ancestor(base=base, head=head, tree_sha=tree)
+        )
+
+        base_mismatch = StubGitHubClient([
+            comparison_payload(base, [(candidate, tree)], status="diverged", merge_base="6" * 40),
+        ])
+        self.assertFalse(base_mismatch.checkpoint_tree_is_published_ancestor(base=base, head=head, tree_sha=tree))
 
     def test_canonical_drive_checkpoint_is_discovered_without_agent_file_ids(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -189,10 +241,21 @@ class SourceCheckpointPublishTests(unittest.TestCase):
                 ),
                 "refresh",
             )
+            history = StaticHistory(True)
+            self.assertEqual(
+                resume_snapshot_action(
+                    client, root_folder_id="root_folder_12345", repository="StreamScapeTV/example",
+                    branch="feature/checkpoint", is_tag=False, source_head="b" * 40, source_tree="c" * 40,
+                    github_client=history,
+                ),
+                "refresh",
+            )
+            self.assertEqual(history.calls, [{"base": base, "head": "b" * 40, "tree_sha": tree}])
             with self.assertRaisesRegex(CheckpointPublishError, "refusing to overwrite"):
                 resume_snapshot_action(
                     client, root_folder_id="root_folder_12345", repository="StreamScapeTV/example",
                     branch="feature/checkpoint", is_tag=False, source_head="b" * 40, source_tree="c" * 40,
+                    github_client=StaticHistory(False),
                 )
 
     def test_resume_refreshes_normal_snapshot_and_tags(self) -> None:
@@ -312,6 +375,15 @@ class SourceCheckpointPublishTests(unittest.TestCase):
         admission = request_steps["Validate canonical source checkpoint publication request"]
         self.assertIn("source.checkpoint-publish supports only the publish profile", admission["run"])
         self.assertIn('set(inputs) != {"expected_head"}', admission["run"])
+        snapshot_steps = {
+            step.get("name"): step
+            for step in dispatch["jobs"]["source_snapshot"]["steps"]
+            if step.get("name")
+        }
+        resume = snapshot_steps["Protect unpublished canonical Drive checkpoint"]
+        self.assertEqual(resume["env"]["TARGET_TOKEN"], "${{ steps.source_token.outputs.token }}")
+        self.assertIn("source_checkpoint_publish.py resume-action", resume["run"])
+
         job = dispatch["jobs"]["source_checkpoint_publish"]
         self.assertEqual(job["uses"], "./.github/workflows/source-checkpoint-publish.yml")
         self.assertEqual(set(job["with"]), {"repository", "branch", "expected_head", "ci_run_id"})

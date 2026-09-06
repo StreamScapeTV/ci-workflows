@@ -670,6 +670,7 @@ jobs:
         env:
           GOOGLE_DRIVE_ACCESS_TOKEN: ${{ steps.snapshot_drive.outputs.access_token }}
           GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+          TARGET_TOKEN: ${{ steps.source_token.outputs.token }}
           REQUESTED_REPOSITORY: ${{ needs.request.outputs.repository }}
           REQUESTED_REF: ${{ needs.request.outputs.ref }}
           REQUESTED_IS_TAG: ${{ needs.request.outputs.is_tag }}
