@@ -41,6 +41,7 @@ jobs:
               raise SystemExit(f"expected exactly one test insertion marker, got {source.count(marker)}")
           tests.write_text(source.replace(marker, marker + insertion), encoding="utf-8")
           PY
+          rm .github/workflows/issue-811-apply.yml
 
       - name: Validate focused Central contracts
         shell: bash
@@ -59,7 +60,6 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          rm .github/workflows/issue-811-apply.yml
           git add .github/workflows/android.yml tests/test_native_targeted_profiles.py .github/workflows/issue-811-apply.yml
           git config user.name "StreamScapeTV Orchestrator"
           git config user.email "44291943+mimranfaruqi@users.noreply.github.com"
