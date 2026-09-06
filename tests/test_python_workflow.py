@@ -40,13 +40,42 @@ class PythonWorkflowTests(unittest.TestCase):
         self.assertLess(names.index("Resolve source Python version"), names.index("Set up source Python"))
         self.assertLess(names.index("Set up source Python"), names.index("Run fixed Python profile"))
 
-    def test_python_executor_has_no_repository_specific_runtime_branch(self) -> None:
+    def test_python_executor_keeps_generic_profiles_and_one_bounded_privileged_profile(self) -> None:
         source = WORKFLOW.read_text()
         self.assertNotIn('python-version: "3.12"', source)
-        self.assertNotIn("agent-state-supabase", source)
         self.assertNotIn("inputs.python_version", source)
         self.assertIn("release-gates)", source)
         self.assertIn("bash scripts/run_release_gates.sh", source)
+        self.assertIn("agent-state-issue-reconcile)", source)
+
+    def test_agent_state_issue_reconcile_credentials_are_main_only_and_profile_scoped(self) -> None:
+        _, _, by_name = self._workflow()
+        commands = by_name["Run fixed Python profile"]
+        env = commands["env"]
+        gate = (
+            "inputs.test_profile == 'agent-state-issue-reconcile' && "
+            "inputs.repository == 'StreamScapeTV/agent-state-supabase' && "
+            "inputs.ref == 'main'"
+        )
+        self.assertEqual(env["SOURCE_REPOSITORY"], "${{ inputs.repository || github.repository }}")
+        self.assertEqual(env["SOURCE_REF"], "${{ inputs.ref || github.ref_name }}")
+        self.assertEqual(env["GITHUB_TOKEN"], "${{ " + gate + " && steps.source.outputs.token || '' }}")
+        self.assertEqual(
+            env["SUPABASE_URL"],
+            "${{ " + gate + " && secrets.AGENT_STATE_SUPABASE_URL || '' }}",
+        )
+        self.assertEqual(
+            env["SUPABASE_SERVICE_ROLE_KEY"],
+            "${{ " + gate + " && secrets.AGENT_STATE_SUPABASE_SECRET_KEY || '' }}",
+        )
+
+        run = commands["run"]
+        self.assertIn('test "${SOURCE_REPOSITORY}" = "StreamScapeTV/agent-state-supabase"', run)
+        self.assertIn('test "${SOURCE_REF}" = "main"', run)
+        self.assertIn("scripts/reconcile_github_issue_inventory.py --owner StreamScapeTV", run)
+        self.assertIn("--owner StreamScapeTV --apply", run)
+        self.assertIn('("missing", "extra", "github_navigation_mismatches")', run)
+        self.assertIn("post-apply GitHub/Agent State equality failed", run)
 
 
 if __name__ == "__main__":
