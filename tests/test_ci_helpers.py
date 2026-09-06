@@ -197,7 +197,7 @@ class CiHelperTests(unittest.TestCase):
         self.assertNotIn("concurrency", workflow)
         self.assertNotIn("concurrency", jobs["request"])
         for name in execution_jobs:
-            self.assertEqual(jobs[name]["concurrency"]["group"], "central-ci-${{ inputs.active_key }}")
+            self.assertEqual(jobs[name]["concurrency"]["group"], "central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}")
             self.assertTrue(jobs[name]["concurrency"]["cancel-in-progress"])
 
         branch_delete = jobs["branch_delete"]["concurrency"]
