@@ -1,16 +1,109 @@
 name: Runner images
 
 "on":
+  pull_request:
+    branches: [main]
+    paths:
+      - "runner-images/**"
+      - ".github/workflows/runner-images.yml"
   push:
     tags: ["runner-images-*"]
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
-  build:
+  plan:
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-24.04
+    outputs:
+      images: ${{ steps.matrix.outputs.images }}
+      has_images: ${{ steps.matrix.outputs.has_images }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve changed runner images
+        id: matrix
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+
+          known = ["general", "mobile", "buildah", "service", "docker"]
+          base = os.environ["BASE_SHA"]
+          head = os.environ["HEAD_SHA"]
+          changed = subprocess.check_output(
+              ["git", "diff", "--name-only", base, head],
+              text=True,
+          ).splitlines()
+
+          if ".github/workflows/runner-images.yml" in changed:
+              selected = set(known)
+          else:
+              selected = set()
+              for path in changed:
+                  if not path.startswith("runner-images/"):
+                      continue
+                  parts = path.split("/")
+                  if len(parts) < 3 or parts[1] not in known:
+                      raise SystemExit(f"unrecognized runner-image path: {path}")
+                  selected.add(parts[1])
+
+          images = [image for image in known if image in selected]
+          matrix = images if images else ["none"]
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"images={json.dumps(matrix, separators=(',', ':'))}\n")
+              output.write(f"has_images={'true' if images else 'false'}\n")
+          PY
+
+  validate:
+    if: ${{ needs.plan.outputs.has_images == 'true' }}
+    needs: plan
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.plan.outputs.images) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare image inputs
+        shell: bash
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          set -Eeuo pipefail
+          test ! -e "runner-images/${IMAGE}/.ciw-build-inputs"
+          if test -f "runner-images/${IMAGE}/prepare_inputs.py"; then
+            python3 "runner-images/${IMAGE}/prepare_inputs.py"
+          fi
+
+      - name: Build and smoke image
+        shell: bash
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          set -Eeuo pipefail
+          local="ci-runner-${IMAGE}:${GITHUB_SHA}"
+          docker build -t "${local}" "runner-images/${IMAGE}"
+          if [[ "${IMAGE}" != service ]]; then
+            docker run --rm "${local}" /usr/local/bin/runner-image-smoke
+          fi
+
+  build:
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
