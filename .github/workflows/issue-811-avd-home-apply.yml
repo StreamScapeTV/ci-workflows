@@ -1,0 +1,150 @@
+name: Apply issue 811 AVD home fix
+
+"on":
+  push:
+    branches: ["issue/811-android-avd-home"]
+    paths: [".github/workflows/issue-811-avd-home-apply.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Create workflow-write token
+        id: workflow_token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.SOURCE_APP_ID }}
+          private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          owner: StreamScapeTV
+          repositories: ci-workflows
+          permission-contents: write
+          permission-workflows: write
+          permission-metadata: read
+
+      - uses: actions/checkout@v4
+        with:
+          ref: issue/811-android-avd-home
+          token: ${{ steps.workflow_token.outputs.token }}
+
+      - name: Apply bounded AVD home correction
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/android.yml')
+          text = workflow.read_text(encoding='utf-8')
+          old = '''          printf 'no\\n' | "${avdmanager}" create avd --force \\
+            --name "${avd_name}" --package "${image}" --device pixel >> "${CI_LOG}" 2>&1
+          if test -e /dev/kvm && test ! -w /dev/kvm; then
+'''
+          new = '''          avd_home="${RUNNER_TEMP}/central-android-avd"
+          avd_path="${avd_home}/${avd_name}.avd"
+          rm -rf -- "${avd_home}"
+          mkdir -p "${avd_home}"
+          export ANDROID_AVD_HOME="${avd_home}"
+          printf 'ANDROID_AVD_HOME=%s\\n' "${ANDROID_AVD_HOME}" >> "${GITHUB_ENV}"
+          printf 'no\\n' | "${avdmanager}" create avd --force \\
+            --name "${avd_name}" --package "${image}" --device pixel \\
+            -p "${avd_path}" >> "${CI_LOG}" 2>&1
+          test -f "${ANDROID_AVD_HOME}/${avd_name}.ini" || {
+            printf 'Android AVD descriptor was not created in the fixed AVD home: %s\\n' "${ANDROID_AVD_HOME}" >&2
+            exit 1
+          }
+          test -d "${avd_path}" || {
+            printf 'Android AVD data directory was not created: %s\\n' "${avd_path}" >&2
+            exit 1
+          }
+          if ! "${emulator}" -list-avds 2>> "${CI_LOG}" | grep -Fx "${avd_name}" >> "${CI_LOG}"; then
+            printf 'Android emulator cannot resolve fixed AVD %s from %s\\n' "${avd_name}" "${ANDROID_AVD_HOME}" >&2
+            exit 1
+          fi
+          if test -e /dev/kvm && test ! -w /dev/kvm; then
+'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one AVD creation block, got {text.count(old)}')
+          text = text.replace(old, new)
+
+          old_cleanup = '''          if test -n "${EMULATOR_PID}" && kill -0 "${EMULATOR_PID}" 2>/dev/null; then
+            kill "${EMULATOR_PID}" 2>/dev/null || true
+          fi
+'''
+          new_cleanup = '''          if test -n "${EMULATOR_PID}" && kill -0 "${EMULATOR_PID}" 2>/dev/null; then
+            kill "${EMULATOR_PID}" 2>/dev/null || true
+          fi
+          if test -n "${ANDROID_AVD_HOME:-}"; then
+            test "${ANDROID_AVD_HOME}" = "${RUNNER_TEMP}/central-android-avd" || {
+              printf 'Refusing to clean unexpected Android AVD home: %s\\n' "${ANDROID_AVD_HOME}" >&2
+              exit 1
+            }
+            rm -rf -- "${ANDROID_AVD_HOME}"
+            test ! -e "${ANDROID_AVD_HOME}"
+          fi
+'''
+          if text.count(old_cleanup) != 1:
+              raise SystemExit(f'expected one emulator cleanup block, got {text.count(old_cleanup)}')
+          workflow.write_text(text.replace(old_cleanup, new_cleanup), encoding='utf-8')
+
+          tests = Path('tests/test_native_targeted_profiles.py')
+          source = tests.read_text(encoding='utf-8')
+          marker = '''        self.assertIn("seq 1 180", prepare)
+'''
+          addition = '''        self.assertIn('avd_home="${RUNNER_TEMP}/central-android-avd"', prepare)
+        self.assertIn('avd_path="${avd_home}/${avd_name}.avd"', prepare)
+        self.assertIn('export ANDROID_AVD_HOME="${avd_home}"', prepare)
+        self.assertIn('-p "${avd_path}"', prepare)
+        self.assertIn('"${emulator}" -list-avds', prepare)
+        self.assertLess(
+            prepare.index('export ANDROID_AVD_HOME="${avd_home}"'),
+            prepare.index('create avd --force'),
+        )
+        self.assertLess(
+            prepare.index('create avd --force'),
+            prepare.index('"${emulator}" -list-avds'),
+        )
+        self.assertLess(
+            prepare.index('"${emulator}" -list-avds'),
+            prepare.index('"${emulator}" -avd "${avd_name}"'),
+        )
+        cleanup = next(
+            step for step in workflow["jobs"]["ci"]["steps"]
+            if step.get("name") == "Stop generic Android emulator"
+        )["run"]
+        self.assertIn(
+            'test "${ANDROID_AVD_HOME}" = "${RUNNER_TEMP}/central-android-avd"',
+            cleanup,
+        )
+        self.assertIn('rm -rf -- "${ANDROID_AVD_HOME}"', cleanup)
+'''
+          if source.count(marker) != 1:
+              raise SystemExit(f'expected one regression marker, got {source.count(marker)}')
+          tests.write_text(source.replace(marker, marker + addition), encoding='utf-8')
+          PY
+          rm .github/workflows/issue-811-avd-home-apply.yml
+
+      - name: Validate final candidate
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 -m pip install --quiet PyYAML
+          python3 - <<'PY'
+          from pathlib import Path
+          import yaml
+          yaml.safe_load(Path('.github/workflows/android.yml').read_text(encoding='utf-8'))
+          print('android-yaml-ok')
+          PY
+          python3 -m unittest tests.test_ci_helpers_current tests.test_native_targeted_profiles -v
+
+      - name: Publish clean candidate
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git add .github/workflows/android.yml tests/test_native_targeted_profiles.py .github/workflows/issue-811-avd-home-apply.yml
+          git config user.name 'StreamScapeTV Orchestrator'
+          git config user.email '44291943+mimranfaruqi@users.noreply.github.com'
+          git commit -m '[#811] Use one explicit Android AVD home'
+          git push origin HEAD:refs/heads/issue/811-android-avd-home
