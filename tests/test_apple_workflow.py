@@ -41,7 +41,28 @@ class AppleWorkflowTests(unittest.TestCase):
             execute["strategy"]["matrix"],
             "${{ fromJSON(needs.plan.outputs.matrix) }}",
         )
-        self.assertEqual(execute["runs-on"], "macos-latest")
+        self.assertEqual(
+            execute["runs-on"],
+            "${{ fromJSON(((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && inputs.test_profile == 'build') && '[\"macOS\",\"ARM64\"]' || '[\"macos-latest\"]') }}",
+        )
+
+    def test_media_native_build_uses_fixed_self_hosted_mac_without_central_cache(self) -> None:
+        execute = self.workflow["jobs"]["execute"]
+        runner = execute["runs-on"]
+        self.assertIn("StreamScapeTV/streamscape-media", runner)
+        self.assertIn("inputs.test_profile == 'build'", runner)
+        self.assertIn("[\"macOS\",\"ARM64\"]", runner)
+        self.assertIn("[\"macos-latest\"]", runner)
+        self.assertNotIn("self-hosted", runner)
+        self.assertNotIn("runner_label", self.text)
+
+        cache_scope = next(
+            step
+            for step in execute["steps"]
+            if step.get("name") == "Resolve Apple default-branch dependency cache scope"
+        )
+        self.assertIn("inputs.test_profile != 'build'", cache_scope["if"])
+
 
     def test_platform_gate_uses_compile_only_ios_tvos_and_direct_macos_test(self) -> None:
         execute = self.workflow["jobs"]["execute"]

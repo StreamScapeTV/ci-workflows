@@ -36,12 +36,19 @@ class AppleBinaryWorkflowTests(unittest.TestCase):
         self.assertIn("PACKAGE_PUBLISH_TOKEN", call["secrets"])
         self.assertIn("PACKAGE_READ_TOKEN", call["secrets"])
         self.assertFalse(any(name.startswith("MAVEN_") for name in call["secrets"]))
-        self.assertEqual(self.job["runs-on"], "macos-latest")
+        self.assertEqual(
+            self.job["runs-on"],
+            "${{ fromJSON((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && '[\"macOS\",\"ARM64\"]' || '[\"macos-latest\"]') }}",
+        )
         self.assertEqual(set(self.workflow["on"]), {"workflow_call"})
+        self.assertIn("StreamScapeTV/streamscape-media", self.job["runs-on"])
+        self.assertIn("[\"macOS\",\"ARM64\"]", self.job["runs-on"])
+        self.assertIn("[\"macos-latest\"]", self.job["runs-on"])
+        self.assertNotIn("self-hosted", self.job["runs-on"])
+        self.assertNotIn("actions/cache", self.text)
 
         for forbidden in (
             "Streamscape Media",
-            "streamscape-media",
             "StreamscapePlaybackApple",
             "nativeRuntimeBoundary",
             "MPV",
