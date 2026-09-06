@@ -110,6 +110,32 @@ class NativeTargetedProfileTests(unittest.TestCase):
         self.assertIn("avd_name='central-android-api36'", prepare)
         self.assertIn("serial='emulator-5554'", prepare)
         self.assertIn("seq 1 180", prepare)
+        self.assertIn('avd_home="${RUNNER_TEMP}/central-android-avd"', prepare)
+        self.assertIn('avd_path="${avd_home}/${avd_name}.avd"', prepare)
+        self.assertIn('export ANDROID_AVD_HOME="${avd_home}"', prepare)
+        self.assertIn('-p "${avd_path}"', prepare)
+        self.assertIn('"${emulator}" -list-avds', prepare)
+        self.assertLess(
+            prepare.index('export ANDROID_AVD_HOME="${avd_home}"'),
+            prepare.index('create avd --force'),
+        )
+        self.assertLess(
+            prepare.index('create avd --force'),
+            prepare.index('"${emulator}" -list-avds'),
+        )
+        self.assertLess(
+            prepare.index('"${emulator}" -list-avds'),
+            prepare.index('"${emulator}" -avd "${avd_name}"'),
+        )
+        cleanup = next(
+            step for step in workflow["jobs"]["ci"]["steps"]
+            if step.get("name") == "Stop generic Android emulator"
+        )["run"]
+        self.assertIn(
+            'test "${ANDROID_AVD_HOME}" = "${RUNNER_TEMP}/central-android-avd"',
+            cleanup,
+        )
+        self.assertIn('rm -rf -- "${ANDROID_AVD_HOME}"', cleanup)
 
     def test_apple_targeted_profile_uses_fixed_lanes_and_no_product_test_name(self) -> None:
         text = (ROOT / ".github/workflows/apple.yml").read_text(encoding="utf-8")
