@@ -74,8 +74,21 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertNotIn("concurrency", workflow)
         self.assertNotIn("concurrency", jobs["request"])
         for name in execution_jobs:
-            self.assertEqual(jobs[name]["concurrency"]["group"], "central-ci-${{ inputs.active_key }}")
+            self.assertEqual(jobs[name]["concurrency"]["group"], "central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}")
             self.assertTrue(jobs[name]["concurrency"]["cancel-in-progress"])
+
+        template = jobs["apple"]["concurrency"]["group"]
+        def rendered_group(workflow_key: str, active_key: str = "same-source") -> str:
+            return (
+                template
+                .replace("${{ needs.request.outputs.workflow_key }}", workflow_key)
+                .replace("${{ inputs.active_key }}", active_key)
+            )
+
+        self.assertEqual(rendered_group("validation.apple"), rendered_group("validation.apple"))
+        self.assertNotEqual(rendered_group("validation.apple"), rendered_group("validation.android"))
+        self.assertNotEqual(rendered_group("release.apple"), rendered_group("release.android"))
+        self.assertNotEqual(rendered_group("validation.apple"), rendered_group("release.apple"))
 
         branch_delete = jobs["branch_delete"]["concurrency"]
         self.assertEqual(branch_delete["group"], "central-ci-maintenance-${{ inputs.active_key }}")

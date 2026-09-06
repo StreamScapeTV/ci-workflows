@@ -198,7 +198,7 @@ class MavenWorkflowTests(unittest.TestCase):
         self.assertNotIn("sha", job["with"]["build_number"].lower())
         self.assertEqual(job["with"]["ci_run_id"], "${{ inputs.ci_run_id }}")
         self.assertTrue(job["secrets"] == "inherit")
-        self.assertEqual(job["concurrency"]["group"], "central-ci-${{ inputs.active_key }}")
+        self.assertEqual(job["concurrency"]["group"], "central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}")
         self.assertTrue(job["concurrency"]["cancel-in-progress"])
 
         settlement = jobs["settle_cancelled"]

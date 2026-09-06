@@ -311,7 +311,7 @@ jobs:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'validation.apple' }}
     concurrency:
-      group: central-ci-${{ inputs.active_key }}
+      group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
       cancel-in-progress: true
     uses: ./.github/workflows/apple.yml
     with:
@@ -328,7 +328,7 @@ jobs:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'release.apple' && needs.request.outputs.test_profile == 'testflight' }}
     concurrency:
-      group: central-ci-${{ inputs.active_key }}
+      group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
       cancel-in-progress: true
     uses: ./.github/workflows/apple.yml
     with:
@@ -371,7 +371,7 @@ jobs:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'validation.android' }}
     concurrency:
-      group: central-ci-${{ inputs.active_key }}
+      group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
       cancel-in-progress: true
     uses: ./.github/workflows/android.yml
     with:
@@ -390,7 +390,7 @@ jobs:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'release.android' && needs.request.outputs.test_profile == 'play' }}
     concurrency:
-      group: central-ci-${{ inputs.active_key }}
+      group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
       cancel-in-progress: true
     uses: ./.github/workflows/android.yml
     with:
@@ -405,7 +405,7 @@ jobs:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'validation.python' }}
     concurrency:
-      group: central-ci-${{ inputs.active_key }}
+      group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
       cancel-in-progress: true
     uses: ./.github/workflows/python.yml
     with:
@@ -419,7 +419,7 @@ jobs:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'validation.node' }}
     concurrency:
-      group: central-ci-${{ inputs.active_key }}
+      group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
       cancel-in-progress: true
     uses: ./.github/workflows/node.yml
     with:
@@ -433,7 +433,7 @@ jobs:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'validation.flutter' }}
     concurrency:
-      group: central-ci-${{ inputs.active_key }}
+      group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
       cancel-in-progress: true
     uses: ./.github/workflows/flutter.yml
     with:
@@ -448,7 +448,7 @@ jobs:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'release.maven' && needs.request.outputs.test_profile == 'publish' }}
     concurrency:
-      group: central-ci-${{ inputs.active_key }}
+      group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
       cancel-in-progress: true
     uses: ./.github/workflows/maven.yml
     with:
@@ -462,7 +462,7 @@ jobs:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'validation.container-service' && needs.request.outputs.test_profile == 'conformance' }}
     concurrency:
-      group: central-ci-${{ inputs.active_key }}
+      group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
       cancel-in-progress: true
     uses: ./.github/workflows/container-service.yml
     with:
@@ -478,7 +478,7 @@ jobs:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'release.public-native-image-chart' }}
     concurrency:
-      group: central-ci-${{ inputs.active_key }}
+      group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
       cancel-in-progress: true
     permissions:
       contents: read
@@ -500,7 +500,7 @@ jobs:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'oci.reproducibility' }}
     concurrency:
-      group: central-ci-${{ inputs.active_key }}
+      group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
       cancel-in-progress: true
     uses: ./.github/workflows/oci-reproducibility.yml
     with:

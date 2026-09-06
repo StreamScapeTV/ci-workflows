@@ -401,7 +401,7 @@ if ( validate "$long" ); then exit 93; fi
             release["with"]["source_is_tag"],
             "${{ needs.request.outputs.is_tag == 'true' }}",
         )
-        self.assertEqual(release["concurrency"]["group"], "central-ci-${{ inputs.active_key }}")
+        self.assertEqual(release["concurrency"]["group"], "central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}")
         self.assertTrue(release["concurrency"]["cancel-in-progress"])
         self.assertEqual(release["secrets"], "inherit")
 

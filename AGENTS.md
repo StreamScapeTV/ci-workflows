@@ -50,10 +50,12 @@ the deployed `targeted-tests` profile with only the relevant safe selectors and
 fixed platform when that evidence covers the changed behavior. For ordinary
 Agent State validation of a moving branch, pass its stable human branch name
 (for example `develop` or the issue branch) as `ref`; do not substitute the
-current commit SHA. A newer ordinary request for the same repository/ref/tag
-lane is intended to supersede the older active request. Record the source SHA
-observed by the run as exact evidence identity, not ordinary request/concurrency
-identity. Reserve broad native `full` validation for the final merge-intended
+current commit SHA. A newer ordinary request supersedes an older active request
+only within the same repository/ref/tag and semantic workflow-family lane;
+independent families such as Android and Apple, or validation and release, must
+remain eligible to run concurrently. Record the source SHA observed by the run
+as exact evidence identity, not ordinary request/concurrency identity. Reserve
+broad native `full` validation for the final merge-intended
 state of that stable branch/PR lane, unless issue or product authority explicitly
 requires broader evidence earlier. Read the exact profile/input contract from
 the selected workflow YAML; do not copy it into this file or `INVENTORY.yaml`.

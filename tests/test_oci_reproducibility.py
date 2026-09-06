@@ -424,7 +424,7 @@ class ContainerServiceWorkflowTests(unittest.TestCase):
             {"repository", "ref", "service_port", "dockerfile_path", "build_context", "ci_run_id"},
         )
         self.assertTrue(job["concurrency"]["cancel-in-progress"])
-        self.assertEqual(job["concurrency"]["group"], "central-ci-${{ inputs.active_key }}")
+        self.assertEqual(job["concurrency"]["group"], "central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}")
 
         script = validation["run"]
         def run(profile: str, inputs: object) -> subprocess.CompletedProcess[str]:
