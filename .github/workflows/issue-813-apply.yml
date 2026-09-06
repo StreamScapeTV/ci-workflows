@@ -21,7 +21,11 @@ jobs:
           fetch-depth: 1
 
       - name: Apply exact runner split
-        run: python3 scripts/ci/issue_813_apply.py
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/ci/issue_813_apply.py
+          rm -f .github/workflows/issue-813-apply.yml scripts/ci/issue_813_apply.py
 
       - name: Validate final source
         shell: bash
