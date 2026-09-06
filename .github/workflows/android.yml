@@ -436,8 +436,27 @@ jobs:
               exit 1
             }
           done
+          avd_home="${RUNNER_TEMP}/central-android-avd"
+          avd_path="${avd_home}/${avd_name}.avd"
+          rm -rf -- "${avd_home}"
+          mkdir -p "${avd_home}"
+          export ANDROID_AVD_HOME="${avd_home}"
+          printf 'ANDROID_AVD_HOME=%s\n' "${ANDROID_AVD_HOME}" >> "${GITHUB_ENV}"
           printf 'no\n' | "${avdmanager}" create avd --force \
-            --name "${avd_name}" --package "${image}" --device pixel >> "${CI_LOG}" 2>&1
+            --name "${avd_name}" --package "${image}" --device pixel \
+            -p "${avd_path}" >> "${CI_LOG}" 2>&1
+          test -f "${ANDROID_AVD_HOME}/${avd_name}.ini" || {
+            printf 'Android AVD descriptor was not created in the fixed AVD home: %s\n' "${ANDROID_AVD_HOME}" >&2
+            exit 1
+          }
+          test -d "${avd_path}" || {
+            printf 'Android AVD data directory was not created: %s\n' "${avd_path}" >&2
+            exit 1
+          }
+          if ! "${emulator}" -list-avds 2>> "${CI_LOG}" | grep -Fx "${avd_name}" >> "${CI_LOG}"; then
+            printf 'Android emulator cannot resolve fixed AVD %s from %s\n' "${avd_name}" "${ANDROID_AVD_HOME}" >&2
+            exit 1
+          fi
           if test -e /dev/kvm && test ! -w /dev/kvm; then
             sudo chmod 666 /dev/kvm
           fi
@@ -791,6 +810,14 @@ jobs:
           fi
           if test -n "${EMULATOR_PID}" && kill -0 "${EMULATOR_PID}" 2>/dev/null; then
             kill "${EMULATOR_PID}" 2>/dev/null || true
+          fi
+          if test -n "${ANDROID_AVD_HOME:-}"; then
+            test "${ANDROID_AVD_HOME}" = "${RUNNER_TEMP}/central-android-avd" || {
+              printf 'Refusing to clean unexpected Android AVD home: %s\n' "${ANDROID_AVD_HOME}" >&2
+              exit 1
+            }
+            rm -rf -- "${ANDROID_AVD_HOME}"
+            test ! -e "${ANDROID_AVD_HOME}"
           fi
 
       - name: Record IPTV Android cache measurements
