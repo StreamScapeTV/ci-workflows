@@ -595,7 +595,8 @@ runs:
           done
         }
 
-        max_media_upload_attempts=4
+        max_media_upload_attempts=5
+        media_retry_delays=(3 5 8 13)
         media_attempt=1
         offset=0
         file_id=""
@@ -621,8 +622,9 @@ runs:
             echo "Google Drive resumable media upload failed after bounded recovery attempts" >&2
             exit 1
           fi
-          echo "Google Drive resumable media upload interrupted; retrying after session reconciliation" >&2
-          sleep "${media_attempt}"
+          retry_delay="${media_retry_delays[$((media_attempt - 1))]}"
+          echo "Google Drive resumable media upload interrupted; retrying in ${retry_delay}s after session reconciliation" >&2
+          drive_backoff_sleep "${retry_delay}"
           media_attempt=$((media_attempt + 1))
         done
         test -n "${file_id}" || { echo "Google Drive resumable media upload completed without a file id" >&2; exit 1; }
