@@ -35,95 +35,10 @@ jobs:
           set -Eeuo pipefail
           python3 - <<'PY'
           from pathlib import Path
-
-          workflow = Path('.github/workflows/android.yml')
-          text = workflow.read_text(encoding='utf-8')
-          old = '''          printf 'no\\n' | "${avdmanager}" create avd --force \\
-            --name "${avd_name}" --package "${image}" --device pixel >> "${CI_LOG}" 2>&1
-          if test -e /dev/kvm && test ! -w /dev/kvm; then
-'''
-          new = '''          avd_home="${RUNNER_TEMP}/central-android-avd"
-          avd_path="${avd_home}/${avd_name}.avd"
-          rm -rf -- "${avd_home}"
-          mkdir -p "${avd_home}"
-          export ANDROID_AVD_HOME="${avd_home}"
-          printf 'ANDROID_AVD_HOME=%s\\n' "${ANDROID_AVD_HOME}" >> "${GITHUB_ENV}"
-          printf 'no\\n' | "${avdmanager}" create avd --force \\
-            --name "${avd_name}" --package "${image}" --device pixel \\
-            -p "${avd_path}" >> "${CI_LOG}" 2>&1
-          test -f "${ANDROID_AVD_HOME}/${avd_name}.ini" || {
-            printf 'Android AVD descriptor was not created in the fixed AVD home: %s\\n' "${ANDROID_AVD_HOME}" >&2
-            exit 1
-          }
-          test -d "${avd_path}" || {
-            printf 'Android AVD data directory was not created: %s\\n' "${avd_path}" >&2
-            exit 1
-          }
-          if ! "${emulator}" -list-avds 2>> "${CI_LOG}" | grep -Fx "${avd_name}" >> "${CI_LOG}"; then
-            printf 'Android emulator cannot resolve fixed AVD %s from %s\\n' "${avd_name}" "${ANDROID_AVD_HOME}" >&2
-            exit 1
-          fi
-          if test -e /dev/kvm && test ! -w /dev/kvm; then
-'''
-          if text.count(old) != 1:
-              raise SystemExit(f'expected one AVD creation block, got {text.count(old)}')
-          text = text.replace(old, new)
-
-          old_cleanup = '''          if test -n "${EMULATOR_PID}" && kill -0 "${EMULATOR_PID}" 2>/dev/null; then
-            kill "${EMULATOR_PID}" 2>/dev/null || true
-          fi
-'''
-          new_cleanup = '''          if test -n "${EMULATOR_PID}" && kill -0 "${EMULATOR_PID}" 2>/dev/null; then
-            kill "${EMULATOR_PID}" 2>/dev/null || true
-          fi
-          if test -n "${ANDROID_AVD_HOME:-}"; then
-            test "${ANDROID_AVD_HOME}" = "${RUNNER_TEMP}/central-android-avd" || {
-              printf 'Refusing to clean unexpected Android AVD home: %s\\n' "${ANDROID_AVD_HOME}" >&2
-              exit 1
-            }
-            rm -rf -- "${ANDROID_AVD_HOME}"
-            test ! -e "${ANDROID_AVD_HOME}"
-          fi
-'''
-          if text.count(old_cleanup) != 1:
-              raise SystemExit(f'expected one emulator cleanup block, got {text.count(old_cleanup)}')
-          workflow.write_text(text.replace(old_cleanup, new_cleanup), encoding='utf-8')
-
-          tests = Path('tests/test_native_targeted_profiles.py')
-          source = tests.read_text(encoding='utf-8')
-          marker = '''        self.assertIn("seq 1 180", prepare)
-'''
-          addition = '''        self.assertIn('avd_home="${RUNNER_TEMP}/central-android-avd"', prepare)
-        self.assertIn('avd_path="${avd_home}/${avd_name}.avd"', prepare)
-        self.assertIn('export ANDROID_AVD_HOME="${avd_home}"', prepare)
-        self.assertIn('-p "${avd_path}"', prepare)
-        self.assertIn('"${emulator}" -list-avds', prepare)
-        self.assertLess(
-            prepare.index('export ANDROID_AVD_HOME="${avd_home}"'),
-            prepare.index('create avd --force'),
-        )
-        self.assertLess(
-            prepare.index('create avd --force'),
-            prepare.index('"${emulator}" -list-avds'),
-        )
-        self.assertLess(
-            prepare.index('"${emulator}" -list-avds'),
-            prepare.index('"${emulator}" -avd "${avd_name}"'),
-        )
-        cleanup = next(
-            step for step in workflow["jobs"]["ci"]["steps"]
-            if step.get("name") == "Stop generic Android emulator"
-        )["run"]
-        self.assertIn(
-            'test "${ANDROID_AVD_HOME}" = "${RUNNER_TEMP}/central-android-avd"',
-            cleanup,
-        )
-        self.assertIn('rm -rf -- "${ANDROID_AVD_HOME}"', cleanup)
-'''
-          if source.count(marker) != 1:
-              raise SystemExit(f'expected one regression marker, got {source.count(marker)}')
-          tests.write_text(source.replace(marker, marker + addition), encoding='utf-8')
+          import base64
+          Path('/tmp/issue-811-apply.py').write_bytes(base64.b64decode('ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCgp3b3JrZmxvdyA9IFBhdGgoIi5naXRodWIvd29ya2Zsb3dzL2FuZHJvaWQueW1sIikKdGV4dCA9IHdvcmtmbG93LnJlYWRfdGV4dChlbmNvZGluZz0idXRmLTgiKQpvbGQgPSAnJycgICAgICAgICAgcHJpbnRmICdub1xcbicgfCAiJHthdmRtYW5hZ2VyfSIgY3JlYXRlIGF2ZCAtLWZvcmNlIFxcCiAgICAgICAgICAgIC0tbmFtZSAiJHthdmRfbmFtZX0iIC0tcGFja2FnZSAiJHtpbWFnZX0iIC0tZGV2aWNlIHBpeGVsID4+ICIke0NJX0xPR30iIDI+JjEKICAgICAgICAgIGlmIHRlc3QgLWUgL2Rldi9rdm0gJiYgdGVzdCAhIC13IC9kZXYva3ZtOyB0aGVuCicnJwpuZXcgPSAnJycgICAgICAgICAgYXZkX2hvbWU9IiR7UlVOTkVSX1RFTVB9L2NlbnRyYWwtYW5kcm9pZC1hdmQiCiAgICAgICAgICBhdmRfcGF0aD0iJHthdmRfaG9tZX0vJHthdmRfbmFtZX0uYXZkIgogICAgICAgICAgcm0gLXJmIC0tICIke2F2ZF9ob21lfSIKICAgICAgICAgIG1rZGlyIC1wICIke2F2ZF9ob21lfSIKICAgICAgICAgIGV4cG9ydCBBTkRST0lEX0FWRF9IT01FPSIke2F2ZF9ob21lfSIKICAgICAgICAgIHByaW50ZiAnQU5EUk9JRF9BVkRfSE9NRT0lc1xcbicgIiR7QU5EUk9JRF9BVkRfSE9NRX0iID4+ICIke0dJVEhVQl9FTlZ9IgogICAgICAgICAgcHJpbnRmICdub1xcbicgfCAiJHthdmRtYW5hZ2VyfSIgY3JlYXRlIGF2ZCAtLWZvcmNlIFxcCiAgICAgICAgICAgIC0tbmFtZSAiJHthdmRfbmFtZX0iIC0tcGFja2FnZSAiJHtpbWFnZX0iIC0tZGV2aWNlIHBpeGVsIFxcCiAgICAgICAgICAgIC1wICIke2F2ZF9wYXRofSIgPj4gIiR7Q0lfTE9HfSIgMj4mMQogICAgICAgICAgdGVzdCAtZiAiJHtBTkRST0lEX0FWRF9IT01FfS8ke2F2ZF9uYW1lfS5pbmkiIHx8IHsKICAgICAgICAgICAgcHJpbnRmICdBbmRyb2lkIEFWRCBkZXNjcmlwdG9yIHdhcyBub3QgY3JlYXRlZCBpbiB0aGUgZml4ZWQgQVZEIGhvbWU6ICVzXFxuJyAiJHtBTkRST0lEX0FWRF9IT01FfSIgPiYyCiAgICAgICAgICAgIGV4aXQgMQogICAgICAgICAgfQogICAgICAgICAgdGVzdCAtZCAiJHthdmRfcGF0aH0iIHx8IHsKICAgICAgICAgICAgcHJpbnRmICdBbmRyb2lkIEFWRCBkYXRhIGRpcmVjdG9yeSB3YXMgbm90IGNyZWF0ZWQ6ICVzXFxuJyAiJHthdmRfcGF0aH0iID4mMgogICAgICAgICAgICBleGl0IDEKICAgICAgICAgIH0KICAgICAgICAgIGlmICEgIiR7ZW11bGF0b3J9IiAtbGlzdC1hdmRzIDI+PiAiJHtDSV9MT0d9IiB8IGdyZXAgLUZ4ICIke2F2ZF9uYW1lfSIgPj4gIiR7Q0lfTE9HfSI7IHRoZW4KICAgICAgICAgICAgcHJpbnRmICdBbmRyb2lkIGVtdWxhdG9yIGNhbm5vdCByZXNvbHZlIGZpeGVkIEFWRCAlcyBmcm9tICVzXFxuJyAiJHthdmRfbmFtZX0iICIke0FORFJPSURfQVZEX0hPTUV9IiA+JjIKICAgICAgICAgICAgZXhpdCAxCiAgICAgICAgICBmaQogICAgICAgICAgaWYgdGVzdCAtZSAvZGV2L2t2bSAmJiB0ZXN0ICEgLXcgL2Rldi9rdm07IHRoZW4KJycnCmlmIHRleHQuY291bnQob2xkKSAhPSAxOgogICAgcmFpc2UgU3lzdGVtRXhpdChmImV4cGVjdGVkIG9uZSBBVkQgY3JlYXRpb24gYmxvY2ssIGdvdCB7dGV4dC5jb3VudChvbGQpfSIpCnRleHQgPSB0ZXh0LnJlcGxhY2Uob2xkLCBuZXcpCgpvbGRfY2xlYW51cCA9ICcnJyAgICAgICAgICBpZiB0ZXN0IC1uICIke0VNVUxBVE9SX1BJRH0iICYmIGtpbGwgLTAgIiR7RU1VTEFUT1JfUElEfSIgMj4vZGV2L251bGw7IHRoZW4KICAgICAgICAgICAga2lsbCAiJHtFTVVMQVRPUl9QSUR9IiAyPi9kZXYvbnVsbCB8fCB0cnVlCiAgICAgICAgICBmaQonJycKbmV3X2NsZWFudXAgPSAnJycgICAgICAgICAgaWYgdGVzdCAtbiAiJHtFTVVMQVRPUl9QSUR9IiAmJiBraWxsIC0wICIke0VNVUxBVE9SX1BJRH0iIDI+L2Rldi9udWxsOyB0aGVuCiAgICAgICAgICAgIGtpbGwgIiR7RU1VTEFUT1JfUElEfSIgMj4vZGV2L251bGwgfHwgdHJ1ZQogICAgICAgICAgZmkKICAgICAgICAgIGlmIHRlc3QgLW4gIiR7QU5EUk9JRF9BVkRfSE9NRTotfSI7IHRoZW4KICAgICAgICAgICAgdGVzdCAiJHtBTkRST0lEX0FWRF9IT01FfSIgPSAiJHtSVU5ORVJfVEVNUH0vY2VudHJhbC1hbmRyb2lkLWF2ZCIgfHwgewogICAgICAgICAgICAgIHByaW50ZiAnUmVmdXNpbmcgdG8gY2xlYW4gdW5leHBlY3RlZCBBbmRyb2lkIEFWRCBob21lOiAlc1xcbicgIiR7QU5EUk9JRF9BVkRfSE9NRX0iID4mMgogICAgICAgICAgICAgIGV4aXQgMQogICAgICAgICAgICB9CiAgICAgICAgICAgIHJtIC1yZiAtLSAiJHtBTkRST0lEX0FWRF9IT01FfSIKICAgICAgICAgICAgdGVzdCAhIC1lICIke0FORFJPSURfQVZEX0hPTUV9IgogICAgICAgICAgZmkKJycnCmlmIHRleHQuY291bnQob2xkX2NsZWFudXApICE9IDE6CiAgICByYWlzZSBTeXN0ZW1FeGl0KGYiZXhwZWN0ZWQgb25lIGVtdWxhdG9yIGNsZWFudXAgYmxvY2ssIGdvdCB7dGV4dC5jb3VudChvbGRfY2xlYW51cCl9IikKd29ya2Zsb3cud3JpdGVfdGV4dCh0ZXh0LnJlcGxhY2Uob2xkX2NsZWFudXAsIG5ld19jbGVhbnVwKSwgZW5jb2Rpbmc9InV0Zi04IikKCnRlc3RzID0gUGF0aCgidGVzdHMvdGVzdF9uYXRpdmVfdGFyZ2V0ZWRfcHJvZmlsZXMucHkiKQpzb3VyY2UgPSB0ZXN0cy5yZWFkX3RleHQoZW5jb2Rpbmc9InV0Zi04IikKbWFya2VyID0gJyAgICAgICAgc2VsZi5hc3NlcnRJbigic2VxIDEgMTgwIiwgcHJlcGFyZSlcbicKYWRkaXRpb24gPSAnJycgICAgICAgIHNlbGYuYXNzZXJ0SW4oJ2F2ZF9ob21lPSIke1JVTk5FUl9URU1QfS9jZW50cmFsLWFuZHJvaWQtYXZkIicsIHByZXBhcmUpCiAgICAgICAgc2VsZi5hc3NlcnRJbignYXZkX3BhdGg9IiR7YXZkX2hvbWV9LyR7YXZkX25hbWV9LmF2ZCInLCBwcmVwYXJlKQogICAgICAgIHNlbGYuYXNzZXJ0SW4oJ2V4cG9ydCBBTkRST0lEX0FWRF9IT01FPSIke2F2ZF9ob21lfSInLCBwcmVwYXJlKQogICAgICAgIHNlbGYuYXNzZXJ0SW4oJy1wICIke2F2ZF9wYXRofSInLCBwcmVwYXJlKQogICAgICAgIHNlbGYuYXNzZXJ0SW4oJyIke2VtdWxhdG9yfSIgLWxpc3QtYXZkcycsIHByZXBhcmUpCiAgICAgICAgc2VsZi5hc3NlcnRMZXNzKAogICAgICAgICAgICBwcmVwYXJlLmluZGV4KCdleHBvcnQgQU5EUk9JRF9BVkRfSE9NRT0iJHthdmRfaG9tZX0iJyksCiAgICAgICAgICAgIHByZXBhcmUuaW5kZXgoJ2NyZWF0ZSBhdmQgLS1mb3JjZScpLAogICAgICAgICkKICAgICAgICBzZWxmLmFzc2VydExlc3MoCiAgICAgICAgICAgIHByZXBhcmUuaW5kZXgoJ2NyZWF0ZSBhdmQgLS1mb3JjZScpLAogICAgICAgICAgICBwcmVwYXJlLmluZGV4KCciJHtlbXVsYXRvcn0iIC1saXN0LWF2ZHMnKSwKICAgICAgICApCiAgICAgICAgc2VsZi5hc3NlcnRMZXNzKAogICAgICAgICAgICBwcmVwYXJlLmluZGV4KCciJHtlbXVsYXRvcn0iIC1saXN0LWF2ZHMnKSwKICAgICAgICAgICAgcHJlcGFyZS5pbmRleCgnIiR7ZW11bGF0b3J9IiAtYXZkICIke2F2ZF9uYW1lfSInKSwKICAgICAgICApCiAgICAgICAgY2xlYW51cCA9IG5leHQoCiAgICAgICAgICAgIHN0ZXAgZm9yIHN0ZXAgaW4gd29ya2Zsb3dbImpvYnMiXVsiY2kiXVsic3RlcHMiXQogICAgICAgICAgICBpZiBzdGVwLmdldCgibmFtZSIpID09ICJTdG9wIGdlbmVyaWMgQW5kcm9pZCBlbXVsYXRvciIKICAgICAgICApWyJydW4iXQogICAgICAgIHNlbGYuYXNzZXJ0SW4oCiAgICAgICAgICAgICd0ZXN0ICIke0FORFJPSURfQVZEX0hPTUV9IiA9ICIke1JVTk5FUl9URU1QfS9jZW50cmFsLWFuZHJvaWQtYXZkIicsCiAgICAgICAgICAgIGNsZWFudXAsCiAgICAgICAgKQogICAgICAgIHNlbGYuYXNzZXJ0SW4oJ3JtIC1yZiAtLSAiJHtBTkRST0lEX0FWRF9IT01FfSInLCBjbGVhbnVwKQonJycKaWYgc291cmNlLmNvdW50KG1hcmtlcikgIT0gMToKICAgIHJhaXNlIFN5c3RlbUV4aXQoZiJleHBlY3RlZCBvbmUgcmVncmVzc2lvbiBtYXJrZXIsIGdvdCB7c291cmNlLmNvdW50KG1hcmtlcil9IikKdGVzdHMud3JpdGVfdGV4dChzb3VyY2UucmVwbGFjZShtYXJrZXIsIG1hcmtlciArIGFkZGl0aW9uKSwgZW5jb2Rpbmc9InV0Zi04IikK'))
           PY
+          python3 /tmp/issue-811-apply.py
           rm .github/workflows/issue-811-avd-home-apply.yml
 
       - name: Validate final candidate
