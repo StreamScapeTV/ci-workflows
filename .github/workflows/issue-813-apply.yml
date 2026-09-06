@@ -1,4 +1,4 @@
-name: Issue 813 strict-shell correction
+name: Issue 813 minimal Media Apple runner patch
 
 "on":
   push:
@@ -11,30 +11,68 @@ permissions:
   contents: write
 
 jobs:
-  correct:
+  build-final-blobs:
     if: ${{ github.repository == 'StreamScapeTV/ci-workflows' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: 4dc3cb5f44c3c52a12d27623d67daf6aa4884b39
           fetch-depth: 1
+          persist-credentials: false
 
-      - name: Apply strict-shell-safe caller fallback
+      - name: Apply minimal fixed runner split
         shell: bash
         run: |
           set -Eeuo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          path = Path('.github/workflows/apple.yml')
-          text = path.read_text(encoding='utf-8')
-          old = '          source_repository="${SOURCE_REPOSITORY:-${CALLER_REPOSITORY}}"\n'
-          new = '          source_repository="${SOURCE_REPOSITORY:-${CALLER_REPOSITORY:-}}"\n'
-          if text.count(old) != 1:
-              raise SystemExit('expected exactly one Apple runner repository fallback')
-          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          def replace_once(path: Path, old: str, new: str) -> None:
+              text = path.read_text(encoding='utf-8')
+              if text.count(old) != 1:
+                  raise SystemExit(f'expected one replacement target in {path}')
+              path.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          apple_runner = "${{ fromJSON(((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && inputs.test_profile == 'build') && '[\"macOS\",\"ARM64\"]' || '[\"macos-latest\"]') }}"
+          replace_once(
+              Path('.github/workflows/apple.yml'),
+              '    runs-on: macos-latest\n    timeout-minutes: 120\n',
+              f'    runs-on: {apple_runner}\n    timeout-minutes: 120\n',
+          )
+
+          binary_runner = "${{ fromJSON((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && '[\"macOS\",\"ARM64\"]' || '[\"macos-latest\"]') }}"
+          replace_once(
+              Path('.github/workflows/apple-binary.yml'),
+              '  publish:\n    runs-on: macos-latest\n    timeout-minutes: 120\n',
+              f'  publish:\n    runs-on: {binary_runner}\n    timeout-minutes: 120\n',
+          )
+
+          apple_test = Path('tests/test_apple_workflow.py')
+          replace_once(
+              apple_test,
+              '        self.assertEqual(execute["runs-on"], "macos-latest")\n',
+              '''        self.assertEqual(\n            execute["runs-on"],\n            "${{ fromJSON(((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && inputs.test_profile == 'build') && '[\\\"macOS\\\",\\\"ARM64\\\"]' || '[\\\"macos-latest\\\"]') }}",\n        )\n\n    def test_media_native_build_uses_fixed_self_hosted_mac_without_central_cache(self) -> None:\n        execute = self.workflow["jobs"]["execute"]\n        runner = execute["runs-on"]\n        self.assertIn("StreamScapeTV/streamscape-media", runner)\n        self.assertIn("inputs.test_profile == 'build'", runner)\n        self.assertIn("[\\\"macOS\\\",\\\"ARM64\\\"]", runner)\n        self.assertIn("[\\\"macos-latest\\\"]", runner)\n        self.assertNotIn("self-hosted", runner)\n        self.assertNotIn("runner_label", self.text)\n\n        cache_scope = next(\n            step\n            for step in execute["steps"]\n            if step.get("name") == "Resolve Apple default-branch dependency cache scope"\n        )\n        self.assertIn("inputs.test_profile != 'build'", cache_scope["if"])\n\n''',
+          )
+
+          binary_test = Path('tests/test_apple_binary_workflow.py')
+          replace_once(
+              binary_test,
+              '        self.assertEqual(self.job["runs-on"], "macos-latest")\n',
+              '''        self.assertEqual(\n            self.job["runs-on"],\n            "${{ fromJSON((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && '[\\\"macOS\\\",\\\"ARM64\\\"]' || '[\\\"macos-latest\\\"]') }}",\n        )\n''',
+          )
+          replace_once(
+              binary_test,
+              '        self.assertEqual(set(self.workflow["on"]), {"workflow_call"})\n\n        for forbidden in (\n',
+              '''        self.assertEqual(set(self.workflow["on"]), {"workflow_call"})\n        self.assertIn("StreamScapeTV/streamscape-media", self.job["runs-on"])\n        self.assertIn("[\\\"macOS\\\",\\\"ARM64\\\"]", self.job["runs-on"])\n        self.assertIn("[\\\"macos-latest\\\"]", self.job["runs-on"])\n        self.assertNotIn("self-hosted", self.job["runs-on"])\n        self.assertNotIn("actions/cache", self.text)\n\n        for forbidden in (\n''',
+          )
+          replace_once(
+              binary_test,
+              '            "Streamscape Media",\n            "streamscape-media",\n            "StreamscapePlaybackApple",\n',
+              '            "Streamscape Media",\n            "StreamscapePlaybackApple",\n',
+          )
           PY
-          rm -f .github/workflows/issue-813-apply.yml
 
       - name: Validate canonical self-check surface
         shell: bash
@@ -45,33 +83,42 @@ jobs:
           from pathlib import Path
           import subprocess
           import yaml
-          path = Path('.github/workflows/apple.yml')
-          value = yaml.safe_load(path.read_text(encoding='utf-8'))
-          for job in value['jobs'].values():
-              for step in job.get('steps', []):
-                  script = step.get('run')
-                  if not script or step.get('shell', 'bash') != 'bash':
-                      continue
-                  checked = subprocess.run(['bash', '-n'], input=script, text=True, capture_output=True)
-                  if checked.returncode:
-                      raise SystemExit(f"{step.get('name')} bash -n failed: {checked.stderr}")
+          for path in (Path('.github/workflows/apple.yml'), Path('.github/workflows/apple-binary.yml')):
+              value = yaml.safe_load(path.read_text(encoding='utf-8'))
+              for job in value['jobs'].values():
+                  for step in job.get('steps', []):
+                      script = step.get('run')
+                      if not script or step.get('shell', 'bash') != 'bash':
+                          continue
+                      checked = subprocess.run(['bash', '-n'], input=script, text=True, capture_output=True)
+                      if checked.returncode:
+                          raise SystemExit(f"{path}:{step.get('name')} bash -n failed: {checked.stderr}")
           PY
 
-      - name: Upload corrected Apple workflow blob
+      - name: Upload validated final source blobs
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -Eeuo pipefail
-          encoded="$(base64 -w0 .github/workflows/apple.yml)"
-          response="$(jq -nc --arg content "${encoded}" '{content:$content,encoding:"base64"}' | curl --fail --silent --show-error \
-            --request POST \
-            --header "Authorization: Bearer ${GH_TOKEN}" \
-            --header 'Accept: application/vnd.github+json' \
-            --header 'X-GitHub-Api-Version: 2022-11-28' \
-            --data-binary @- \
-            "https://api.github.com/repos/${REPOSITORY}/git/blobs")"
-          sha="$(printf '%s' "${response}" | jq -r '.sha // empty')"
-          [[ "${sha}" =~ ^[0-9a-f]{40}$ ]] || exit 1
-          printf 'apple_blob_sha=%s\n' "${sha}"
+          upload_blob() {
+            local path="$1"
+            local label="$2"
+            local encoded response sha
+            encoded="$(base64 -w0 "${path}")"
+            response="$(jq -nc --arg content "${encoded}" '{content:$content,encoding:"base64"}' | curl --fail --silent --show-error \
+              --request POST \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              --data-binary @- \
+              "https://api.github.com/repos/${REPOSITORY}/git/blobs")"
+            sha="$(printf '%s' "${response}" | jq -r '.sha // empty')"
+            [[ "${sha}" =~ ^[0-9a-f]{40}$ ]] || exit 1
+            printf '%s=%s\n' "${label}" "${sha}"
+          }
+          upload_blob .github/workflows/apple.yml apple_blob_sha
+          upload_blob .github/workflows/apple-binary.yml apple_binary_blob_sha
+          upload_blob tests/test_apple_workflow.py apple_test_blob_sha
+          upload_blob tests/test_apple_binary_workflow.py apple_binary_test_blob_sha
