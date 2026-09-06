@@ -41,32 +41,28 @@ class AppleWorkflowTests(unittest.TestCase):
             execute["strategy"]["matrix"],
             "${{ fromJSON(needs.plan.outputs.matrix) }}",
         )
-        self.assertEqual(execute["runs-on"], "${{ fromJSON(needs.plan.outputs.runs_on) }}")
-
-
-    def test_media_native_build_uses_fixed_self_hosted_mac_only(self) -> None:
-        plan = self.workflow["jobs"]["plan"]
-        self.assertEqual(plan["outputs"]["runs_on"], "${{ steps.profile.outputs.runs_on }}")
-        profile = next(
-            step for step in plan["steps"] if step.get("name") == "Resolve fixed Apple execution lanes"
+        self.assertEqual(
+            execute["runs-on"],
+            "${{ fromJSON(((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && inputs.test_profile == 'build') && '[\"macOS\",\"ARM64\"]' || '[\"macos-latest\"]') }}",
         )
-        self.assertEqual(profile["env"]["SOURCE_REPOSITORY"], "${{ inputs.repository }}")
-        self.assertEqual(profile["env"]["CALLER_REPOSITORY"], "${{ github.repository }}")
-        script = profile["run"]
-        self.assertIn("runs_on='[\"macos-latest\"]'", script)
-        self.assertIn('test "${source_repository}" = StreamScapeTV/streamscape-media', script)
-        self.assertIn('test "${TEST_PROFILE}" = build', script)
-        self.assertIn("runs_on='[\"macOS\",\"ARM64\"]'", script)
-        self.assertIn("printf 'runs_on=%s\\n'", script)
-        self.assertNotIn("self-hosted", script)
+
+    def test_media_native_build_uses_fixed_self_hosted_mac_without_central_cache(self) -> None:
+        execute = self.workflow["jobs"]["execute"]
+        runner = execute["runs-on"]
+        self.assertIn("StreamScapeTV/streamscape-media", runner)
+        self.assertIn("inputs.test_profile == 'build'", runner)
+        self.assertIn("[\"macOS\",\"ARM64\"]", runner)
+        self.assertIn("[\"macos-latest\"]", runner)
+        self.assertNotIn("self-hosted", runner)
         self.assertNotIn("runner_label", self.text)
 
         cache_scope = next(
             step
-            for step in self.workflow["jobs"]["execute"]["steps"]
+            for step in execute["steps"]
             if step.get("name") == "Resolve Apple default-branch dependency cache scope"
         )
         self.assertIn("inputs.test_profile != 'build'", cache_scope["if"])
+
 
     def test_platform_gate_uses_compile_only_ios_tvos_and_direct_macos_test(self) -> None:
         execute = self.workflow["jobs"]["execute"]
