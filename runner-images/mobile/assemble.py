@@ -4,10 +4,12 @@ from __future__ import annotations
 from pathlib import Path
 import shutil
 import stat
+import subprocess
 import tarfile
 import zipfile
 
 ANDROID = Path("/opt/android-sdk")
+COREPACK_VERSION = "0.35.0"
 
 PLATFORM_37_PACKAGE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <ns2:repository
@@ -96,6 +98,26 @@ def copy_tree(source: Path, destination: Path) -> None:
     shutil.copytree(source, destination, dirs_exist_ok=True, symlinks=True)
 
 
+def install_corepack() -> None:
+    subprocess.run(
+        [
+            "npm",
+            "install",
+            "--global",
+            "--ignore-scripts",
+            "--no-audit",
+            "--no-fund",
+            f"corepack@{COREPACK_VERSION}",
+        ],
+        check=True,
+    )
+    installed = subprocess.check_output(["corepack", "--version"], text=True).strip()
+    if installed != COREPACK_VERSION:
+        raise SystemExit(
+            f"unexpected Corepack version {installed!r}; expected {COREPACK_VERSION!r}"
+        )
+
+
 def materialize_platform_37_package_metadata(platform_root: Path) -> None:
     source_properties = platform_root / "source.properties"
     if not source_properties.is_file():
@@ -124,6 +146,7 @@ def materialize_platform_37_package_metadata(platform_root: Path) -> None:
 
 
 def main() -> int:
+    install_corepack()
     ANDROID.mkdir(parents=True, exist_ok=True)
     with tarfile.open("/tmp/flutter.tar.xz", "r:xz") as archive:
         archive.extractall("/opt", filter="data")
