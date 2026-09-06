@@ -266,49 +266,20 @@ class MavenWorkflowTests(unittest.TestCase):
             tracked = subprocess.run(["bash", "-c", script], cwd=root, capture_output=True, text=True)
             self.assertEqual(tracked.returncode, 0, tracked.stderr)
 
-    def test_private_git_scope_is_optional_fixed_and_fail_closed(self) -> None:
-        scope = self.step("Resolve optional private-Git scope")
-        self.assertEqual(
-            set(scope["env"]),
-            {"PRIVATE_GIT_CLIENT_ID", "PRIVATE_GIT_SECRET"},
-        )
+    def test_publication_always_uses_fixed_private_git_boundary(self) -> None:
+        names = [step.get("name") for step in self.job["steps"]]
+        self.assertNotIn("Resolve optional private-Git scope", names)
         network = self.step("Connect to private Git service")
-        self.assertEqual(network["if"], "${{ steps.private_git_scope.outputs.enabled == 'true' }}")
+        self.assertNotIn("if", network)
         self.assertEqual(network["uses"], "StreamScapeTV/ci-workflows/actions/private-git@main")
+        self.assertEqual(
+            network["env"],
+            {
+                "TS_OAUTH_CLIENT_ID": "${{ secrets.TS_OAUTH_CLIENT_ID }}",
+                "TS_OAUTH_SECRET": "${{ secrets.TS_OAUTH_SECRET }}",
+            },
+        )
         self.assertNotIn("tailscale/github-action", self.text)
-
-        script = scope["run"]
-        with tempfile.TemporaryDirectory() as temp_dir:
-            output = Path(temp_dir) / "output"
-            base_env = {**os.environ, "GITHUB_OUTPUT": str(output)}
-
-            none = subprocess.run(
-                ["bash", "-c", script],
-                env={**base_env, "PRIVATE_GIT_CLIENT_ID": "", "PRIVATE_GIT_SECRET": ""},
-                capture_output=True,
-                text=True,
-            )
-            self.assertEqual(none.returncode, 0, none.stderr)
-            self.assertIn("enabled=false", output.read_text())
-
-            output.write_text("")
-            partial = subprocess.run(
-                ["bash", "-c", script],
-                env={**base_env, "PRIVATE_GIT_CLIENT_ID": "id", "PRIVATE_GIT_SECRET": ""},
-                capture_output=True,
-                text=True,
-            )
-            self.assertNotEqual(partial.returncode, 0)
-
-            output.write_text("")
-            complete = subprocess.run(
-                ["bash", "-c", script],
-                env={**base_env, "PRIVATE_GIT_CLIENT_ID": "id", "PRIVATE_GIT_SECRET": "secret"},
-                capture_output=True,
-                text=True,
-            )
-            self.assertEqual(complete.returncode, 0, complete.stderr)
-            self.assertIn("enabled=true", output.read_text())
 
     def test_product_credentials_are_fixed_and_scrubbed(self) -> None:
         commands = self.step("Run fixed Maven publication profile")

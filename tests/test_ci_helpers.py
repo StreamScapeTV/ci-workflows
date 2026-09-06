@@ -98,13 +98,24 @@ class CiHelperTests(unittest.TestCase):
         self.assertIn("Range header", text)
         self.assertIn('Content-Range: bytes ${offset}-$((byte_size - 1))/${byte_size}', text)
 
-    def test_private_git_action_is_one_fixed_tailscale_boundary(self) -> None:
-        text = (ROOT / "actions/private-git/action.yml").read_text()
-        self.assertIn("tailscale/github-action@v4", text)
-        self.assertIn("tags: tag:github-ci", text)
-        self.assertIn('("git.faruqi.dev", 443)', text)
-        self.assertIn("TS_OAUTH_CLIENT_ID", text)
-        self.assertIn("TS_OAUTH_SECRET", text)
+    def test_private_git_action_is_one_fixed_runner_aware_tailscale_boundary(self) -> None:
+        path = ROOT / "actions/private-git/action.yml"
+        action = yaml.safe_load(path.read_text())
+        text = path.read_text()
+        steps = {step["name"]: step for step in action["runs"]["steps"]}
+        require = steps["Require fixed Central Tailscale credentials"]
+        connect = steps["Connect to private Git service"]
+        verify = steps["Verify private Git service reachability"]
+        hosted = "${{ runner.environment == 'github-hosted' }}"
+        self.assertEqual(require["if"], hosted)
+        self.assertEqual(connect["if"], hosted)
+        self.assertEqual(connect["uses"], "tailscale/github-action@v4")
+        self.assertEqual(connect["with"]["tags"], "tag:github-ci")
+        self.assertNotIn("if", verify)
+        self.assertIn('("git.faruqi.dev", 443)', verify["run"])
+        self.assertIn("TS_OAUTH_CLIENT_ID", require["run"] + str(connect["with"]))
+        self.assertIn("TS_OAUTH_SECRET", require["run"] + str(connect["with"]))
+        self.assertNotIn("sudo", text)
         self.assertNotIn("inputs:", text)
         android = (ROOT / ".github/workflows/android.yml").read_text()
         self.assertIn("actions/private-git@", android)
