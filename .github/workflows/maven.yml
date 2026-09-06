@@ -175,26 +175,7 @@ jobs:
           distribution: temurin
           java-version: "25"
 
-      - name: Resolve optional private-Git scope
-        id: private_git_scope
-        shell: bash
-        env:
-          PRIVATE_GIT_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          PRIVATE_GIT_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
-        run: |
-          set -Eeuo pipefail
-          enabled=false
-          if test -n "${PRIVATE_GIT_CLIENT_ID}" || test -n "${PRIVATE_GIT_SECRET}"; then
-            test -n "${PRIVATE_GIT_CLIENT_ID}" && test -n "${PRIVATE_GIT_SECRET}" || {
-              echo "Private-Git connectivity requires the complete fixed credential pair" >&2
-              exit 2
-            }
-            enabled=true
-          fi
-          printf 'enabled=%s\n' "${enabled}" >> "${GITHUB_OUTPUT}"
-
       - name: Connect to private Git service
-        if: ${{ steps.private_git_scope.outputs.enabled == 'true' }}
         uses: StreamScapeTV/ci-workflows/actions/private-git@main
         env:
           TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}

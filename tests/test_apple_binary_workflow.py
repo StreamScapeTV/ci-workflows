@@ -146,6 +146,21 @@ class AppleBinaryWorkflowTests(unittest.TestCase):
             for secret in values.values():
                 self.assertNotIn(secret, failed.stdout + failed.stderr)
 
+    def test_binary_publication_always_uses_fixed_private_git_boundary(self) -> None:
+        names = [step.get("name") for step in self.job["steps"]]
+        self.assertNotIn("Resolve optional private-Git scope", names)
+        network = self.step("Connect to private Git service")
+        self.assertNotIn("if", network)
+        self.assertEqual(network["uses"], "StreamScapeTV/ci-workflows/actions/private-git@main")
+        self.assertEqual(
+            network["env"],
+            {
+                "TS_OAUTH_CLIENT_ID": "${{ secrets.TS_OAUTH_CLIENT_ID }}",
+                "TS_OAUTH_SECRET": "${{ secrets.TS_OAUTH_SECRET }}",
+            },
+        )
+        self.assertNotIn("tailscale/github-action", self.text)
+
     def test_generic_evidence_validation_does_not_parse_product_manifest(self) -> None:
         script = self.step("Validate generic Apple binary publication evidence")["run"]
         with tempfile.TemporaryDirectory() as temp_dir:
