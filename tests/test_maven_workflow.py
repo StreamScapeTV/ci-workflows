@@ -197,7 +197,10 @@ class MavenWorkflowTests(unittest.TestCase):
         self.assertNotIn("ref", job["with"]["build_number"])
         self.assertNotIn("sha", job["with"]["build_number"].lower())
         self.assertEqual(job["with"]["ci_run_id"], "${{ inputs.ci_run_id }}")
-        self.assertTrue(job["secrets"] == "inherit")
+        self.assertEqual(set(job["secrets"]), set(self.workflow["on"]["workflow_call"]["secrets"]))
+        self.assertEqual(job["secrets"]["MAVEN_PUBLISH_USERNAME"], "${{ secrets.FORGEJO_REGISTRY_USERNAME }}")
+        self.assertEqual(job["secrets"]["MAVEN_PUBLISH_TOKEN"], "${{ secrets.FORGEJO_REGISTRY_TOKEN }}")
+        self.assertEqual(job["secrets"]["MAVEN_READ_TOKEN"], "${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}")
         self.assertEqual(job["concurrency"]["group"], "central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}")
         self.assertTrue(job["concurrency"]["cancel-in-progress"])
 
@@ -207,6 +210,33 @@ class MavenWorkflowTests(unittest.TestCase):
 
         for name in ("android", "apple", "python", "node", "flutter"):
             self.assertNotIn("build_number", jobs[name]["with"])
+
+
+    def test_publication_credentials_fail_closed_before_wrapper(self) -> None:
+        credentials = self.step("Validate fixed Maven publication credentials")
+        self.assertEqual(
+            credentials["env"],
+            {
+                "CI_MAVEN_PUBLISH_USERNAME": "${{ secrets.MAVEN_PUBLISH_USERNAME }}",
+                "CI_MAVEN_PUBLISH_TOKEN": "${{ secrets.MAVEN_PUBLISH_TOKEN }}",
+                "CI_MAVEN_READ_TOKEN": "${{ secrets.MAVEN_READ_TOKEN }}",
+            },
+        )
+        script = credentials["run"]
+        values = {
+            "CI_MAVEN_PUBLISH_USERNAME": "forgejo-user",
+            "CI_MAVEN_PUBLISH_TOKEN": "publish-secret-value",
+            "CI_MAVEN_READ_TOKEN": "read-secret-value",
+        }
+        success = subprocess.run(["bash", "-c", script], env={**os.environ, **values}, capture_output=True, text=True)
+        self.assertEqual(success.returncode, 0, success.stderr)
+        for missing in values:
+            env = {**os.environ, **values, missing: ""}
+            failed = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertIn(missing, failed.stderr)
+            for secret in values.values():
+                self.assertNotIn(secret, failed.stdout + failed.stderr)
 
     def test_wrapper_validation_executes_fail_closed(self) -> None:
         script = self.step("Validate fixed Maven wrapper")["run"]
