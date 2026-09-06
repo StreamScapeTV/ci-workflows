@@ -12,6 +12,16 @@ from tests import test_ci_helpers as _prior
 class CiHelperTests(_prior.CiHelperTests):
     """Current shared-helper contract while retaining the complete helper suite."""
 
+    def test_google_drive_resumable_upload_retries_only_bounded_transient_failures(self) -> None:
+        text = (_prior.ROOT / "actions/google-drive/action.yml").read_text()
+        self.assertIn("max_media_upload_attempts=5", text)
+        self.assertIn("media_retry_delays=(3 5 8 13)", text)
+        self.assertIn("408|429|5??", text)
+        self.assertIn("retryable_media_failure", text)
+        self.assertIn("failed after bounded recovery attempts", text)
+        self.assertIn('drive_backoff_sleep "${retry_delay}"', text)
+        self.assertNotIn('sleep "${media_attempt}"', text)
+
     def test_inventory_is_the_only_inventory_and_matches_the_small_surface(self) -> None:
         inventory = yaml.safe_load((_prior.ROOT / "INVENTORY.yaml").read_text())
         self.assertEqual(
