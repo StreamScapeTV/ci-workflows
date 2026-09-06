@@ -86,6 +86,31 @@ class NativeTargetedProfileTests(unittest.TestCase):
         self.assertIn("targeted-unit)", command)
         self.assertIn("Transitional compatibility for active Agent State callers", command)
 
+    def test_android_instrumentation_installs_emulator_before_runtime_tool_checks(self) -> None:
+        workflow = yaml.safe_load((ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8"))
+        prepare = next(
+            step for step in workflow["jobs"]["ci"]["steps"]
+            if step.get("name") == "Prepare generic Android emulator"
+        )["run"]
+        install = '"${sdkmanager}" --install platform-tools emulator "${image}"'
+        preinstall_tools = 'for tool in "${sdkmanager}" "${avdmanager}"; do'
+        runtime_tools = 'for tool in "${adb}" "${emulator}"; do'
+        self.assertIn(preinstall_tools, prepare)
+        self.assertIn(install, prepare)
+        self.assertIn(runtime_tools, prepare)
+        self.assertLess(prepare.index(preinstall_tools), prepare.index(install))
+        self.assertLess(prepare.index(install), prepare.index('adb="$(command -v adb || true)"'))
+        self.assertLess(prepare.index(install), prepare.index('emulator="$(command -v emulator || true)"'))
+        self.assertLess(prepare.index(install), prepare.index(runtime_tools))
+        self.assertNotIn(
+            'for tool in "${sdkmanager}" "${avdmanager}" "${adb}" "${emulator}"; do',
+            prepare,
+        )
+        self.assertIn("system-images;android-36;google_apis;x86_64", prepare)
+        self.assertIn("avd_name='central-android-api36'", prepare)
+        self.assertIn("serial='emulator-5554'", prepare)
+        self.assertIn("seq 1 180", prepare)
+
     def test_apple_targeted_profile_uses_fixed_lanes_and_no_product_test_name(self) -> None:
         text = (ROOT / ".github/workflows/apple.yml").read_text(encoding="utf-8")
         workflow = yaml.safe_load(text)

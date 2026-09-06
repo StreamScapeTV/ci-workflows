@@ -412,15 +412,11 @@ jobs:
           }
           sdkmanager="$(command -v sdkmanager || true)"
           avdmanager="$(command -v avdmanager || true)"
-          adb="$(command -v adb || true)"
-          emulator="$(command -v emulator || true)"
           test -n "${sdkmanager}" || sdkmanager="${sdk_root}/cmdline-tools/latest/bin/sdkmanager"
           test -n "${avdmanager}" || avdmanager="${sdk_root}/cmdline-tools/latest/bin/avdmanager"
-          test -n "${adb}" || adb="${sdk_root}/platform-tools/adb"
-          test -n "${emulator}" || emulator="${sdk_root}/emulator/emulator"
-          for tool in "${sdkmanager}" "${avdmanager}" "${adb}" "${emulator}"; do
+          for tool in "${sdkmanager}" "${avdmanager}"; do
             test -x "${tool}" || {
-              printf 'Required Android emulator tool is unavailable: %s\n' "${tool}" >&2
+              printf 'Required Android emulator install tool is unavailable: %s\n' "${tool}" >&2
               exit 1
             }
           done
@@ -429,6 +425,17 @@ jobs:
           avd_name='central-android-api36'
           serial='emulator-5554'
           "${sdkmanager}" --install platform-tools emulator "${image}" >> "${CI_LOG}" 2>&1
+
+          adb="$(command -v adb || true)"
+          emulator="$(command -v emulator || true)"
+          test -n "${adb}" || adb="${sdk_root}/platform-tools/adb"
+          test -n "${emulator}" || emulator="${sdk_root}/emulator/emulator"
+          for tool in "${adb}" "${emulator}"; do
+            test -x "${tool}" || {
+              printf 'Required Android emulator runtime tool is unavailable after install: %s\n' "${tool}" >&2
+              exit 1
+            }
+          done
           printf 'no\n' | "${avdmanager}" create avd --force \
             --name "${avd_name}" --package "${image}" --device pixel >> "${CI_LOG}" 2>&1
           if test -e /dev/kvm && test ! -w /dev/kvm; then
