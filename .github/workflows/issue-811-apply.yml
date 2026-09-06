@@ -13,9 +13,22 @@ jobs:
     if: ${{ github.repository == 'StreamScapeTV/ci-workflows' }}
     runs-on: ubuntu-24.04
     steps:
+      - name: Create workflow-write token
+        id: workflow_token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.SOURCE_APP_ID }}
+          private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          owner: StreamScapeTV
+          repositories: ci-workflows
+          permission-contents: write
+          permission-workflows: write
+          permission-metadata: read
+
       - uses: actions/checkout@v4
         with:
           ref: issue/811-android-emulator-install-order
+          token: ${{ steps.workflow_token.outputs.token }}
 
       - name: Apply exact bounded patch
         shell: bash
