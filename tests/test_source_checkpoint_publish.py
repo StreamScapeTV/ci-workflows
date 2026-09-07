@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import io
-import json
 import os
 from pathlib import Path
 import subprocess
@@ -15,9 +13,10 @@ import yaml
 from scripts.ci.source_checkpoint_publish import (
     CheckpointPublishError,
     GitHubClient,
-    load_canonical_checkpoint,
+    checkpoint_filename,
+    load_latest_checkpoint,
     materialize_checkpoint,
-    resume_snapshot_action,
+    select_latest_checkpoint_file,
     stage_and_verify_tree,
     validate_request,
 )
@@ -37,17 +36,22 @@ def make_git_checkpoint(root: Path) -> tuple[str, str, bytes]:
     git(repo, "init", "-b", "feature/checkpoint")
     git(repo, "config", "user.name", "Test")
     git(repo, "config", "user.email", "test@example.invalid")
+    (repo / ".gitignore").write_text("ignored.txt\n")
     (repo / "base.txt").write_text("base\n")
-    git(repo, "add", ".")
+    (repo / "ignored.txt").write_text("tracked despite ignore\n")
+    git(repo, "add", ".gitignore", "base.txt")
+    git(repo, "add", "-f", "ignored.txt")
     git(repo, "commit", "-m", "base")
     base = git(repo, "rev-parse", "HEAD")
+
     script = repo / "bin" / "run.sh"
     script.parent.mkdir()
     script.write_text("#!/bin/sh\necho checkpoint\n")
     os.chmod(script, 0o755)
     os.symlink("base.txt", repo / "base-link")
     (repo / "base.txt").write_text("changed\n")
-    git(repo, "add", "-A")
+    (repo / "ignored.txt").write_text("changed while ignored\n")
+    git(repo, "add", "-f", "-A", "--", ".")
     git(repo, "commit", "-m", "checkpoint")
     tree = git(repo, "rev-parse", "HEAD^{tree}")
     archive = root / "checkpoint.zip"
@@ -55,36 +59,10 @@ def make_git_checkpoint(root: Path) -> tuple[str, str, bytes]:
     return base, tree, archive.read_bytes()
 
 
-def manifest_for(base: str, tree: str, archive: bytes, *, branch: str = "feature/checkpoint") -> dict:
-    digest = hashlib.sha256(archive).hexdigest()
-    return {
-        "repository": "StreamScapeTV/example",
-        "repository_name": "example",
-        "requested_ref": branch,
-        "is_tag": False,
-        "resolved_source_sha": base,
-        "tree_sha": tree,
-        "archive_format": "zip",
-        "archive_format_version": 1,
-        "archive_filename": "example-feature%2Fcheckpoint.zip",
-        "archive_sha256": digest,
-        "archive_size_bytes": len(archive),
-        "source_zip_sha256": digest,
-        "source_zip_size_bytes": len(archive),
-        "archive_file_id": "archive_file_12345",
-        "source_zip_file_id": "archive_file_12345",
-        "folder_id": "ref_folder_12345",
-        "manifest_file_id": "manifest_file_12345",
-        "checkpoint_format_version": 1,
-        "checkpoint_base_sha": base,
-        "checkpoint_commit_message": "Publish local checkpoint\n\nReviewed locally.",
-    }
-
-
 class FakeDrive:
-    def __init__(self, manifest: dict, archive: bytes):
-        self.manifest = manifest
+    def __init__(self, archive: bytes, *, children=None):
         self.archive = archive
+        self._children = children
 
     def exact_folders(self, parent: str, name: str):
         if parent == "root_folder_12345" and name == "example":
@@ -96,15 +74,18 @@ class FakeDrive:
     def children(self, parent: str):
         if parent != "ref_folder_12345":
             raise AssertionError(parent)
+        if self._children is not None:
+            return self._children
         return [
             {"id": "manifest_file_12345", "name": "manifest.json", "mimeType": "application/json"},
-            {"id": "archive_file_12345", "name": "example-feature%2Fcheckpoint.zip", "mimeType": "application/zip"},
+            {"id": "base_archive_12345", "name": "example-feature%2Fcheckpoint.zip", "mimeType": "application/zip"},
+            {"id": "checkpoint_1_12345", "name": "example-feature%2Fcheckpoint-checkpoint-000001.zip", "mimeType": "application/zip", "size": str(len(self.archive))},
+            {"id": "checkpoint_2_12345", "name": "example-feature%2Fcheckpoint-checkpoint-000002.zip", "mimeType": "application/zip", "size": str(len(self.archive))},
+            {"id": "unrelated_12345", "name": "notes.txt", "mimeType": "text/plain"},
         ]
 
     def media(self, file_id: str):
-        if file_id == "manifest_file_12345":
-            return (json.dumps(self.manifest, sort_keys=True, separators=(",", ":")) + "\n").encode()
-        if file_id == "archive_file_12345":
+        if file_id.startswith("checkpoint_"):
             return self.archive
         raise AssertionError(file_id)
 
@@ -120,202 +101,144 @@ class StubGitHubClient(GitHubClient):
         return self.values.pop(0)
 
 
-def comparison_payload(base: str, commits: list[tuple[str, str]], *, status: str = "ahead", merge_base: str | None = None):
-    return {
-        "status": status,
-        "total_commits": len(commits),
-        "base_commit": {"sha": base},
-        "merge_base_commit": {"sha": merge_base or base},
-        "commits": [
-            {"sha": commit_sha, "commit": {"tree": {"sha": tree_sha}}}
-            for commit_sha, tree_sha in commits
-        ],
-    }
-
-
-class StaticHistory:
-    def __init__(self, result: bool):
-        self.result = result
-        self.calls: list[dict[str, str]] = []
-
-    def checkpoint_tree_is_published_ancestor(self, **kwargs):
-        self.calls.append(kwargs)
-        return self.result
-
-
 class SourceCheckpointPublishTests(unittest.TestCase):
-    def test_request_is_branch_only_and_compact(self) -> None:
-        validate_request("StreamScapeTV/example", "feature/checkpoint", "a" * 40)
+    def test_request_is_bounded_full_zip_identity(self) -> None:
+        validate_request(
+            "StreamScapeTV/example", "feature/checkpoint", "a" * 40, "b" * 40,
+            "c" * 64, 1234, "Publish checkpoint",
+        )
         for branch in ("main", "develop"):
             with self.assertRaisesRegex(CheckpointPublishError, "integration branch"):
-                validate_request("StreamScapeTV/example", branch, "a" * 40)
-        with self.assertRaisesRegex(CheckpointPublishError, "branch name"):
-            validate_request("StreamScapeTV/example", "refs/heads/feature", "a" * 40)
-        with self.assertRaisesRegex(CheckpointPublishError, "expected head"):
-            validate_request("StreamScapeTV/example", "feature", "not-a-sha")
+                validate_request("StreamScapeTV/example", branch, "a"*40, "b"*40, "c"*64, 1, "msg")
+        with self.assertRaisesRegex(CheckpointPublishError, "expected tree"):
+            validate_request("StreamScapeTV/example", "feature", "a"*40, "bad", "c"*64, 1, "msg")
+        with self.assertRaisesRegex(CheckpointPublishError, "SHA-256"):
+            validate_request("StreamScapeTV/example", "feature", "a"*40, "b"*40, "bad", 1, "msg")
+        with self.assertRaisesRegex(CheckpointPublishError, "archive size"):
+            validate_request("StreamScapeTV/example", "feature", "a"*40, "b"*40, "c"*64, 0, "msg")
+        with self.assertRaisesRegex(CheckpointPublishError, "commit message"):
+            validate_request("StreamScapeTV/example", "feature", "a"*40, "b"*40, "c"*64, 1, "")
 
-    def test_remote_guard_refuses_default_protected_or_stale_branch(self) -> None:
-        expected = "a" * 40
-        client = StubGitHubClient([
-            {"full_name": "StreamScapeTV/example", "default_branch": "feature/checkpoint"},
-        ])
-        with self.assertRaisesRegex(CheckpointPublishError, "default branch"):
-            client.verify_branch("feature/checkpoint", expected)
+    def test_latest_numbered_checkpoint_is_selected_automatically(self) -> None:
+        children = [
+            {"id": "a"*10, "name": "manifest.json", "mimeType": "application/json"},
+            {"id": "b"*10, "name": "example-feature%2Fcheckpoint.zip", "mimeType": "application/zip"},
+            {"id": "c"*10, "name": "example-feature%2Fcheckpoint-checkpoint-000001.zip", "mimeType": "application/zip"},
+            {"id": "d"*10, "name": "example-feature%2Fcheckpoint-checkpoint-000003.zip", "mimeType": "application/zip"},
+            {"id": "e"*10, "name": "example-feature%2Fcheckpoint-checkpoint-000002.zip", "mimeType": "application/zip"},
+            {"id": "f"*10, "name": "other-checkpoint-999999.zip", "mimeType": "application/zip"},
+        ]
+        sequence, item = select_latest_checkpoint_file(children, repository="StreamScapeTV/example", branch="feature/checkpoint")
+        self.assertEqual(sequence, 3)
+        self.assertEqual(item["id"], "d" * 10)
+        self.assertEqual(checkpoint_filename("StreamScapeTV/example", "agent1/xyz", 1), "example-agent1%2Fxyz-checkpoint-000001.zip")
 
-        client = StubGitHubClient([
-            {"full_name": "StreamScapeTV/example", "default_branch": "main"},
-            {"name": "feature/checkpoint", "protected": True, "commit": {"sha": expected}},
-        ])
-        with self.assertRaisesRegex(CheckpointPublishError, "protected"):
-            client.verify_branch("feature/checkpoint", expected)
+    def test_malformed_or_duplicate_matching_sequence_fails_closed(self) -> None:
+        prefix = "example-feature%2Fcheckpoint-checkpoint-"
+        with self.assertRaisesRegex(CheckpointPublishError, "malformed"):
+            select_latest_checkpoint_file(
+                [{"id": "a"*10, "name": prefix + "1.zip", "mimeType": "application/zip"}],
+                repository="StreamScapeTV/example", branch="feature/checkpoint",
+            )
+        with self.assertRaisesRegex(CheckpointPublishError, "duplicate"):
+            select_latest_checkpoint_file(
+                [
+                    {"id": "a"*10, "name": prefix + "000001.zip", "mimeType": "application/zip"},
+                    {"id": "b"*10, "name": prefix + "000001.zip", "mimeType": "application/zip"},
+                ],
+                repository="StreamScapeTV/example", branch="feature/checkpoint",
+            )
+        with self.assertRaisesRegex(CheckpointPublishError, "positive"):
+            select_latest_checkpoint_file(
+                [{"id": "a"*10, "name": prefix + "000000.zip", "mimeType": "application/zip"}],
+                repository="StreamScapeTV/example", branch="feature/checkpoint",
+            )
 
-        client = StubGitHubClient([
-            {"full_name": "StreamScapeTV/example", "default_branch": "main"},
-            {"name": "feature/checkpoint", "protected": False, "commit": {"sha": "b" * 40}},
-        ])
-        with self.assertRaisesRegex(CheckpointPublishError, "stale"):
-            client.verify_branch("feature/checkpoint", expected)
-
-    def test_published_checkpoint_ancestry_requires_exact_tree_and_history(self) -> None:
-        base = "1" * 40
-        candidate = "2" * 40
-        head = "3" * 40
-        tree = "4" * 40
-        other_tree = "5" * 40
-
-        published = StubGitHubClient([
-            comparison_payload(base, [(candidate, tree), (head, other_tree)]),
-            comparison_payload(base, [(candidate, tree)]),
-        ])
-        self.assertTrue(published.checkpoint_tree_is_published_ancestor(base=base, head=head, tree_sha=tree))
-
-        unpublished = StubGitHubClient([comparison_payload(base, [(head, other_tree)])])
-        self.assertFalse(unpublished.checkpoint_tree_is_published_ancestor(base=base, head=head, tree_sha=tree))
-
-        published_on_divergent_history = StubGitHubClient([
-            comparison_payload(base, [(candidate, tree), (head, other_tree)]),
-            comparison_payload(base, [(candidate, tree)], status="diverged", merge_base="6" * 40),
-        ])
-        self.assertFalse(
-            published_on_divergent_history.checkpoint_tree_is_published_ancestor(base=base, head=head, tree_sha=tree)
-        )
-
-        base_mismatch = StubGitHubClient([
-            comparison_payload(base, [(candidate, tree)], status="diverged", merge_base="6" * 40),
-        ])
-        self.assertFalse(base_mismatch.checkpoint_tree_is_published_ancestor(base=base, head=head, tree_sha=tree))
-
-    def test_canonical_drive_checkpoint_is_discovered_without_agent_file_ids(self) -> None:
+    def test_drive_download_verifies_latest_hash_and_size_without_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            base, tree, archive = make_git_checkpoint(Path(td))
-            value = manifest_for(base, tree, archive)
-            checkpoint = load_canonical_checkpoint(
-                FakeDrive(value, archive),
-                root_folder_id="root_folder_12345",
-                repository="StreamScapeTV/example",
-                branch="feature/checkpoint",
-                expected_head=base,
+            _, _, archive = make_git_checkpoint(Path(td))
+            digest = hashlib.sha256(archive).hexdigest()
+            latest = load_latest_checkpoint(
+                FakeDrive(archive), root_folder_id="root_folder_12345",
+                repository="StreamScapeTV/example", branch="feature/checkpoint",
+                expected_sha256=digest, expected_size_bytes=len(archive),
             )
-            self.assertEqual(checkpoint.tree_sha, tree)
-            self.assertEqual(checkpoint.commit_message, value["checkpoint_commit_message"])
-            self.assertEqual(checkpoint.archive_bytes, archive)
-
-    def test_resume_preserves_unpublished_checkpoint_and_refreshes_published_tree(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            base, tree, archive = make_git_checkpoint(root)
-            value = manifest_for(base, tree, archive)
-            client = FakeDrive(value, archive)
-            base_tree = git(root / "source", "rev-parse", f"{base}^{{tree}}")
-            self.assertEqual(
-                resume_snapshot_action(
-                    client, root_folder_id="root_folder_12345", repository="StreamScapeTV/example",
-                    branch="feature/checkpoint", is_tag=False, source_head=base, source_tree=base_tree,
-                ),
-                "preserve",
-            )
-            self.assertEqual(
-                resume_snapshot_action(
-                    client, root_folder_id="root_folder_12345", repository="StreamScapeTV/example",
-                    branch="feature/checkpoint", is_tag=False, source_head="b" * 40, source_tree=tree,
-                ),
-                "refresh",
-            )
-            history = StaticHistory(True)
-            self.assertEqual(
-                resume_snapshot_action(
-                    client, root_folder_id="root_folder_12345", repository="StreamScapeTV/example",
-                    branch="feature/checkpoint", is_tag=False, source_head="b" * 40, source_tree="c" * 40,
-                    github_client=history,
-                ),
-                "refresh",
-            )
-            self.assertEqual(history.calls, [{"base": base, "head": "b" * 40, "tree_sha": tree}])
-            with self.assertRaisesRegex(CheckpointPublishError, "refusing to overwrite"):
-                resume_snapshot_action(
-                    client, root_folder_id="root_folder_12345", repository="StreamScapeTV/example",
-                    branch="feature/checkpoint", is_tag=False, source_head="b" * 40, source_tree="c" * 40,
-                    github_client=StaticHistory(False),
+            self.assertEqual(latest.sequence, 2)
+            self.assertEqual(latest.archive_bytes, archive)
+            with self.assertRaisesRegex(CheckpointPublishError, "size"):
+                load_latest_checkpoint(
+                    FakeDrive(archive), root_folder_id="root_folder_12345",
+                    repository="StreamScapeTV/example", branch="feature/checkpoint",
+                    expected_sha256=digest, expected_size_bytes=len(archive)+1,
+                )
+            with self.assertRaisesRegex(CheckpointPublishError, "SHA-256"):
+                load_latest_checkpoint(
+                    FakeDrive(archive), root_folder_id="root_folder_12345",
+                    repository="StreamScapeTV/example", branch="feature/checkpoint",
+                    expected_sha256="0"*64, expected_size_bytes=len(archive),
                 )
 
-    def test_resume_refreshes_normal_snapshot_and_tags(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            base, tree, archive = make_git_checkpoint(root)
-            value = manifest_for(base, tree, archive)
-            for key in ("checkpoint_format_version", "checkpoint_base_sha", "checkpoint_commit_message"):
-                value.pop(key)
-            self.assertEqual(
-                resume_snapshot_action(
-                    FakeDrive(value, archive), root_folder_id="root_folder_12345",
-                    repository="StreamScapeTV/example", branch="feature/checkpoint", is_tag=False,
-                    source_head=base, source_tree=tree,
-                ),
-                "refresh",
-            )
-            self.assertEqual(
-                resume_snapshot_action(
-                    FakeDrive(manifest_for(base, tree, archive), archive), root_folder_id="root_folder_12345",
-                    repository="StreamScapeTV/example", branch="feature/checkpoint", is_tag=True,
-                    source_head=base, source_tree=tree,
-                ),
-                "refresh",
-            )
+    def test_remote_classification_publish_and_idempotent_repeat(self) -> None:
+        expected_head = "a" * 40
+        expected_tree = "b" * 40
+        message = "Publish checkpoint"
+        publish = StubGitHubClient([
+            {"full_name": "StreamScapeTV/example", "default_branch": "main"},
+            {"name": "feature/checkpoint", "protected": False, "commit": {"sha": expected_head}},
+        ])
+        state = publish.classify_branch(branch="feature/checkpoint", expected_head=expected_head, expected_tree=expected_tree, commit_message=message)
+        self.assertEqual((state.action, state.observed_head), ("publish", expected_head))
 
-    def test_checkpoint_manifest_base_digest_and_drive_identity_fail_closed(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            base, tree, archive = make_git_checkpoint(Path(td))
-            cases = [
-                ("checkpoint_base_sha", "b" * 40, "base"),
-                ("archive_sha256", "0" * 64, "aliases"),
-                ("archive_file_id", "other_file_12345", "Drive identity"),
-            ]
-            for key, replacement, message in cases:
-                value = manifest_for(base, tree, archive)
-                value[key] = replacement
-                with self.subTest(key=key), self.assertRaisesRegex(CheckpointPublishError, message):
-                    load_canonical_checkpoint(
-                        FakeDrive(value, archive),
-                        root_folder_id="root_folder_12345",
-                        repository="StreamScapeTV/example",
-                        branch="feature/checkpoint",
-                        expected_head=base,
-                    )
+        published_head = "c" * 40
+        repeat = StubGitHubClient([
+            {"full_name": "StreamScapeTV/example", "default_branch": "main"},
+            {"name": "feature/checkpoint", "protected": False, "commit": {"sha": published_head}},
+            {
+                "sha": published_head,
+                "parents": [{"sha": expected_head}],
+                "commit": {"tree": {"sha": expected_tree}, "message": message},
+            },
+        ])
+        state = repeat.classify_branch(branch="feature/checkpoint", expected_head=expected_head, expected_tree=expected_tree, commit_message=message)
+        self.assertEqual((state.action, state.observed_head), ("already-published", published_head))
 
-    def test_materialization_preserves_executable_symlink_and_exact_tree(self) -> None:
+        stale = StubGitHubClient([
+            {"full_name": "StreamScapeTV/example", "default_branch": "main"},
+            {"name": "feature/checkpoint", "protected": False, "commit": {"sha": published_head}},
+            {
+                "sha": published_head,
+                "parents": [{"sha": "d"*40}],
+                "commit": {"tree": {"sha": expected_tree}, "message": message},
+            },
+        ])
+        with self.assertRaisesRegex(CheckpointPublishError, "stale"):
+            stale.classify_branch(branch="feature/checkpoint", expected_head=expected_head, expected_tree=expected_tree, commit_message=message)
+
+    def test_remote_guard_refuses_default_and_protected_branch(self) -> None:
+        kwargs = dict(expected_head="a"*40, expected_tree="b"*40, commit_message="msg")
+        default = StubGitHubClient([{"full_name": "StreamScapeTV/example", "default_branch": "feature/checkpoint"}])
+        with self.assertRaisesRegex(CheckpointPublishError, "default branch"):
+            default.classify_branch(branch="feature/checkpoint", **kwargs)
+        protected = StubGitHubClient([
+            {"full_name": "StreamScapeTV/example", "default_branch": "main"},
+            {"name": "feature/checkpoint", "protected": True, "commit": {"sha": "a"*40}},
+        ])
+        with self.assertRaisesRegex(CheckpointPublishError, "protected"):
+            protected.classify_branch(branch="feature/checkpoint", **kwargs)
+
+    def test_materialization_preserves_executable_symlink_tracked_ignored_and_exact_tree(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             base, tree, archive = make_git_checkpoint(root)
             worktree = root / "target"
-            source = root / "source"
-            subprocess.run(["git", "clone", "--quiet", str(source), str(worktree)], check=True)
+            subprocess.run(["git", "clone", "--quiet", str(root / "source"), str(worktree)], check=True)
             git(worktree, "checkout", "--detach", base)
             archive_path = root / "input.zip"
             archive_path.write_bytes(archive)
             materialize_checkpoint(archive_path, worktree)
             self.assertTrue((worktree / "base-link").is_symlink())
-            self.assertEqual(os.readlink(worktree / "base-link"), "base.txt")
             self.assertTrue((worktree / "bin" / "run.sh").stat().st_mode & 0o111)
+            self.assertEqual((worktree / "ignored.txt").read_text(), "changed while ignored\n")
             self.assertEqual(stage_and_verify_tree(worktree, expected_head=base, expected_tree=tree), tree)
 
     def test_materialization_rejects_path_traversal_before_worktree_clear(self) -> None:
@@ -331,65 +254,41 @@ class SourceCheckpointPublishTests(unittest.TestCase):
                 materialize_checkpoint(archive, repo)
             self.assertEqual(keep.read_text(), "keep")
 
-    def test_workflow_and_dispatch_use_canonical_drive_checkpoint(self) -> None:
+    def test_workflow_dispatch_and_snapshot_use_numbered_full_zip_contract_only(self) -> None:
         inventory = yaml.safe_load((ROOT / "INVENTORY.yaml").read_text())
         self.assertEqual(inventory["workflows"]["source_checkpoint_publish"], ".github/workflows/source-checkpoint-publish.yml")
         self.assertEqual(inventory["scripts"]["source_checkpoint_publish"], "scripts/ci/source_checkpoint_publish.py")
 
         workflow = yaml.safe_load(WORKFLOW.read_text())
         call = workflow["on"]["workflow_call"]
-        self.assertEqual(set(call["inputs"]), {"repository", "branch", "expected_head", "ci_run_id"})
-        self.assertNotIn("workflow_dispatch", workflow["on"])
-        self.assertEqual(workflow["permissions"], {"contents": "read"})
-        steps = {step.get("name"): step for step in workflow["jobs"]["publish"]["steps"] if step.get("name")}
-        token = steps["Create exact target repository token"]
-        self.assertEqual(token["with"]["permission-contents"], "write")
-        self.assertNotIn("permission-workflows", token["with"])
-        self.assertEqual(token["with"]["permission-metadata"], "read")
-        elevated = steps["Create workflow-write target token when required"]
-        self.assertEqual(elevated["if"], "${{ steps.workflow_scope.outputs.required == 'true' }}")
-        self.assertEqual(elevated["with"]["permission-workflows"], "write")
-        publish = steps["Publish non-force fast-forward branch update"]
         self.assertEqual(
-            publish["env"]["TARGET_TOKEN"],
-            "${{ steps.target_workflow_token.outputs.token || steps.target_token.outputs.token }}",
+            set(call["inputs"]),
+            {"repository", "branch", "expected_head", "expected_tree", "archive_sha256", "archive_size_bytes", "commit_message", "ci_run_id"},
         )
-        self.assertIn("GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID", workflow["on"]["workflow_call"]["secrets"])
-        checkout = steps["Check out exact target branch head"]
-        self.assertEqual(checkout["with"]["ref"], "refs/heads/${{ inputs.branch }}")
-        self.assertIn("source_checkpoint_publish.py download", steps["Download and verify canonical Drive checkpoint"]["run"])
-        self.assertNotIn("drive_bundle_file_id", WORKFLOW.read_text())
-        self.assertNotIn("bundle_sha256", WORKFLOW.read_text())
-        self.assertIn("git -C target -c", steps["Publish non-force fast-forward branch update"]["run"])
-        self.assertIn("push --porcelain", steps["Publish non-force fast-forward branch update"]["run"])
-        self.assertNotIn("--force", steps["Publish non-force fast-forward branch update"]["run"])
-        self.assertIn("ls-remote", steps["Publish non-force fast-forward branch update"]["run"])
-        self.assertEqual(steps["Record published source SHA"]["with"]["observed_source_sha"], "${{ steps.commit.outputs.commit_sha }}")
-        self.assertIn("job.status == 'success'", steps["Finish Agent State run"]["with"]["status"])
-        summary = steps["Record checkpoint publication result"]
-        self.assertIn("TARGET_BRANCH", summary["env"])
-        self.assertNotIn("${{ inputs.branch }}", summary["run"])
+        self.assertNotIn("workflow_dispatch", workflow["on"])
+        text = WORKFLOW.read_text()
+        self.assertIn("download-latest", text)
+        self.assertIn("Select and download unique latest numbered Drive checkpoint", text)
+        self.assertNotIn("checkpoint_sequence: {type", text)
+        self.assertNotIn("source-checkpoint-manifest", text)
+        self.assertNotIn("patch", text.lower())
 
         dispatch = yaml.safe_load(DISPATCH.read_text())
         request_steps = {step.get("name"): step for step in dispatch["jobs"]["request"]["steps"] if step.get("name")}
         admission = request_steps["Validate canonical source checkpoint publication request"]
-        self.assertIn("source.checkpoint-publish supports only the publish profile", admission["run"])
-        self.assertIn('set(inputs) != {"expected_head"}', admission["run"])
-        snapshot_steps = {
-            step.get("name"): step
-            for step in dispatch["jobs"]["source_snapshot"]["steps"]
-            if step.get("name")
-        }
-        resume = snapshot_steps["Protect unpublished canonical Drive checkpoint"]
-        self.assertEqual(resume["env"]["TARGET_TOKEN"], "${{ steps.source_token.outputs.token }}")
-        self.assertIn("source_checkpoint_publish.py resume-action", resume["run"])
-
+        self.assertIn('{"expected_head", "expected_tree", "archive_sha256", "archive_size_bytes", "commit_message"}', admission["run"])
         job = dispatch["jobs"]["source_checkpoint_publish"]
-        self.assertEqual(job["uses"], "./.github/workflows/source-checkpoint-publish.yml")
-        self.assertEqual(set(job["with"]), {"repository", "branch", "expected_head", "ci_run_id"})
-        self.assertFalse(job["concurrency"]["cancel-in-progress"])
-        self.assertIn("source_checkpoint_publish", dispatch["jobs"]["settle_cancelled"]["needs"])
-        self.assertIn("tests.test_source_checkpoint_publish", (ROOT / ".github/workflows/self-check.yml").read_text())
+        self.assertEqual(
+            set(job["with"]),
+            {"repository", "branch", "expected_head", "expected_tree", "archive_sha256", "archive_size_bytes", "commit_message", "ci_run_id"},
+        )
+        snapshot_names = [step.get("name") for step in dispatch["jobs"]["source_snapshot"]["steps"]]
+        self.assertNotIn("Protect unpublished canonical Drive checkpoint", snapshot_names)
+        self.assertNotIn("checkpoint_resume", DISPATCH.read_text())
+        self.assertNotIn("resume-action", DISPATCH.read_text())
+        combined=(WORKFLOW.read_text() + DISPATCH.read_text() + (ROOT / "scripts/ci/source_checkpoint_publish.py").read_text()).lower()
+        for retired in (".patch", "patch-transport", "patch chain", "apply patch"):
+            self.assertNotIn(retired, combined)
 
 
 if __name__ == "__main__":

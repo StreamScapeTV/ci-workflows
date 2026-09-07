@@ -39,6 +39,27 @@ def _query_literal(value: str) -> str:
     return value.replace("\\", "\\\\").replace("'", "\\'")
 
 
+def _checkpoint_prefix(repository: str, ref: str) -> str:
+    repository_name = repository.rsplit("/", 1)[1]
+    return f"{repository_name}-{urllib.parse.quote(ref, safe='')}-checkpoint-"
+
+
+def _validate_numbered_checkpoint_names(names: list[str], *, repository: str, ref: str) -> None:
+    prefix = _checkpoint_prefix(repository, ref)
+    pattern = re.compile(re.escape(prefix) + r"([0-9]{6})\.zip\Z")
+    seen: set[int] = set()
+    for name in names:
+        match = pattern.fullmatch(name)
+        if match is None:
+            raise SnapshotDeleteError("Google Drive snapshot ref folder contains an unexpected non-snapshot file")
+        sequence = int(match.group(1))
+        if sequence < 1:
+            raise SnapshotDeleteError("Google Drive snapshot checkpoint sequence must be positive")
+        if sequence in seen:
+            raise SnapshotDeleteError("Google Drive snapshot ref folder contains duplicate checkpoint sequence")
+        seen.add(sequence)
+
+
 @dataclass
 class DriveClient:
     access_token: str
@@ -227,14 +248,34 @@ def delete_snapshot(
         raise SnapshotDeleteError("Google Drive snapshot ref folder contains an unexpected child folder")
 
     manifests = [child for child in children if child.get("name") == "manifest.json"]
-    archives = [child for child in children if child.get("name") != "manifest.json"]
-    if len(manifests) != 1 or len(archives) > 1:
-        raise SnapshotDeleteError("Google Drive snapshot ref folder must contain exactly manifest.json and at most one archive")
+    if len(manifests) != 1:
+        raise SnapshotDeleteError("Google Drive snapshot ref folder must contain exactly one manifest.json")
 
     manifest = manifests[0]
-    archive = archives[0] if archives else None
+    raw_manifest = client.media(manifest["id"])
+    try:
+        manifest_value = json.loads(raw_manifest)
+    except json.JSONDecodeError:
+        raise SnapshotDeleteError("Google Drive snapshot manifest is invalid JSON") from None
+    if not isinstance(manifest_value, dict):
+        raise SnapshotDeleteError("Google Drive snapshot manifest must be one JSON object")
+    baseline_name = manifest_value.get("archive_filename", "source.zip")
+    if not isinstance(baseline_name, str) or not baseline_name or "/" in baseline_name or "\\" in baseline_name:
+        raise SnapshotDeleteError("Google Drive snapshot manifest archive filename is invalid")
+
+    non_manifest = [child for child in children if child.get("name") != "manifest.json"]
+    baseline_matches = [child for child in non_manifest if child.get("name") == baseline_name]
+    if len(baseline_matches) > 1:
+        raise SnapshotDeleteError("Google Drive snapshot ref folder contains duplicate baseline archive")
+    archive = baseline_matches[0] if baseline_matches else None
+    checkpoint_names = [
+        child["name"] for child in non_manifest
+        if child.get("name") != baseline_name
+    ]
+    _validate_numbered_checkpoint_names(checkpoint_names, repository=repository, ref=ref)
+
     _validate_manifest(
-        client.media(manifest["id"]),
+        raw_manifest,
         repository=repository,
         ref=ref,
         expected_source_sha=expected_source_sha,
