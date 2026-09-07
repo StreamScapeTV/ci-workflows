@@ -501,6 +501,7 @@ jobs:
     with:
       repository: ${{ needs.request.outputs.repository }}
       ref: ${{ needs.request.outputs.ref }}
+      source_is_tag: ${{ needs.request.outputs.is_tag == 'true' }}
       image_name: ${{ fromJSON(needs.request.outputs.inputs_json).image_name }}
       chart_name: ${{ fromJSON(needs.request.outputs.inputs_json).chart_name }}
       chart_path: ${{ fromJSON(needs.request.outputs.inputs_json).chart_path }}

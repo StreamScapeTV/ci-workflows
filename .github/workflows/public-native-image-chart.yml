@@ -9,6 +9,10 @@ name: Private native image and Helm release
       ref:
         type: string
         required: true
+      source_is_tag:
+        type: boolean
+        required: false
+        default: true
       image_name:
         type: string
         required: true
@@ -115,11 +119,33 @@ jobs:
           private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
           owner: StreamScapeTV
 
-      - name: Check out exact tagged product source
+      - name: Resolve bounded release source ref
+        id: requested_ref
+        shell: bash
+        env:
+          RELEASE_REF: ${{ inputs.ref }}
+          SOURCE_IS_TAG: ${{ inputs.source_is_tag }}
+        run: |
+          set -Eeuo pipefail
+          case "${SOURCE_IS_TAG}" in
+            true) full_ref="refs/tags/${RELEASE_REF}" ;;
+            false)
+              test "${RELEASE_REF}" = main || {
+                echo 'Branch releases require the main integration branch.' >&2
+                exit 2
+              }
+              full_ref=refs/heads/main
+              ;;
+            *) echo 'Invalid release ref kind.' >&2; exit 2 ;;
+          esac
+          git check-ref-format "${full_ref}" >/dev/null
+          printf 'full_ref=%s\n' "${full_ref}" >> "${GITHUB_OUTPUT}"
+
+      - name: Check out exact product source ref
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.repository }}
-          ref: ${{ inputs.ref }}
+          ref: ${{ steps.requested_ref.outputs.full_ref }}
           token: ${{ steps.source_token.outputs.token }}
           path: source
           fetch-depth: 0
@@ -127,20 +153,20 @@ jobs:
           persist-credentials: false
 
       - id: authority
-        name: Verify exact tag authority
+        name: Verify exact source ref authority
         shell: bash
         env:
-          RELEASE_TAG: ${{ inputs.ref }}
+          SOURCE_REF: ${{ steps.requested_ref.outputs.full_ref }}
         run: |
           set -Eeuo pipefail
-          git -C source show-ref --verify --quiet "refs/tags/${RELEASE_TAG}"
+          git -C source show-ref --verify --quiet "${SOURCE_REF}"
           source_sha="$(git -C source rev-parse HEAD)"
-          tag_sha="$(git -C source rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
-          test "${source_sha}" = "${tag_sha}"
+          ref_sha="$(git -C source rev-parse "${SOURCE_REF}^{commit}")"
+          test "${source_sha}" = "${ref_sha}"
           test -z "$(git -C source status --porcelain=v1 --untracked-files=all)"
           printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
 
-      - name: Record exact tagged product source SHA
+      - name: Record exact product source SHA
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
         env:
           AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
@@ -344,11 +370,11 @@ jobs:
           require_unused "${image_reference}"
           require_unused "${chart_reference}"
 
-      - name: Revalidate exact tag before publication
+      - name: Revalidate exact source ref before publication
         id: revalidate
         shell: bash
         env:
-          RELEASE_TAG: ${{ inputs.ref }}
+          SOURCE_REF: ${{ steps.requested_ref.outputs.full_ref }}
           SOURCE_SHA: ${{ steps.authority.outputs.source_sha }}
           SOURCE_TOKEN: ${{ steps.source_token.outputs.token }}
         run: |
@@ -356,10 +382,10 @@ jobs:
           auth_header="$(printf 'x-access-token:%s' "${SOURCE_TOKEN}" | base64 -w0)"
           git -C source \
             -c http.https://github.com/.extraheader="AUTHORIZATION: basic ${auth_header}" \
-            fetch --force --tags origin >> "${CI_LOG}" 2>&1
+            fetch --no-tags origin "${SOURCE_REF}" >> "${CI_LOG}" 2>&1
           unset auth_header
           test "$(git -C source rev-parse HEAD)" = "${SOURCE_SHA}"
-          test "$(git -C source rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" = "${SOURCE_SHA}"
+          test "$(git -C source rev-parse "FETCH_HEAD^{commit}")" = "${SOURCE_SHA}"
           test -z "$(git -C source status --porcelain=v1 --untracked-files=all)"
 
       - name: Publish immutable image and chart
@@ -377,7 +403,7 @@ jobs:
           test -n "${REMOTE_IMAGE_REFERENCE}"
           test -f "${PACKAGE_PATH}"
           buildah inspect "${LOCAL_IMAGE_REFERENCE}" >> "${CI_LOG}" 2>&1
-          buildah push --authfile "${REGISTRY_AUTH_FILE}" "${LOCAL_IMAGE_REFERENCE}" "docker://${REMOTE_IMAGE_REFERENCE}" >> "${CI_LOG}" 2>&1
+          buildah push --digestfile "${RUNNER_TEMP}/private-native-image-chart/pushed-image.digest" --authfile "${REGISTRY_AUTH_FILE}" "${LOCAL_IMAGE_REFERENCE}" "docker://${REMOTE_IMAGE_REFERENCE}" >> "${CI_LOG}" 2>&1
           helm push "${PACKAGE_PATH}" "oci://${REGISTRY}/${CHART_NAMESPACE}" >> "${CI_LOG}" 2>&1
 
       - id: readback
@@ -399,8 +425,11 @@ jobs:
           from pathlib import Path
           value = json.loads(Path(sys.argv[1]).read_text())
           digest = value.get("Digest", "")
-          if not isinstance(digest, str) or not digest.startswith("sha256:"):
-              raise SystemExit("private image read-back returned no digest")
+          import os, re
+          expected = (Path(os.environ["RUNNER_TEMP"]) / "private-native-image-chart/pushed-image.digest").read_text().strip()
+          if not re.fullmatch(r"sha256:[0-9a-f]{64}", expected) or digest != expected:
+              raise SystemExit("private image read-back does not match the published digest")
+          print("Verified published image digest:", digest)
           PY
           helm pull "oci://${REGISTRY}/${CHART_NAMESPACE}/${CHART_NAME}" \
             --version "${VERSION}" \

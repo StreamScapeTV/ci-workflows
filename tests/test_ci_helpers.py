@@ -634,7 +634,7 @@ class CiHelperTests(unittest.TestCase):
         self.assertIn('repository: ${{ needs.request.outputs.repository }}', dispatch)
         self.assertIn('ref: ${{ needs.request.outputs.ref }}', dispatch)
         self.assertIn('repository: ${{ inputs.repository }}', release)
-        self.assertIn('ref: ${{ inputs.ref }}', release)
+        self.assertIn('ref: ${{ steps.requested_ref.outputs.full_ref }}', release)
         self.assertIn('test "${{ inputs.publish_latest_image }}" = false', release)
         self.assertIn('REGISTRY: git.faruqi.dev', release)
         self.assertIn('FORGEJO_REGISTRY_USERNAME', release)
