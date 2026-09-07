@@ -438,67 +438,89 @@ if ( validate "$long" ); then exit 93; fi
         self.assertIn("needs.apple_release.result == 'cancelled'", settlement["if"])
         self.assertIn("needs.apple_binary.result == 'cancelled'", settlement["if"])
 
-    def test_historical_host_materializes_only_the_exact_approved_bootstrap(self) -> None:
+    def test_private_forgejo_media_materialization_reuses_existing_read_credentials(self) -> None:
+        workflow_call = self.workflow["on"]["workflow_call"]
+        for name in (
+            "TS_OAUTH_CLIENT_ID",
+            "TS_OAUTH_SECRET",
+            "FORGEJO_REGISTRY_USERNAME",
+            "CIW_MAVEN_PACKAGE_READ_TOKEN",
+        ):
+            self.assertIn(name, workflow_call["secrets"])
+            self.assertFalse(workflow_call["secrets"][name]["required"])
+
         execute = self.workflow["jobs"]["execute"]
-        command_step = next(
-            step for step in execute["steps"] if step.get("name") == "Run fixed Apple lane"
-        )
-        script = command_step["run"]
+        by_name = {step.get("name"): step for step in execute["steps"] if step.get("name")}
+        connect = by_name["Connect to private Git service for Apple dependency materialization"]
+        self.assertEqual(connect["uses"], "StreamScapeTV/ci-workflows/actions/private-git@main")
+        self.assertEqual(connect["env"]["TS_OAUTH_CLIENT_ID"], "${{ secrets.TS_OAUTH_CLIENT_ID }}")
+        self.assertEqual(connect["env"]["TS_OAUTH_SECRET"], "${{ secrets.TS_OAUTH_SECRET }}")
+
+        prepare = by_name["Materialize fixed Streamscape Media Apple dependency"]
         self.assertEqual(
-            command_step["env"]["SOURCE_REPOSITORY"],
-            "${{ inputs.repository || github.repository }}",
+            prepare["env"]["CI_APPLE_BINARY_PACKAGE_USERNAME"],
+            "${{ secrets.FORGEJO_REGISTRY_USERNAME }}",
         )
-        self.assertIn("materialize_historical_media_bootstrap()", script)
-        self.assertIn("512db0f5b2513ad7d3a2b53bbc132ea29742bb63", script)
-        self.assertIn("f610e568dabf621cf5e9e23d5541571e2feb7122", script)
-        self.assertIn("dbe258b0487b4dfe023bfda1f27bf2cc013c2490", script)
-        self.assertIn("492be28b492dd6bc3458cbd884893869e150818e", script)
+        self.assertEqual(
+            prepare["env"]["CI_APPLE_BINARY_PACKAGE_READ_TOKEN"],
+            "${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}",
+        )
+        self.assertNotIn("FORGEJO_REGISTRY_TOKEN", str(prepare))
+        script = prepare["run"]
+        for exact in (
+            "512db0f5b2513ad7d3a2b53bbc132ea29742bb63",
+            "f610e568dabf621cf5e9e23d5541571e2feb7122",
+            "dbe258b0487b4dfe023bfda1f27bf2cc013c2490",
+            "492be28b492dd6bc3458cbd884893869e150818e",
+        ):
+            self.assertIn(exact, script)
         self.assertIn("application/vnd.github.raw+json", script)
         self.assertIn("git hash-object", script)
-        self.assertIn("run_xcode_logged()", script)
+        self.assertIn('bash "${helper}"', script)
+        self.assertIn("HISTORICAL_RECOVERY_ACTIVE", script)
+
+        command = by_name["Run fixed Apple lane"]
+        self.assertNotIn("CI_APPLE_BINARY_PACKAGE_READ_TOKEN", command.get("env", {}))
+        self.assertNotIn("CI_APPLE_BINARY_PACKAGE_USERNAME", command.get("env", {}))
+        command_script = command["run"]
+        self.assertNotIn("bootstrap-streamscape-media-binary.sh", command_script)
+        self.assertIn("run_xcode_logged()", command_script)
+        self.assertIn("HISTORICAL_RECOVERY_ACTIVE", command_script)
         self.assertIn(
             "http.https://github.com/StreamScapeTV/streamscape-media.git.extraheader",
-            script,
+            command_script,
         )
-        self.assertIn("GIT_CONFIG_COUNT=1", script)
-        self.assertIn("GIT_CONFIG_VALUE_0=\"AUTHORIZATION: basic ${private_git_auth}\"", script)
-        self.assertNotIn("git config --global", script)
-        self.assertNotIn("git config --local", script)
-        self.assertNotIn("insteadOf", script)
-        self.assertEqual(script.count("materialize_historical_media_bootstrap"), 7)
-        self.assertEqual(script.count("run_xcode_logged"), 7)
+        self.assertEqual(command_script.count("run_xcode_logged"), 7)
+
+        scrub_env = by_name["Scrub configured CI secrets from private log"]["env"]
         self.assertEqual(
-            script.count("run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh"),
-            7,
+            scrub_env["CI_SECRET_FORGEJO_PACKAGE_USERNAME"],
+            "${{ secrets.FORGEJO_REGISTRY_USERNAME }}",
         )
-        release_start = script.index('release-build)')
-        release_end = script.index('swift-package)', release_start)
-        release_block = script[release_start:release_end]
-        self.assertIn("test -f scripts/bootstrap-streamscape-media-binary.sh", release_block)
-        self.assertNotIn("materialize_historical_media_bootstrap", release_block)
-        self.assertNotIn("run_xcode_logged", release_block)
+        self.assertEqual(
+            scrub_env["CI_SECRET_FORGEJO_PACKAGE_READ_TOKEN"],
+            "${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}",
+        )
 
-        generic_start = script.index('build|test|simulator)')
-        generic_end = script.index('swiftpm_xcode_args=()', generic_start)
-        generic_block = script[generic_start:generic_end]
-        self.assertNotIn("materialize_historical_media_bootstrap", generic_block)
-
-    def test_historical_bootstrap_guard_executes_without_caller_authority(self) -> None:
+    def test_historical_bootstrap_guard_and_scoped_media_step_execute(self) -> None:
         execute = self.workflow["jobs"]["execute"]
-        script = next(
-            step for step in execute["steps"] if step.get("name") == "Run fixed Apple lane"
-        )["run"]
-        start = script.index("materialize_historical_media_bootstrap() {")
-        end = script.index('\n\ncase "${TEST_PROFILE}"', start)
-        function_text = script[start:end]
+        prepare = next(
+            step
+            for step in execute["steps"]
+            if step.get("name") == "Materialize fixed Streamscape Media Apple dependency"
+        )
+        script = prepare["run"]
         probe = f"""
 set -Eeuo pipefail
-{function_text}
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 cd "$work"
+mkdir -p scripts
 export CI_LOG="$work/ci.log"
+export GITHUB_ENV="$work/github.env"
 export SOURCE_REPOSITORY="StreamScapeTV/iptv-apple"
+export CI_APPLE_BINARY_PACKAGE_USERNAME='forgejo-user'
+export CI_APPLE_BINARY_PACKAGE_READ_TOKEN='read-token'
 gh_calls=0
 git() {{
   case "$*" in
@@ -510,61 +532,16 @@ git() {{
 }}
 gh() {{
   gh_calls=$((gh_calls + 1))
-  printf '#!/usr/bin/env bash\\necho approved-helper\\n'
+  printf '#!/usr/bin/env bash\\nexit 0\\n'
 }}
-materialize_historical_media_bootstrap
+{script}
 [[ -f scripts/bootstrap-streamscape-media-binary.sh ]]
 [[ "$gh_calls" -eq 1 ]]
-[[ "${{historical_recovery_active}}" == true ]]
+grep -q '^HISTORICAL_RECOVERY_ACTIVE=true$' "$GITHUB_ENV"
 [[ "$(cat "$CI_LOG")" == *'Materialized approved historical Apple bootstrap helper'* ]]
-
-run_logged() {{
-  local label="$1"
-  shift
-  "$@"
-}}
-export CI_GITHUB_TOKEN='test-token'
-expected_auth="$(printf 'x-access-token:%s' "$CI_GITHUB_TOKEN" | /usr/bin/base64 | tr -d '\r\n')"
-assert_historical_git_env() {{
-  [[ "${{GIT_CONFIG_COUNT:-}}" == 1 ]]
-  [[ "${{GIT_CONFIG_KEY_0:-}}" == 'http.https://github.com/StreamScapeTV/streamscape-media.git.extraheader' ]]
-  [[ "${{GIT_CONFIG_VALUE_0:-}}" == "AUTHORIZATION: basic $expected_auth" ]]
-}}
-run_xcode_logged auth-probe assert_historical_git_env
-[[ -z "${{GIT_CONFIG_COUNT:-}}" ]]
-[[ -z "${{GIT_CONFIG_KEY_0:-}}" ]]
-[[ -z "${{GIT_CONFIG_VALUE_0:-}}" ]]
-
-# Current/non-historical Xcode receives no private Git config.
-historical_recovery_active=false
-assert_no_historical_git_env() {{
-  [[ -z "${{GIT_CONFIG_COUNT:-}}" ]]
-  [[ -z "${{GIT_CONFIG_KEY_0:-}}" ]]
-  [[ -z "${{GIT_CONFIG_VALUE_0:-}}" ]]
-}}
-run_xcode_logged normal-probe assert_no_historical_git_env
-
-# Existing current-source helper remains authoritative and skips historical retrieval.
-printf '#!/usr/bin/env bash\\n' > scripts/bootstrap-streamscape-media-binary.sh
-export SOURCE_REPOSITORY="StreamScapeTV/other"
-materialize_historical_media_bootstrap
-[[ "$gh_calls" -eq 1 ]]
-
-# Missing helper on any non-approved source fails closed.
-rm -f scripts/bootstrap-streamscape-media-binary.sh
-if materialize_historical_media_bootstrap; then
-  echo 'unexpected historical fallback for an unapproved repository' >&2
-  exit 98
-fi
-[[ "$gh_calls" -eq 1 ]]
+[[ "$(cat "$CI_LOG")" == *'===== prepare-media ====='* ]]
 """
-        result = subprocess.run(
-            ["bash"],
-            input=probe,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
+        result = subprocess.run(["bash"], input=probe, text=True, capture_output=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_agent_state_lifecycle_is_single_coordinator_and_single_finalizer(self) -> None:
