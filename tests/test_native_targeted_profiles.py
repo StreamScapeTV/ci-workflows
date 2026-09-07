@@ -137,6 +137,150 @@ class NativeTargetedProfileTests(unittest.TestCase):
         )
         self.assertIn('rm -rf -- "${ANDROID_AVD_HOME}"', cleanup)
 
+    def _run_android_targeted_command(
+        self,
+        *,
+        platform: str,
+        gradlew_body: str,
+        precreate_results: dict[str, bytes] | None = None,
+    ) -> tuple[subprocess.CompletedProcess[str], str]:
+        workflow = yaml.safe_load((ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8"))
+        command = next(
+            step for step in workflow["jobs"]["ci"]["steps"]
+            if step.get("name") == "Run fixed Android profile"
+        )["run"]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = Path(temp_dir)
+            runner_temp = temp / "runner-temp"
+            runner_temp.mkdir()
+            log_path = temp / "central-ci.log"
+            log_path.write_text("", encoding="utf-8")
+            gradlew = temp / "gradlew"
+            gradlew.write_text("#!/usr/bin/env bash\nset -Eeuo pipefail\n" + gradlew_body, encoding="utf-8")
+            gradlew.chmod(0o755)
+            for relative, data in (precreate_results or {}).items():
+                result_path = temp / relative
+                result_path.parent.mkdir(parents=True, exist_ok=True)
+                result_path.write_bytes(data)
+            result = subprocess.run(
+                ["bash", "-c", command],
+                cwd=temp,
+                env={
+                    **os.environ,
+                    "CI_LOG": str(log_path),
+                    "RUNNER_TEMP": str(runner_temp),
+                    "TEST_PROFILE": "targeted-tests",
+                    "TEST_PLATFORM": platform,
+                    "TEST_SELECTORS": json.dumps(
+                        ["com.streamscapetv.testing.integration.ExampleInstrumentationTest#fails"]
+                    ),
+                    "TEST_FILTER": "",
+                    "ROOM_SCHEMA": "false",
+                    "PROJECT_DIRECTORY": ".",
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            return result, log_path.read_text(encoding="utf-8", errors="replace")
+
+    def test_android_instrumentation_failure_appends_private_machine_readable_result(self) -> None:
+        failure_xml = b'''<?xml version="1.0" encoding="UTF-8"?>\n<testsuite tests="1" failures="1">\n  <testcase classname="com.streamscapetv.testing.integration.ExampleInstrumentationTest" name="fails">\n    <failure message="expected true but was false" type="java.lang.AssertionError">java.lang.AssertionError: expected true but was false\n\tat com.streamscapetv.testing.integration.ExampleInstrumentationTest.fails(ExampleInstrumentationTest.kt:42)</failure>\n  </testcase>\n</testsuite>\n'''
+        result, private_log = self._run_android_targeted_command(
+            platform="instrumentation",
+            gradlew_body='printf "%s\\n" "There were failing tests. See the report at: ephemeral/index.html"\nexit 1\n',
+            precreate_results={
+                "app/build/outputs/androidTest-results/connected/debug/TEST-example.xml": failure_xml,
+            },
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("gradle-targeted-tests failed; inspect the private Google Drive CI log.", result.stderr)
+        self.assertNotIn("expected true but was false", result.stderr)
+        self.assertNotIn("ExampleInstrumentationTest.kt:42", result.stderr)
+        self.assertIn("===== android-instrumentation-failure-evidence =====", private_log)
+        self.assertIn("max_files=20", private_log)
+        self.assertIn("max_result_bytes=262144", private_log)
+        self.assertIn(
+            "android-instrumentation-result path=app/build/outputs/androidTest-results/connected/debug/TEST-example.xml",
+            private_log,
+        )
+        self.assertIn("ExampleInstrumentationTest", private_log)
+        self.assertIn("name=\"fails\"", private_log)
+        self.assertIn("java.lang.AssertionError: expected true but was false", private_log)
+        self.assertIn("ExampleInstrumentationTest.kt:42", private_log)
+        self.assertIn("captured_files=1", private_log)
+        self.assertIn("result_files=1", private_log)
+
+    def test_android_instrumentation_failure_evidence_is_bounded(self) -> None:
+        oversized = b"<failure>" + (b"x" * 300000) + b"</failure>\n"
+        result, private_log = self._run_android_targeted_command(
+            platform="instrumentation",
+            gradlew_body="exit 1\n",
+            precreate_results={
+                "app/build/outputs/androidTest-results/connected/debug/TEST-oversized.xml": oversized,
+            },
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("captured_files=1", private_log)
+        self.assertIn("result_files=1", private_log)
+        self.assertIn("captured_result_bytes=262144", private_log)
+        self.assertIn(
+            "[TRUNCATED android instrumentation failure evidence at reviewed file/byte cap]",
+            private_log,
+        )
+
+    def test_android_instrumentation_failure_evidence_file_cap_is_stable(self) -> None:
+        results = {
+            f"module/build/outputs/androidTest-results/connected/debug/TEST-{index:02}.xml":
+                f"<failure>{index:02}</failure>\n".encode()
+            for index in reversed(range(22))
+        }
+        result, private_log = self._run_android_targeted_command(
+            platform="instrumentation",
+            gradlew_body="exit 1\n",
+            precreate_results=results,
+        )
+        self.assertEqual(result.returncode, 1)
+        headers = [
+            line
+            for line in private_log.splitlines()
+            if line.startswith("--- android-instrumentation-result path=")
+        ]
+        self.assertEqual(len(headers), 20)
+        self.assertEqual(headers, sorted(headers))
+        self.assertIn("captured_files=20", private_log)
+        self.assertIn("result_files=22", private_log)
+        self.assertNotIn("TEST-20.xml size=", private_log)
+        self.assertNotIn("TEST-21.xml size=", private_log)
+        self.assertIn(
+            "[TRUNCATED android instrumentation failure evidence at reviewed file/byte cap]",
+            private_log,
+        )
+
+    def test_android_instrumentation_success_does_not_append_failure_evidence(self) -> None:
+        result, private_log = self._run_android_targeted_command(
+            platform="instrumentation",
+            gradlew_body="exit 0\n",
+            precreate_results={
+                "app/build/outputs/androidTest-results/connected/debug/TEST-success.xml": b"<testsuite failures=\"0\"/>\n",
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("android-instrumentation-failure-evidence", private_log)
+        self.assertIn("===== gradle-wall-time =====", private_log)
+
+    def test_android_jvm_failure_does_not_append_instrumentation_evidence(self) -> None:
+        result, private_log = self._run_android_targeted_command(
+            platform="jvm",
+            gradlew_body="exit 1\n",
+            precreate_results={
+                "app/build/outputs/androidTest-results/connected/debug/TEST-stale.xml": b"<failure>private</failure>\n",
+            },
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("android-instrumentation-failure-evidence", private_log)
+        self.assertNotIn("<failure>private</failure>", private_log)
+
     def test_apple_targeted_profile_uses_fixed_lanes_and_no_product_test_name(self) -> None:
         text = (ROOT / ".github/workflows/apple.yml").read_text(encoding="utf-8")
         workflow = yaml.safe_load(text)
