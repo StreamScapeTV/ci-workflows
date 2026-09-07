@@ -55,6 +55,14 @@ name: Apple CI
         required: false
       GOOGLE_DRIVE_REFRESH_TOKEN:
         required: false
+      TS_OAUTH_CLIENT_ID:
+        required: false
+      TS_OAUTH_SECRET:
+        required: false
+      FORGEJO_REGISTRY_USERNAME:
+        required: false
+      CIW_MAVEN_PACKAGE_READ_TOKEN:
+        required: false
       APPLE_TEAM_ID:
         required: false
       APP_STORE_CONNECT_KEY_ID:
@@ -440,6 +448,83 @@ jobs:
             printf 'cache_hit=%s\n' "${CACHE_HIT:-false}"
           } >> "${CI_LOG}"
 
+      - name: Connect to private Git service for Apple dependency materialization
+        if: >-
+          ${{ (inputs.repository || github.repository) == 'StreamScapeTV/iptv-apple'
+              && inputs.test_profile != 'build'
+              && inputs.test_profile != 'test'
+              && inputs.test_profile != 'simulator'
+              && inputs.test_profile != 'testflight'
+              && inputs.test_profile != 'swift-package' }}
+        uses: StreamScapeTV/ci-workflows/actions/private-git@main
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+
+      - name: Materialize fixed Streamscape Media Apple dependency
+        if: >-
+          ${{ (inputs.repository || github.repository) == 'StreamScapeTV/iptv-apple'
+              && inputs.test_profile != 'build'
+              && inputs.test_profile != 'test'
+              && inputs.test_profile != 'simulator'
+              && inputs.test_profile != 'testflight'
+              && inputs.test_profile != 'swift-package' }}
+        shell: bash
+        env:
+          SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
+          GH_TOKEN: ${{ steps.source.outputs.token || github.token }}
+          CI_APPLE_BINARY_PACKAGE_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          CI_APPLE_BINARY_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${CI_APPLE_BINARY_PACKAGE_USERNAME}" || {
+            echo 'Missing fixed Forgejo package username for Apple dependency materialization' >&2
+            exit 1
+          }
+          test -n "${CI_APPLE_BINARY_PACKAGE_READ_TOKEN}" || {
+            echo 'Missing fixed Forgejo package read token for Apple dependency materialization' >&2
+            exit 1
+          }
+
+          helper="scripts/bootstrap-streamscape-media-binary.sh"
+          historical_recovery_active=false
+          if ! test -f "${helper}"; then
+            historical_sha="512db0f5b2513ad7d3a2b53bbc132ea29742bb63"
+            historical_tree="f610e568dabf621cf5e9e23d5541571e2feb7122"
+            approved_helper_ref="dbe258b0487b4dfe023bfda1f27bf2cc013c2490"
+            approved_helper_blob="492be28b492dd6bc3458cbd884893869e150818e"
+            source_sha="$(git rev-parse HEAD)"
+            source_tree="$(git rev-parse 'HEAD^{tree}')"
+            if test "${SOURCE_REPOSITORY}" != "StreamScapeTV/iptv-apple" \
+              || test "${source_sha}" != "${historical_sha}" \
+              || test "${source_tree}" != "${historical_tree}"; then
+              printf 'Missing required Apple bootstrap helper for source %s at %s/%s\n' \
+                "${SOURCE_REPOSITORY}" "${source_sha}" "${source_tree}" >&2
+              exit 1
+            fi
+            mkdir -p "$(dirname "${helper}")"
+            gh api \
+              -H 'Accept: application/vnd.github.raw+json' \
+              "repos/StreamScapeTV/iptv-apple/contents/scripts/bootstrap-streamscape-media-binary.sh?ref=${approved_helper_ref}" \
+              > "${helper}"
+            actual_blob="$(git hash-object "${helper}")"
+            if test "${actual_blob}" != "${approved_helper_blob}"; then
+              rm -f "${helper}"
+              printf 'Approved historical Apple bootstrap helper blob mismatch: expected %s, got %s\n' \
+                "${approved_helper_blob}" "${actual_blob}" >&2
+              exit 1
+            fi
+            historical_recovery_active=true
+            printf 'Materialized approved historical Apple bootstrap helper for exact recovery tree.\n' >> "${CI_LOG}"
+          fi
+
+          printf '\n===== prepare-media =====\n' >> "${CI_LOG}"
+          if ! bash "${helper}" >> "${CI_LOG}" 2>&1; then
+            echo 'prepare-media failed; inspect the private Google Drive CI log.' >&2
+            exit 1
+          fi
+          printf 'HISTORICAL_RECOVERY_ACTIVE=%s\n' "${historical_recovery_active}" >> "${GITHUB_ENV}"
+
       - name: Prepare fixed TestFlight release context
         id: testflight_prepare
         if: ${{ inputs.test_profile == 'testflight' }}
@@ -519,51 +604,10 @@ jobs:
             printf 'duration_seconds=%s\n' "$((SECONDS - started_at))" >> "${CI_LOG}"
           }
 
-          historical_recovery_active=false
-
-          materialize_historical_media_bootstrap() {
-            local helper="scripts/bootstrap-streamscape-media-binary.sh"
-            if test -f "${helper}"; then
-              return 0
-            fi
-
-            local historical_sha="512db0f5b2513ad7d3a2b53bbc132ea29742bb63"
-            local historical_tree="f610e568dabf621cf5e9e23d5541571e2feb7122"
-            local approved_helper_ref="dbe258b0487b4dfe023bfda1f27bf2cc013c2490"
-            local approved_helper_blob="492be28b492dd6bc3458cbd884893869e150818e"
-            local source_sha source_tree actual_blob
-            source_sha="$(git rev-parse HEAD)"
-            source_tree="$(git rev-parse 'HEAD^{tree}')"
-
-            if test "${SOURCE_REPOSITORY}" != "StreamScapeTV/iptv-apple" \
-              || test "${source_sha}" != "${historical_sha}" \
-              || test "${source_tree}" != "${historical_tree}"; then
-              printf 'Missing required Apple bootstrap helper for source %s at %s/%s\n' \
-                "${SOURCE_REPOSITORY}" "${source_sha}" "${source_tree}" >&2
-              return 1
-            fi
-
-            mkdir -p "$(dirname "${helper}")"
-            gh api \
-              -H 'Accept: application/vnd.github.raw+json' \
-              "repos/StreamScapeTV/iptv-apple/contents/scripts/bootstrap-streamscape-media-binary.sh?ref=${approved_helper_ref}" \
-              > "${helper}"
-            actual_blob="$(git hash-object "${helper}")"
-            if test "${actual_blob}" != "${approved_helper_blob}"; then
-              rm -f "${helper}"
-              printf 'Approved historical Apple bootstrap helper blob mismatch: expected %s, got %s\n' \
-                "${approved_helper_blob}" "${actual_blob}" >&2
-              return 1
-            fi
-            historical_recovery_active=true
-            printf 'Materialized approved historical Apple bootstrap helper for exact recovery tree.\n' \
-              >> "${CI_LOG}"
-          }
-
           run_xcode_logged() {
             local label="$1"
             shift
-            if test "${historical_recovery_active}" != "true"; then
+            if test "${HISTORICAL_RECOVERY_ACTIVE:-false}" != "true"; then
               run_logged "${label}" "$@"
               return
             fi
@@ -664,8 +708,6 @@ jobs:
 
           case "${EXECUTION_LANE}" in
             macos-test)
-              materialize_historical_media_bootstrap
-              run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh
               run_xcode_logged macos-test xcodebuild test \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
@@ -674,8 +716,6 @@ jobs:
                 CODE_SIGNING_ALLOWED=NO
               ;;
             macos-targeted-tests)
-              materialize_historical_media_bootstrap
-              run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh
               run_xcode_logged macos-targeted-tests xcodebuild test \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
@@ -685,8 +725,6 @@ jobs:
                 "${targeted_test_args[@]}"
               ;;
             ios-targeted-tests)
-              materialize_historical_media_bootstrap
-              run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh
               run_xcode_logged ios-targeted-tests xcodebuild test \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
@@ -696,8 +734,6 @@ jobs:
                 "${targeted_test_args[@]}"
               ;;
             tvos-targeted-tests)
-              materialize_historical_media_bootstrap
-              run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh
               run_xcode_logged tvos-targeted-tests xcodebuild test \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
@@ -707,8 +743,6 @@ jobs:
                 "${targeted_test_args[@]}"
               ;;
             ios-build)
-              materialize_historical_media_bootstrap
-              run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh
               run_xcode_logged ios-build xcodebuild build \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
@@ -717,8 +751,6 @@ jobs:
                 CODE_SIGNING_ALLOWED=NO
               ;;
             tvos-build)
-              materialize_historical_media_bootstrap
-              run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh
               run_xcode_logged tvos-build xcodebuild build \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
@@ -727,8 +759,6 @@ jobs:
                 CODE_SIGNING_ALLOWED=NO
               ;;
             release-build)
-              test -f scripts/bootstrap-streamscape-media-binary.sh
-              run_logged prepare-media bash scripts/bootstrap-streamscape-media-binary.sh
               run_logged ios-release-build xcodebuild build \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
@@ -816,6 +846,10 @@ jobs:
           CI_SECRET_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
           CI_SECRET_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
           CI_SECRET_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          CI_SECRET_TAILSCALE_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          CI_SECRET_TAILSCALE_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          CI_SECRET_FORGEJO_PACKAGE_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          CI_SECRET_FORGEJO_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
           CI_SECRET_APPLE_TEAM_ID: ${{ inputs.test_profile == 'testflight' && secrets.APPLE_TEAM_ID || '' }}
           CI_SECRET_APP_STORE_CONNECT_KEY_ID: ${{ inputs.test_profile == 'testflight' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
           CI_SECRET_APP_STORE_CONNECT_ISSUER_ID: ${{ inputs.test_profile == 'testflight' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
