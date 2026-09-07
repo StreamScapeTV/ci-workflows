@@ -466,6 +466,11 @@ if ( validate "$long" ); then exit 93; fi
             "${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}",
         )
         self.assertNotIn("FORGEJO_REGISTRY_TOKEN", str(prepare))
+        self.assertEqual(prepare["env"]["CI_APPLE_BINARY_PACKAGE_HOST"], "git.faruqi.dev")
+        self.assertEqual(
+            prepare["env"]["CI_APPLE_BINARY_PACKAGE_BASE_PATH"],
+            "/api/packages/mimranfaruqi/generic",
+        )
         script = prepare["run"]
         for exact in (
             "512db0f5b2513ad7d3a2b53bbc132ea29742bb63",

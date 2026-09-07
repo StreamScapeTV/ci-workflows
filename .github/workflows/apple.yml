@@ -475,6 +475,8 @@ jobs:
           GH_TOKEN: ${{ steps.source.outputs.token || github.token }}
           CI_APPLE_BINARY_PACKAGE_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
           CI_APPLE_BINARY_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+          CI_APPLE_BINARY_PACKAGE_HOST: git.faruqi.dev
+          CI_APPLE_BINARY_PACKAGE_BASE_PATH: /api/packages/mimranfaruqi/generic
         run: |
           set -Eeuo pipefail
           test -n "${CI_APPLE_BINARY_PACKAGE_USERNAME}" || {
