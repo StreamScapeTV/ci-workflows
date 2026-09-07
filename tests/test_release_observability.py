@@ -18,12 +18,12 @@ class ReleaseObservabilityTests(unittest.TestCase):
         names = [step.get("name") for step in steps]
         by_name = {step.get("name"): step for step in steps if step.get("name")}
 
-        authority = by_name["Verify exact tag authority"]
+        authority = by_name["Verify exact source ref authority"]
         publication = by_name["Resolve product-owned publication version"]
         chart_prepare = by_name["Prepare isolated locked Helm dependencies"]
         authenticate = by_name["Authenticate and require unused immutable version"]
-        observe = by_name["Record exact tagged product source SHA"]
-        revalidate = by_name["Revalidate exact tag before publication"]
+        observe = by_name["Record exact product source SHA"]
+        revalidate = by_name["Revalidate exact source ref before publication"]
         publish = by_name["Publish immutable image and chart"]
         readback = by_name["Authenticated private registry read-back"]
         cleanup = by_name["Clean publication state"]
@@ -32,9 +32,9 @@ class ReleaseObservabilityTests(unittest.TestCase):
         finish = by_name["Finish Agent State run"]
 
         self.assertIn('source_sha="$(git -C source rev-parse HEAD)"', authority["run"])
-        self.assertIn('tag_sha="$(git -C source rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"', authority["run"])
-        self.assertIn('test "${source_sha}" = "${tag_sha}"', authority["run"])
-        self.assertEqual(authority["env"]["RELEASE_TAG"], "${{ inputs.ref }}")
+        self.assertIn('ref_sha="$(git -C source rev-parse "${SOURCE_REF}^{commit}")"', authority["run"])
+        self.assertIn('test "${source_sha}" = "${ref_sha}"', authority["run"])
+        self.assertEqual(authority["env"]["SOURCE_REF"], "${{ steps.requested_ref.outputs.full_ref }}")
         self.assertNotIn("MAJOR.MINOR.PATCH", authority["run"])
         self.assertNotIn("[0-9]*)\\.", authority["run"])
         self.assertNotIn("version=%s", authority["run"])
@@ -66,13 +66,13 @@ class ReleaseObservabilityTests(unittest.TestCase):
         self.assertEqual(drive["with"]["mime_type"], "text/plain")
         self.assertEqual(drive["if"], "${{ always() && steps.scrub.outcome == 'success' }}")
 
-        self.assertLess(names.index("Check out exact tagged product source"), names.index("Verify exact tag authority"))
-        self.assertLess(names.index("Verify exact tag authority"), names.index("Record exact tagged product source SHA"))
-        self.assertLess(names.index("Record exact tagged product source SHA"), names.index("Resolve product-owned publication version"))
+        self.assertLess(names.index("Check out exact product source ref"), names.index("Verify exact source ref authority"))
+        self.assertLess(names.index("Verify exact source ref authority"), names.index("Record exact product source SHA"))
+        self.assertLess(names.index("Record exact product source SHA"), names.index("Resolve product-owned publication version"))
         self.assertLess(names.index("Resolve product-owned publication version"), names.index("Prepare isolated locked Helm dependencies"))
         self.assertLess(names.index("Prepare isolated locked Helm dependencies"), names.index("Build image and package chart"))
-        self.assertLess(names.index("Build image and package chart"), names.index("Revalidate exact tag before publication"))
-        self.assertLess(names.index("Revalidate exact tag before publication"), names.index("Publish immutable image and chart"))
+        self.assertLess(names.index("Build image and package chart"), names.index("Revalidate exact source ref before publication"))
+        self.assertLess(names.index("Revalidate exact source ref before publication"), names.index("Publish immutable image and chart"))
         self.assertLess(names.index("Publish immutable image and chart"), names.index("Authenticated private registry read-back"))
         self.assertLess(names.index("Authenticated private registry read-back"), names.index("Clean publication state"))
         self.assertLess(names.index("Clean publication state"), names.index("Scrub private release log"))
@@ -80,8 +80,8 @@ class ReleaseObservabilityTests(unittest.TestCase):
         self.assertLess(names.index("Upload private release log to Google Drive"), names.index("Finish Agent State run"))
 
         self.assertIn('test "$(git -C source rev-parse HEAD)" = "${SOURCE_SHA}"', revalidate["run"])
-        self.assertIn('refs/tags/${RELEASE_TAG}^{commit}', revalidate["run"])
-        self.assertEqual(revalidate["env"]["RELEASE_TAG"], "${{ inputs.ref }}")
+        self.assertIn('FETCH_HEAD^{commit}', revalidate["run"])
+        self.assertEqual(revalidate["env"]["SOURCE_REF"], "${{ steps.requested_ref.outputs.full_ref }}")
         version_expr = "${{ steps.publication.outputs.publication_version }}"
         prepare = by_name["Build image and package chart"]
         self.assertEqual(prepare["env"]["VERSION"], version_expr)
