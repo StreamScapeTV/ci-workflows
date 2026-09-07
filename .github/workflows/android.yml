@@ -594,6 +594,76 @@ jobs:
           cd "${PROJECT_DIRECTORY}"
           test -x gradlew
 
+          append_instrumentation_failure_evidence() {
+            python3 - "${CI_LOG}" <<'PY_ANDROID_INSTRUMENTATION_RESULTS'
+          from pathlib import Path
+          import sys
+
+          log_path = Path(sys.argv[1])
+          root = Path.cwd()
+          connected_result_marker = "/build/outputs/androidTest-results/connected/"
+          max_files = 20
+          max_result_bytes = 262144
+
+          candidates = []
+          connected_roots = sorted(
+              path
+              for path in root.glob("**/build/outputs/androidTest-results/connected")
+              if path.is_dir() and not path.is_symlink()
+          )
+          for connected_root in connected_roots:
+              for path in connected_root.rglob("*.xml"):
+                  if path.is_symlink() or not path.is_file():
+                      continue
+                  relative = path.relative_to(root).as_posix()
+                  if connected_result_marker not in f"/{relative}":
+                      continue
+                  candidates.append((relative, path))
+          candidates.sort(key=lambda item: item[0])
+
+          captured_files = 0
+          captured_result_bytes = 0
+          truncated = False
+          with log_path.open("ab") as log:
+              log.write(b"\n===== android-instrumentation-failure-evidence =====\n")
+              log.write(f"max_files={max_files}\n".encode())
+              log.write(f"max_result_bytes={max_result_bytes}\n".encode())
+              if not candidates:
+                  log.write(b"result_files=0\n")
+                  log.write(b"no connected-test XML result files found\n")
+                  raise SystemExit(0)
+
+              for relative, result_path in candidates:
+                  if captured_files >= max_files or captured_result_bytes >= max_result_bytes:
+                      truncated = True
+                      break
+                  data = result_path.read_bytes()
+                  remaining = max_result_bytes - captured_result_bytes
+                  chunk = data[:remaining]
+                  log.write(
+                      f"\n--- android-instrumentation-result path={relative} size={len(data)} ---\n".encode()
+                  )
+                  log.write(chunk)
+                  if not chunk.endswith(b"\n"):
+                      log.write(b"\n")
+                  captured_files += 1
+                  captured_result_bytes += len(chunk)
+                  if len(chunk) < len(data):
+                      truncated = True
+                      break
+
+              if captured_files < len(candidates):
+                  truncated = True
+              log.write(f"captured_files={captured_files}\n".encode())
+              log.write(f"result_files={len(candidates)}\n".encode())
+              log.write(f"captured_result_bytes={captured_result_bytes}\n".encode())
+              if truncated:
+                  log.write(
+                      b"[TRUNCATED android instrumentation failure evidence at reviewed file/byte cap]\n"
+                  )
+          PY_ANDROID_INSTRUMENTATION_RESULTS
+          }
+
           run_gradle() {
             local started="${SECONDS}"
             if ! run_logged "gradle-${TEST_PROFILE}" ./gradlew --no-daemon "$@"; then
@@ -684,8 +754,11 @@ jobs:
                   ;;
                 instrumentation)
                   instrumentation_selector="$(IFS=,; printf '%s' "${test_selectors[*]}")"
-                  run_gradle connectedDebugAndroidTest \
-                    "-Pandroid.testInstrumentationRunnerArguments.class=${instrumentation_selector}"
+                  if ! run_gradle connectedDebugAndroidTest \
+                    "-Pandroid.testInstrumentationRunnerArguments.class=${instrumentation_selector}"; then
+                    append_instrumentation_failure_evidence
+                    exit 1
+                  fi
                   ;;
               esac
               ;;
