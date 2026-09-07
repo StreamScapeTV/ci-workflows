@@ -5,8 +5,6 @@ name: Refresh canonical repository source snapshot
     branches:
       - main
       - develop
-  schedule:
-    - cron: "2-57/5 * * * *"
   workflow_dispatch:
     inputs:
       repository:
@@ -27,100 +25,9 @@ name: Refresh canonical repository source snapshot
         type: string
 
 permissions:
-  actions: write
   contents: read
 
 jobs:
-  reconcile:
-    if: ${{ github.event_name == 'schedule' }}
-    concurrency:
-      group: source-snapshot-reconcile
-      cancel-in-progress: false
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - name: Check out Central reconciliation planner
-        uses: actions/checkout@v4
-        with:
-          repository: StreamScapeTV/ci-workflows
-          ref: main
-          persist-credentials: false
-          path: central
-
-      - name: Prepare organization source token
-        id: source_token
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ secrets.SOURCE_APP_ID }}
-          private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-          owner: StreamScapeTV
-          permission-contents: read
-          permission-metadata: read
-
-      - name: Resolve Google Drive access token
-        id: drive
-        shell: bash
-        env:
-          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
-        run: |
-          set -Eeuo pipefail
-          access_token="$(curl --fail --silent --show-error --request POST \
-            --data-urlencode "client_id=${GOOGLE_DRIVE_CLIENT_ID}" \
-            --data-urlencode "client_secret=${GOOGLE_DRIVE_CLIENT_SECRET}" \
-            --data-urlencode "refresh_token=${GOOGLE_DRIVE_REFRESH_TOKEN}" \
-            --data-urlencode "grant_type=refresh_token" \
-            https://oauth2.googleapis.com/token \
-            | python3 -c 'import json,sys; value=json.load(sys.stdin); token=value.get("access_token", ""); assert token; print(token)')"
-          echo "::add-mask::${access_token}"
-          printf 'access_token=%s\n' "${access_token}" >> "${GITHUB_OUTPUT}"
-
-      - name: Plan stale integration snapshots
-        id: plan
-        shell: bash
-        env:
-          SOURCE_GITHUB_TOKEN: ${{ steps.source_token.outputs.token }}
-          GOOGLE_DRIVE_ACCESS_TOKEN: ${{ steps.drive.outputs.access_token }}
-          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
-        run: |
-          set -Eeuo pipefail
-          targets="$(python3 central/scripts/ci/source_snapshot_reconcile.py)"
-          printf 'targets=%s\n' "${targets}" >> "${GITHUB_OUTPUT}"
-          count="$(jq 'length' <<<"${targets}")"
-          printf 'Integration snapshot reconciliation found %s stale or missing ref(s).\n' "${count}" >> "${GITHUB_STEP_SUMMARY}"
-
-      - name: Dispatch exact stale integration snapshots
-        if: ${{ steps.plan.outputs.targets != '[]' }}
-        shell: bash
-        env:
-          TARGETS_JSON: ${{ steps.plan.outputs.targets }}
-          CENTRAL_GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          set -Eeuo pipefail
-          while IFS= read -r target; do
-            repository="$(jq -r '.repository' <<<"${target}")"
-            repository_name="$(jq -r '.repository_name' <<<"${target}")"
-            ref="$(jq -r '.ref' <<<"${target}")"
-            source_sha="$(jq -r '.source_sha' <<<"${target}")"
-            reason="$(jq -r '.reason' <<<"${target}")"
-            payload="$(jq -cn \
-              --arg repository "${repository}" \
-              --arg repository_name "${repository_name}" \
-              --arg ref "${ref}" \
-              --arg source_sha "${source_sha}" \
-              '{ref:"main",inputs:{repository:$repository,repository_name:$repository_name,ref:$ref,source_sha:$source_sha}}')"
-            curl --fail --silent --show-error \
-              --request POST \
-              -H "Authorization: Bearer ${CENTRAL_GITHUB_TOKEN}" \
-              -H 'Accept: application/vnd.github+json' \
-              -H 'X-GitHub-Api-Version: 2022-11-28' \
-              -H 'Content-Type: application/json' \
-              --data "${payload}" \
-              "https://api.github.com/repos/StreamScapeTV/ci-workflows/actions/workflows/source-snapshot.yml/dispatches"
-            printf 'Dispatched `%s@%s` `%s` (%s).\n' "${repository}" "${ref}" "${source_sha}" "${reason}" >> "${GITHUB_STEP_SUMMARY}"
-          done < <(jq -c '.[]' <<<"${TARGETS_JSON}")
-
   snapshot:
     if: ${{ (github.event_name == 'push' && github.ref_type == 'branch' && (github.ref_name == 'main' || github.ref_name == 'develop')) || (github.event_name == 'workflow_dispatch' && (inputs.ref == 'main' || inputs.ref == 'develop')) }}
     concurrency:
