@@ -237,11 +237,20 @@ jobs:
               inputs = json.loads(os.environ["INPUTS_JSON"])
           except (KeyError, json.JSONDecodeError) as exc:
               raise SystemExit("source.checkpoint-publish inputs must be one JSON object") from exc
-          if not isinstance(inputs, dict) or set(inputs) != {"expected_head"}:
-              raise SystemExit("source.checkpoint-publish requires exactly inputs.expected_head")
-          expected_head = inputs["expected_head"]
-          if not isinstance(expected_head, str) or not re.fullmatch(r"[0-9a-f]{40}", expected_head):
-              raise SystemExit("source.checkpoint-publish expected_head must be one lowercase 40-character Git SHA")
+          required = {"expected_head", "expected_tree", "archive_sha256", "archive_size_bytes", "commit_message"}
+          if not isinstance(inputs, dict) or set(inputs) != required:
+              raise SystemExit("source.checkpoint-publish requires exactly expected_head/expected_tree/archive_sha256/archive_size_bytes/commit_message")
+          for key in ("expected_head", "expected_tree"):
+              if not isinstance(inputs[key], str) or not re.fullmatch(r"[0-9a-f]{40}", inputs[key]):
+                  raise SystemExit(f"source.checkpoint-publish {key} must be one lowercase 40-character Git SHA")
+          if not isinstance(inputs["archive_sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", inputs["archive_sha256"]):
+              raise SystemExit("source.checkpoint-publish archive_sha256 must be one lowercase SHA-256")
+          size = inputs["archive_size_bytes"]
+          if isinstance(size, bool) or not isinstance(size, int) or not 1 <= size <= 536870912:
+              raise SystemExit("source.checkpoint-publish archive_size_bytes is outside the bounded limit")
+          message = inputs["commit_message"]
+          if not isinstance(message, str) or not message.strip() or "\x00" in message or len(message.encode("utf-8")) > 16384:
+              raise SystemExit("source.checkpoint-publish commit_message is invalid")
           PY_VALIDATE_SOURCE_CHECKPOINT
 
       - name: Validate Android release request
@@ -551,6 +560,10 @@ jobs:
       repository: ${{ needs.request.outputs.repository }}
       branch: ${{ needs.request.outputs.ref }}
       expected_head: ${{ fromJSON(needs.request.outputs.inputs_json).expected_head }}
+      expected_tree: ${{ fromJSON(needs.request.outputs.inputs_json).expected_tree }}
+      archive_sha256: ${{ fromJSON(needs.request.outputs.inputs_json).archive_sha256 }}
+      archive_size_bytes: ${{ fromJSON(needs.request.outputs.inputs_json).archive_size_bytes }}
+      commit_message: ${{ fromJSON(needs.request.outputs.inputs_json).commit_message }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
 
@@ -679,33 +692,8 @@ jobs:
           echo "::add-mask::${access_token}"
           printf 'access_token=%s\n' "${access_token}" >> "${GITHUB_OUTPUT}"
 
-      - name: Protect unpublished canonical Drive checkpoint
-        id: checkpoint_resume
-        shell: bash
-        env:
-          GOOGLE_DRIVE_ACCESS_TOKEN: ${{ steps.snapshot_drive.outputs.access_token }}
-          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
-          TARGET_TOKEN: ${{ steps.source_token.outputs.token }}
-          REQUESTED_REPOSITORY: ${{ needs.request.outputs.repository }}
-          REQUESTED_REF: ${{ needs.request.outputs.ref }}
-          REQUESTED_IS_TAG: ${{ needs.request.outputs.is_tag }}
-          OBSERVED_SOURCE_SHA: ${{ steps.source_identity.outputs.source_sha }}
-          OBSERVED_TREE_SHA: ${{ steps.source_identity.outputs.tree_sha }}
-        run: |
-          set -Eeuo pipefail
-          action="$(python3 scripts/ci/source_checkpoint_publish.py resume-action \
-            --repository "${REQUESTED_REPOSITORY}" --branch "${REQUESTED_REF}" --is-tag "${REQUESTED_IS_TAG}" \
-            --source-head "${OBSERVED_SOURCE_SHA}" --source-tree "${OBSERVED_TREE_SHA}")"
-          case "${action}" in preserve|refresh) ;; *) echo 'invalid source checkpoint resume action' >&2; exit 2 ;; esac
-          printf 'action=%s\n' "${action}" >> "${GITHUB_OUTPUT}"
-          if test "${action}" = preserve; then
-            printf 'Preserved unpublished canonical Drive checkpoint for `%s@%s`; GitHub remains at `%s`.\n' \
-              "${REQUESTED_REPOSITORY}" "${REQUESTED_REF}" "${OBSERVED_SOURCE_SHA}" >> "${GITHUB_STEP_SUMMARY}"
-          fi
-
       - name: Create exact tracked-source snapshot
         id: snapshot
-        if: ${{ steps.checkpoint_resume.outputs.action != 'preserve' }}
         shell: bash
         env:
           REQUESTED_REPOSITORY: ${{ needs.request.outputs.repository }}
@@ -765,7 +753,6 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
 
       - name: Upload repository snapshot archive
-        if: ${{ steps.checkpoint_resume.outputs.action != 'preserve' }}
         id: source_upload
         uses: ./actions/google-drive
         env:
@@ -783,7 +770,6 @@ jobs:
           mime_type: application/zip
 
       - name: Write first manifest with archive Drive identity
-        if: ${{ steps.checkpoint_resume.outputs.action != 'preserve' }}
         shell: bash
         env:
           MANIFEST: ${{ steps.snapshot.outputs.manifest }}
@@ -803,7 +789,6 @@ jobs:
           PY
 
       - name: Create manifest.json
-        if: ${{ steps.checkpoint_resume.outputs.action != 'preserve' }}
         id: manifest_create
         uses: ./actions/google-drive
         env:
@@ -820,7 +805,6 @@ jobs:
           mime_type: application/json
 
       - name: Add stable manifest Drive identity
-        if: ${{ steps.checkpoint_resume.outputs.action != 'preserve' }}
         shell: bash
         env:
           MANIFEST: ${{ steps.snapshot.outputs.manifest }}
@@ -837,7 +821,6 @@ jobs:
           PY
 
       - name: Update manifest.json in place
-        if: ${{ steps.checkpoint_resume.outputs.action != 'preserve' }}
         id: manifest_update
         uses: ./actions/google-drive
         env:
@@ -854,7 +837,6 @@ jobs:
           mime_type: application/json
 
       - name: Verify stable manifest identity
-        if: ${{ steps.checkpoint_resume.outputs.action != 'preserve' }}
         shell: bash
         env:
           CREATED_ID: ${{ steps.manifest_create.outputs.file_id }}

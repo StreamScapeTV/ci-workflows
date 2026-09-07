@@ -66,7 +66,7 @@ class SourceSnapshotDeleteTests(unittest.TestCase):
     def test_exact_manifest_identity_is_required_and_cleanup_is_idempotent(self) -> None:
         expected = "a" * 40
         records: list[tuple[str, str]] = []
-        state = {"missing_ref": False, "bad_sha": False, "manifest_only": False}
+        state = {"missing_ref": False, "bad_sha": False, "manifest_only": False, "numbered": False, "unexpected": False}
 
         class Handler(http.server.BaseHTTPRequestHandler):
             def log_message(self, format: str, *args: object) -> None:
@@ -112,6 +112,13 @@ class SourceSnapshotDeleteTests(unittest.TestCase):
                     ]
                     if not state["manifest_only"]:
                         children.append({"id": "archive-id", "name": "example-feature%2Fcleanup.zip", "mimeType": "application/zip"})
+                    if state["numbered"]:
+                        children.extend([
+                            {"id": "cp-1", "name": "example-feature%2Fcleanup-checkpoint-000001.zip", "mimeType": "application/zip"},
+                            {"id": "cp-2", "name": "example-feature%2Fcleanup-checkpoint-000002.zip", "mimeType": "application/zip"},
+                        ])
+                    if state["unexpected"]:
+                        children.append({"id": "other", "name": "notes.txt", "mimeType": "text/plain"})
                     self._json(200, {"files": children})
                 else:
                     self._json(200, {"files": []})
@@ -153,6 +160,32 @@ class SourceSnapshotDeleteTests(unittest.TestCase):
             self.assertEqual(result, "trashed")
             self.assertIn(("PATCH", "/files/ref-folder"), records)
             state["manifest_only"] = False
+
+            records.clear()
+            state["numbered"] = True
+            result = _mod.delete_snapshot(
+                client,
+                root_folder_id="root",
+                repository="StreamScapeTV/example",
+                ref="feature/cleanup",
+                expected_source_sha=expected,
+            )
+            self.assertEqual(result, "trashed")
+            self.assertIn(("PATCH", "/files/ref-folder"), records)
+
+            records.clear()
+            state["unexpected"] = True
+            with self.assertRaisesRegex(_mod.SnapshotDeleteError, "unexpected non-snapshot file"):
+                _mod.delete_snapshot(
+                    client,
+                    root_folder_id="root",
+                    repository="StreamScapeTV/example",
+                    ref="feature/cleanup",
+                    expected_source_sha=expected,
+                )
+            self.assertFalse(any(method == "PATCH" for method, _ in records))
+            state["unexpected"] = False
+            state["numbered"] = False
 
             records.clear()
             state["missing_ref"] = True
