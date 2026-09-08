@@ -1,4 +1,8 @@
 from pathlib import Path
+import os
+import subprocess
+import tempfile
+import textwrap
 import unittest
 import yaml
 
@@ -47,6 +51,119 @@ class PythonWorkflowTests(unittest.TestCase):
         self.assertIn("release-gates)", source)
         self.assertIn("bash scripts/run_release_gates.sh", source)
         self.assertIn("agent-state-issue-reconcile)", source)
+
+
+    def _run_backend_postgres_fixture(
+        self,
+        *,
+        validation_status: int = 0,
+        cleanup_status: int = 0,
+    ) -> tuple[subprocess.CompletedProcess[str], str]:
+        _, _, by_name = self._workflow()
+        command = by_name["Run fixed Python profile"]["run"]
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            fake_bin = root / "bin"
+            scripts = root / "scripts"
+            fake_bin.mkdir()
+            scripts.mkdir()
+            docker_state = root / "docker-state"
+            ci_log = root / "ci.log"
+
+            docker = fake_bin / "docker"
+            docker.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/usr/bin/env bash
+                    set -u
+                    case "${1:-}" in
+                      run)
+                        : > "${FAKE_DOCKER_STATE}"
+                        exit 0
+                        ;;
+                      exec)
+                        test -e "${FAKE_DOCKER_STATE}"
+                        exit $?
+                        ;;
+                      inspect)
+                        test -e "${FAKE_DOCKER_STATE}"
+                        exit $?
+                        ;;
+                      rm)
+                        status="${FAKE_DOCKER_RM_STATUS:-0}"
+                        if test "${status}" = 0; then
+                          rm -f "${FAKE_DOCKER_STATE}"
+                        fi
+                        exit "${status}"
+                        ;;
+                      *) exit 2 ;;
+                    esac
+                    """
+                ),
+                encoding="utf-8",
+            )
+            docker.chmod(0o755)
+
+            validation = scripts / "run_backend_postgres_validation.sh"
+            validation.write_text(
+                "#!/usr/bin/env bash\nexit \"${FAKE_VALIDATION_STATUS:-0}\"\n",
+                encoding="utf-8",
+            )
+            validation.chmod(0o755)
+
+            env = os.environ.copy()
+            env.update(
+                {
+                    "PATH": f"{fake_bin}:{env['PATH']}",
+                    "TEST_PROFILE": "backend-postgres",
+                    "SOURCE_REPOSITORY": "StreamScapeTV/iptv-backend",
+                    "SOURCE_REF": "fixture",
+                    "GITHUB_RUN_ID": "1",
+                    "GITHUB_RUN_ATTEMPT": "1",
+                    "CI_LOG": str(ci_log),
+                    "FAKE_DOCKER_STATE": str(docker_state),
+                    "FAKE_DOCKER_RM_STATUS": str(cleanup_status),
+                    "FAKE_VALIDATION_STATUS": str(validation_status),
+                }
+            )
+            result = subprocess.run(
+                ["bash", "-c", command],
+                cwd=root,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            return result, ci_log.read_text(encoding="utf-8")
+
+    def test_backend_postgres_preserves_product_failure_across_successful_cleanup(self) -> None:
+        result, log = self._run_backend_postgres_fixture(validation_status=7)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("validation_exit_status=7 cleanup_exit_status=0", log)
+        self.assertIn("Backend PostgreSQL validation exited with status 7.", log)
+
+    def test_backend_postgres_succeeds_only_when_product_and_cleanup_succeed(self) -> None:
+        result, log = self._run_backend_postgres_fixture()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("validation_exit_status=0 cleanup_exit_status=0", log)
+
+    def test_backend_postgres_cleanup_failure_is_authoritative(self) -> None:
+        result, log = self._run_backend_postgres_fixture(cleanup_status=9)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("validation_exit_status=0 cleanup_exit_status=9", log)
+        self.assertIn("PostgreSQL test service cleanup exited with status 9.", log)
+
+    def test_backend_postgres_uses_explicit_validation_and_cleanup_statuses(self) -> None:
+        _, _, by_name = self._workflow()
+        run = by_name["Run fixed Python profile"]["run"]
+        start = run.index("run_backend_postgres()")
+        end = run.index("\n\nif [[ -f requirements.txt ]]", start)
+        postgres = run[start:end]
+        self.assertNotIn("if ! (", postgres)
+        self.assertIn("validation_status=$?", postgres)
+        self.assertIn("cleanup_status=$?", postgres)
+        self.assertIn("validation_status != 0 || cleanup_status != 0", postgres)
+        self.assertIn("trap 'cleanup_postgres || true' EXIT", postgres)
 
     def test_agent_state_issue_reconcile_credentials_are_main_only_and_profile_scoped(self) -> None:
         _, _, by_name = self._workflow()
