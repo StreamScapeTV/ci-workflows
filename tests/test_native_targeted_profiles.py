@@ -14,6 +14,7 @@ class NativeTargetedProfileTests(unittest.TestCase):
         text = (ROOT / ".github/workflows/central-ci-dispatch.yml").read_text(encoding="utf-8")
         self.assertIn("test_selectors: ${{ fromJSON(needs.request.outputs.inputs_json).test_selectors || '[]' }}", text)
         self.assertIn("test_platform: ${{ fromJSON(needs.request.outputs.inputs_json).test_platform || '' }}", text)
+        self.assertIn("native_component: ${{ fromJSON(needs.request.outputs.inputs_json).native_component || '' }}", text)
         self.assertIn("test_filter: ${{ fromJSON(needs.request.outputs.inputs_json).test_filter || '' }}", text)
         workflow = yaml.safe_load(text)
         preflight = next(
@@ -64,6 +65,97 @@ class NativeTargetedProfileTests(unittest.TestCase):
         )
         self.assertNotEqual(candidate_with_platform.returncode, 0)
         self.assertIn("does not accept test_platform", candidate_with_platform.stderr)
+
+    def test_apple_native_component_profile_is_one_bounded_semantic_selector(self) -> None:
+        workflow = yaml.safe_load(
+            (ROOT / ".github/workflows/central-ci-dispatch.yml").read_text(encoding="utf-8")
+        )
+        preflight = next(
+            step
+            for step in workflow["jobs"]["request"]["steps"]
+            if step.get("name") == "Validate native targeted test request"
+        )["run"]
+        self.assertIn('profile == "native-component"', preflight)
+        self.assertIn('set(inputs) != {"native_component"}', preflight)
+        self.assertIn("native-component is supported only by validation.apple", preflight)
+        self.assertIn("one bounded semantic native_component selector", preflight)
+        self.assertIn("native_component is accepted only by Apple native-component", preflight)
+
+        valid = subprocess.run(
+            ["bash", "-c", preflight],
+            env={
+                **os.environ,
+                "WORKFLOW_KEY": "validation.apple",
+                "TEST_PROFILE": "native-component",
+                "INPUTS_JSON": json.dumps({"native_component": "private-tvos-vlc"}),
+            },
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(valid.returncode, 0, valid.stderr)
+
+        invalid_selector = subprocess.run(
+            ["bash", "-c", preflight],
+            env={
+                **os.environ,
+                "WORKFLOW_KEY": "validation.apple",
+                "TEST_PROFILE": "native-component",
+                "INPUTS_JSON": json.dumps({"native_component": "../../script.sh"}),
+            },
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotEqual(invalid_selector.returncode, 0)
+        self.assertIn("bounded semantic native_component", invalid_selector.stderr)
+
+        extra_input = subprocess.run(
+            ["bash", "-c", preflight],
+            env={
+                **os.environ,
+                "WORKFLOW_KEY": "validation.apple",
+                "TEST_PROFILE": "native-component",
+                "INPUTS_JSON": json.dumps(
+                    {"native_component": "private-tvos-vlc", "test_platform": "tvos"}
+                ),
+            },
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotEqual(extra_input.returncode, 0)
+        self.assertIn("requires exactly inputs.native_component", extra_input.stderr)
+
+        wrong_workflow = subprocess.run(
+            ["bash", "-c", preflight],
+            env={
+                **os.environ,
+                "WORKFLOW_KEY": "validation.android",
+                "TEST_PROFILE": "native-component",
+                "INPUTS_JSON": json.dumps({"native_component": "private-tvos-vlc"}),
+            },
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotEqual(wrong_workflow.returncode, 0)
+        self.assertIn("supported only by validation.apple", wrong_workflow.stderr)
+
+        leaked_to_other_profile = subprocess.run(
+            ["bash", "-c", preflight],
+            env={
+                **os.environ,
+                "WORKFLOW_KEY": "validation.apple",
+                "TEST_PROFILE": "test",
+                "INPUTS_JSON": json.dumps({"native_component": "private-tvos-vlc"}),
+            },
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotEqual(leaked_to_other_profile.returncode, 0)
+        self.assertIn("accepted only by Apple native-component", leaked_to_other_profile.stderr)
 
     def test_android_targeted_profile_is_multi_selector_and_fixed_task(self) -> None:
         workflow = yaml.safe_load((ROOT / ".github/workflows/android.yml").read_text(encoding="utf-8"))

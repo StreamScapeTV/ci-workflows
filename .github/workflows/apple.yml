@@ -26,6 +26,10 @@ name: Apple CI
         type: string
         required: false
         default: ""
+      native_component:
+        type: string
+        required: false
+        default: ""
       build_number:
         type: string
         required: false
@@ -99,14 +103,37 @@ jobs:
           TEST_PROFILE: ${{ inputs.test_profile }}
           TEST_SELECTORS: ${{ inputs.test_selectors }}
           TEST_PLATFORM: ${{ inputs.test_platform }}
+          NATIVE_COMPONENT: ${{ inputs.native_component }}
         run: |
           set -Eeuo pipefail
           case "${TEST_PROFILE}" in
             targeted-tests)
+              test -z "${NATIVE_COMPONENT:-}" || {
+                echo "native_component is accepted only by native-component" >&2
+                exit 2
+              }
               ;;
             candidate)
               test -z "${TEST_PLATFORM}" || {
                 echo "candidate fixes macOS test execution and does not accept test_platform" >&2
+                exit 2
+              }
+              test -z "${NATIVE_COMPONENT:-}" || {
+                echo "native_component is accepted only by native-component" >&2
+                exit 2
+              }
+              ;;
+            native-component)
+              test "${TEST_SELECTORS}" = "[]" || {
+                echo "native-component does not accept test_selectors" >&2
+                exit 2
+              }
+              test -z "${TEST_PLATFORM}" || {
+                echo "native-component does not accept test_platform" >&2
+                exit 2
+              }
+              [[ "${NATIVE_COMPONENT:-}" =~ ^[a-z][a-z0-9-]{0,63}$ ]] || {
+                echo "native-component requires one bounded semantic native_component selector" >&2
                 exit 2
               }
               ;;
@@ -119,11 +146,18 @@ jobs:
                 echo "test_platform is accepted only by targeted-tests" >&2
                 exit 2
               }
+              test -z "${NATIVE_COMPONENT:-}" || {
+                echo "native_component is accepted only by native-component" >&2
+                exit 2
+              }
               ;;
           esac
           case "${TEST_PROFILE}" in
             build)
               matrix='{"include":[{"lane":"hosted-build","cache_save":false}]}'
+              ;;
+            native-component)
+              matrix='{"include":[{"lane":"native-component","cache_save":false}]}'
               ;;
             test)
               matrix='{"include":[{"lane":"hosted-test","cache_save":false}]}'
@@ -197,7 +231,7 @@ jobs:
   execute:
     needs: plan
     name: ${{ matrix.lane }}
-    runs-on: ${{ fromJSON(((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && inputs.test_profile == 'build') && '["macOS","ARM64"]' || '["macos-latest"]') }}
+    runs-on: ${{ fromJSON(((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && (inputs.test_profile == 'build' || inputs.test_profile == 'native-component')) && '["macOS","ARM64"]' || '["macos-latest"]') }}
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -254,6 +288,7 @@ jobs:
         id: apple_default_cache
         if: >-
           ${{ inputs.test_profile != 'build'
+              && inputs.test_profile != 'native-component'
               && inputs.test_profile != 'test'
               && inputs.test_profile != 'simulator'
               && inputs.test_profile != 'testflight' }}
@@ -452,6 +487,7 @@ jobs:
         if: >-
           ${{ (inputs.repository || github.repository) == 'StreamScapeTV/iptv-apple'
               && inputs.test_profile != 'build'
+              && inputs.test_profile != 'native-component'
               && inputs.test_profile != 'test'
               && inputs.test_profile != 'simulator'
               && inputs.test_profile != 'swift-package' }}
@@ -464,6 +500,7 @@ jobs:
         if: >-
           ${{ (inputs.repository || github.repository) == 'StreamScapeTV/iptv-apple'
               && inputs.test_profile != 'build'
+              && inputs.test_profile != 'native-component'
               && inputs.test_profile != 'test'
               && inputs.test_profile != 'simulator'
               && inputs.test_profile != 'swift-package' }}
@@ -583,6 +620,7 @@ jobs:
           EXECUTION_LANE: ${{ matrix.lane }}
           TEST_PROFILE: ${{ inputs.test_profile }}
           TEST_SELECTORS: ${{ inputs.test_selectors }}
+          NATIVE_COMPONENT: ${{ inputs.native_component }}
           SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
           GH_TOKEN: ${{ steps.source.outputs.token || github.token }}
           CI_GITHUB_TOKEN: ${{ steps.source.outputs.token || github.token }}
@@ -652,6 +690,24 @@ jobs:
               test -n "${CI_APPLE_TESTFLIGHT_KEY_ID}"
               test -n "${CI_APPLE_TESTFLIGHT_ISSUER_ID}"
               run_logged apple-testflight bash "${wrapper}"
+              exit 0
+              ;;
+            native-component)
+              wrapper="scripts/ci/run-apple-native-component-validation.sh"
+              test -f "${wrapper}" || {
+                printf 'Missing fixed Apple native-component wrapper: %s\n' "${wrapper}" >&2
+                exit 2
+              }
+              test ! -L "${wrapper}" || {
+                printf 'Apple native-component wrapper must not be a symlink: %s\n' "${wrapper}" >&2
+                exit 2
+              }
+              git ls-files --error-unmatch -- "${wrapper}" >/dev/null 2>&1 || {
+                printf 'Apple native-component wrapper must be tracked source: %s\n' "${wrapper}" >&2
+                exit 2
+              }
+              export CI_APPLE_NATIVE_COMPONENT="${NATIVE_COMPONENT}"
+              run_logged "apple-native-component" bash "${wrapper}"
               exit 0
               ;;
             build|test|simulator)
