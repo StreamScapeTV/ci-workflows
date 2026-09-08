@@ -134,6 +134,11 @@ class OciReproducibilityTests(unittest.TestCase):
         finish = by_name["Finish Agent State run"]["with"]["status"]
         self.assertIn("for build_id in a b", build)
         self.assertIn("linux/amd64 linux/arm64/v8", build)
+        platform_root_assignment = 'platform_root="${state_root}/${platform_id}"'
+        platform_root_create = 'mkdir -m 0700 "${platform_root}"'
+        first_platform_child = '"${platform_root}/tmp"'
+        self.assertLess(build.index(platform_root_assignment), build.index(platform_root_create))
+        self.assertLess(build.index(platform_root_create), build.index(first_platform_child))
         self.assertIn('--root "${state_root}/graphroot"', build)
         self.assertIn('--runroot "${state_root}/runroot"', build)
         self.assertIn("--storage-driver vfs", build)
