@@ -181,6 +181,14 @@ capture before {safe_expansion} after
         cache_prepare = by_name["Resolve Apple default-branch dependency cache scope"]
         self.assertIn("inputs.test_profile != 'testflight'", cache_prepare["if"])
 
+        private_connect = by_name["Connect to private Git service for Apple dependency materialization"]
+        media_prepare = by_name["Materialize fixed Streamscape Media Apple dependency"]
+        for step in (private_connect, media_prepare):
+            self.assertNotIn("inputs.test_profile != 'testflight'", step["if"])
+            self.assertIn("(inputs.repository || github.repository) == 'StreamScapeTV/iptv-apple'", step["if"])
+            self.assertIn("inputs.test_profile != 'simulator'", step["if"])
+            self.assertIn("inputs.test_profile != 'swift-package'", step["if"])
+
         prepare = by_name["Prepare fixed TestFlight release context"]
         self.assertEqual(prepare["if"], "${{ inputs.test_profile == 'testflight' }}")
         self.assertEqual(prepare["env"]["BUILD_NUMBER"], "${{ inputs.build_number }}")

@@ -454,7 +454,6 @@ jobs:
               && inputs.test_profile != 'build'
               && inputs.test_profile != 'test'
               && inputs.test_profile != 'simulator'
-              && inputs.test_profile != 'testflight'
               && inputs.test_profile != 'swift-package' }}
         uses: StreamScapeTV/ci-workflows/actions/private-git@main
         env:
@@ -467,7 +466,6 @@ jobs:
               && inputs.test_profile != 'build'
               && inputs.test_profile != 'test'
               && inputs.test_profile != 'simulator'
-              && inputs.test_profile != 'testflight'
               && inputs.test_profile != 'swift-package' }}
         shell: bash
         env:
