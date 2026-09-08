@@ -221,6 +221,7 @@ jobs:
             for platform in linux/amd64 linux/arm64/v8; do
               platform_id="${platform//\//-}"
               platform_root="${state_root}/${platform_id}"
+              mkdir -m 0700 "${platform_root}"
               mkdir -m 0700 \
                 "${platform_root}/tmp" \
                 "${platform_root}/xdg-cache" \
