@@ -148,13 +148,28 @@ jobs:
 
           run_backend_postgres() {
             printf '\n===== backend-postgres =====\n' >> "$CI_LOG"
-            if ! (
+            set +e
+            (
               set -Eeuo pipefail
               local container="ciw-postgres-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
               cleanup_postgres() {
-                docker rm -f "$container" >/dev/null 2>&1 || true
+                local cleanup_status=0
+                if docker inspect "$container" >/dev/null 2>&1; then
+                  if docker rm -f "$container" >/dev/null 2>&1; then
+                    :
+                  else
+                    cleanup_status=$?
+                  fi
+                fi
+                if docker inspect "$container" >/dev/null 2>&1; then
+                  printf 'PostgreSQL test service residue remains after cleanup.\n' >&2
+                  if (( cleanup_status == 0 )); then
+                    cleanup_status=1
+                  fi
+                fi
+                return "$cleanup_status"
               }
-              trap cleanup_postgres EXIT
+              trap 'cleanup_postgres || true' EXIT
 
               docker run --detach --rm \
                 --name "$container" \
@@ -175,12 +190,30 @@ jobs:
               test "$ready" = true
               test -x scripts/run_backend_postgres_validation.sh
               export CIW_POSTGRES_URL="postgresql://ciw@127.0.0.1:55432/ciw"
-              ./scripts/run_backend_postgres_validation.sh
 
-              docker rm -f "$container" >/dev/null
+              set +e
+              ./scripts/run_backend_postgres_validation.sh
+              validation_status=$?
+              cleanup_postgres
+              cleanup_status=$?
+              set -e
               trap - EXIT
-              ! docker inspect "$container" >/dev/null 2>&1
-            ) >> "$CI_LOG" 2>&1; then
+
+              printf 'validation_exit_status=%s cleanup_exit_status=%s\n' \
+                "$validation_status" "$cleanup_status"
+              if (( validation_status != 0 )); then
+                printf 'Backend PostgreSQL validation exited with status %s.\n' "$validation_status" >&2
+              fi
+              if (( cleanup_status != 0 )); then
+                printf 'PostgreSQL test service cleanup exited with status %s.\n' "$cleanup_status" >&2
+              fi
+              if (( validation_status != 0 || cleanup_status != 0 )); then
+                exit 1
+              fi
+            ) >> "$CI_LOG" 2>&1
+            postgres_status=$?
+            set -e
+            if (( postgres_status != 0 )); then
               printf 'backend-postgres failed; inspect the private Google Drive CI log.\n' >&2
               return 1
             fi
