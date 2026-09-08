@@ -62,8 +62,18 @@ jobs:
           selector_payload = inputs.get("test_selectors", "[]")
           platform = inputs.get("test_platform", "")
           legacy_filter = inputs.get("test_filter", "")
+          native_component = inputs.get("native_component", "")
+          if profile != "native-component" and native_component not in (None, ""):
+              raise SystemExit("native_component is accepted only by Apple native-component")
 
-          if profile in {"targeted-tests", "candidate"}:
+          if profile == "native-component":
+              if workflow != "validation.apple":
+                  raise SystemExit("native-component is supported only by validation.apple")
+              if set(inputs) != {"native_component"}:
+                  raise SystemExit("native-component requires exactly inputs.native_component")
+              if not isinstance(native_component, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", native_component):
+                  raise SystemExit("native-component requires one bounded semantic native_component selector")
+          elif profile in {"targeted-tests", "candidate"}:
               if profile == "candidate" and workflow != "validation.apple":
                   raise SystemExit("candidate is supported only by validation.apple")
               if legacy_filter not in (None, ""):
@@ -330,6 +340,7 @@ jobs:
       test_profile: ${{ needs.request.outputs.test_profile }}
       test_selectors: ${{ fromJSON(needs.request.outputs.inputs_json).test_selectors || '[]' }}
       test_platform: ${{ fromJSON(needs.request.outputs.inputs_json).test_platform || '' }}
+      native_component: ${{ fromJSON(needs.request.outputs.inputs_json).native_component || '' }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
 

@@ -43,7 +43,7 @@ class AppleWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(
             execute["runs-on"],
-            "${{ fromJSON(((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && inputs.test_profile == 'build') && '[\"macOS\",\"ARM64\"]' || '[\"macos-latest\"]') }}",
+            "${{ fromJSON(((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && (inputs.test_profile == 'build' || inputs.test_profile == 'native-component')) && '[\"macOS\",\"ARM64\"]' || '[\"macos-latest\"]') }}",
         )
 
     def test_media_native_build_uses_fixed_self_hosted_mac_without_central_cache(self) -> None:
@@ -63,6 +63,58 @@ class AppleWorkflowTests(unittest.TestCase):
         )
         self.assertIn("inputs.test_profile != 'build'", cache_scope["if"])
 
+
+    def test_native_component_uses_bounded_product_wrapper_and_native_runner(self) -> None:
+        inputs = self.workflow["on"]["workflow_call"]["inputs"]
+        self.assertIn("native_component", inputs)
+        self.assertFalse(inputs["native_component"]["required"])
+        self.assertEqual(inputs["native_component"]["default"], "")
+
+        jobs = self.workflow["jobs"]
+        plan_script = next(
+            step
+            for step in jobs["plan"]["steps"]
+            if step.get("name") == "Resolve fixed Apple execution lanes"
+        )["run"]
+        self.assertIn("native-component)", plan_script)
+        self.assertIn(
+            '{"include":[{"lane":"native-component","cache_save":false}]}',
+            plan_script,
+        )
+        self.assertIn("one bounded semantic native_component selector", plan_script)
+        self.assertIn("native_component is accepted only by native-component", plan_script)
+
+        runner = jobs["execute"]["runs-on"]
+        self.assertIn("inputs.test_profile == 'native-component'", runner)
+        self.assertIn('[\"macOS\",\"ARM64\"]', runner)
+        self.assertNotIn("runner_label", runner)
+
+        by_name = {
+            step.get("name"): step
+            for step in jobs["execute"]["steps"]
+            if step.get("name")
+        }
+        cache_prepare = by_name["Resolve Apple default-branch dependency cache scope"]
+        self.assertIn("inputs.test_profile != 'native-component'", cache_prepare["if"])
+        for name in (
+            "Connect to private Git service for Apple dependency materialization",
+            "Materialize fixed Streamscape Media Apple dependency",
+        ):
+            self.assertIn("inputs.test_profile != 'native-component'", by_name[name]["if"])
+
+        command = by_name["Run fixed Apple lane"]
+        self.assertEqual(command["env"]["NATIVE_COMPONENT"], "${{ inputs.native_component }}")
+        script = command["run"]
+        start = script.index("native-component)")
+        end = script.index("build|test|simulator)", start)
+        block = script[start:end]
+        self.assertIn('wrapper="scripts/ci/run-apple-native-component-validation.sh"', block)
+        self.assertIn('export CI_APPLE_NATIVE_COMPONENT="${NATIVE_COMPONENT}"', block)
+        self.assertIn('git ls-files --error-unmatch -- "${wrapper}"', block)
+        self.assertIn('test ! -L "${wrapper}"', block)
+        self.assertIn('run_logged "apple-native-component" bash "${wrapper}"', block)
+        self.assertNotIn("xcodebuild", block)
+        self.assertNotIn("streamscape-media", block.lower())
 
     def test_platform_gate_uses_compile_only_ios_tvos_and_direct_macos_test(self) -> None:
         execute = self.workflow["jobs"]["execute"]
