@@ -1,16 +1,21 @@
 name: Upload file to Google Drive
 
-description: Upload one file under a fixed Drive root at <repository>/<ref>[/<subdirectory>]/<file-name>, updating the exact file in place unless immutable mode is requested.
+description: Upload one file under a fixed Drive repository namespace, using either source-ref storage or the bounded repository-screenshots evidence namespace.
 
 inputs:
   repository:
     description: Full GitHub repository name (owner/name)
     required: true
+  destination_kind:
+    description: "Fixed destination kind: source-ref or repository-screenshots"
+    required: false
+    default: source-ref
   ref:
-    description: Exact requested Git ref name or fixed logical folder name
-    required: true
+    description: Exact requested Git ref name; required only for source-ref destinations
+    required: false
+    default: ""
   subdirectory:
-    description: Optional single bounded child folder below ref
+    description: Optional bounded child folder below a source ref, or exact source SHA for repository-screenshots
     required: false
     default: ""
   repository_folder_id:
@@ -57,6 +62,7 @@ runs:
       shell: bash
       env:
         DRIVE_REPOSITORY: ${{ inputs.repository }}
+        DRIVE_DESTINATION_KIND: ${{ inputs.destination_kind }}
         DRIVE_REF: ${{ inputs.ref }}
         DRIVE_SUBDIRECTORY: ${{ inputs.subdirectory }}
         DRIVE_REPOSITORY_FOLDER_ID: ${{ inputs.repository_folder_id }}
@@ -69,13 +75,13 @@ runs:
         DRIVE_RECONCILE_DUPLICATE_MANIFESTS: ${{ inputs.reconcile_duplicate_manifests }}
       run: |
         set -Eeuo pipefail
+        DRIVE_DESTINATION_KIND="${DRIVE_DESTINATION_KIND:-source-ref}"
         DRIVE_RECONCILE_DUPLICATE_MANIFESTS="${DRIVE_RECONCILE_DUPLICATE_MANIFESTS:-false}"
         : "${GOOGLE_DRIVE_CLIENT_ID:?GOOGLE_DRIVE_CLIENT_ID is required}"
         : "${GOOGLE_DRIVE_CLIENT_SECRET:?GOOGLE_DRIVE_CLIENT_SECRET is required}"
         : "${GOOGLE_DRIVE_REFRESH_TOKEN:?GOOGLE_DRIVE_REFRESH_TOKEN is required}"
         : "${GOOGLE_DRIVE_ROOT_FOLDER_ID:?GOOGLE_DRIVE_ROOT_FOLDER_ID is required}"
         : "${DRIVE_REPOSITORY:?repository is required}"
-        : "${DRIVE_REF:?ref is required}"
         : "${DRIVE_FILE_PATH:?file_path is required}"
         : "${DRIVE_FILE_NAME:?file_name is required}"
         test -f "${DRIVE_FILE_PATH}"
@@ -116,14 +122,38 @@ runs:
           */*) ;;
           *) echo "repository must be owner/name" >&2; exit 2 ;;
         esac
-        test "${DRIVE_REF#refs/heads/}" = "${DRIVE_REF}" || { echo "ref must be the requested logical ref name" >&2; exit 2; }
-        test "${DRIVE_REF#refs/tags/}" = "${DRIVE_REF}" || { echo "ref must be the requested logical ref name" >&2; exit 2; }
-        if test -n "${DRIVE_SUBDIRECTORY}"; then
-          [[ "${DRIVE_SUBDIRECTORY}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$ ]] || {
-            echo "subdirectory must be one bounded child folder" >&2
-            exit 2
-          }
-        fi
+        case "${DRIVE_DESTINATION_KIND}" in
+          source-ref)
+            test -n "${DRIVE_REF}" || { echo "source-ref destination requires ref" >&2; exit 2; }
+            test "${DRIVE_REF#refs/heads/}" = "${DRIVE_REF}" || { echo "ref must be the requested logical ref name" >&2; exit 2; }
+            test "${DRIVE_REF#refs/tags/}" = "${DRIVE_REF}" || { echo "ref must be the requested logical ref name" >&2; exit 2; }
+            if test -n "${DRIVE_SUBDIRECTORY}"; then
+              [[ "${DRIVE_SUBDIRECTORY}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$ ]] || {
+                echo "subdirectory must be one bounded child folder" >&2
+                exit 2
+              }
+            fi
+            ;;
+          repository-screenshots)
+            [[ "${DRIVE_REPOSITORY}" =~ ^StreamScapeTV/[A-Za-z0-9_.-]{1,100}$ ]] || {
+              echo "repository-screenshots requires one bounded StreamScapeTV repository" >&2
+              exit 2
+            }
+            test -z "${DRIVE_REF}" || { echo "repository-screenshots does not accept ref" >&2; exit 2; }
+            [[ "${DRIVE_SUBDIRECTORY}" =~ ^[0-9a-f]{40}$ ]] || {
+              echo "repository-screenshots requires subdirectory to be the exact lowercase source SHA" >&2
+              exit 2
+            }
+            case "${DRIVE_FILE_NAME}" in
+              ios.zip|tvos.zip) ;;
+              *) echo "repository-screenshots accepts only ios.zip or tvos.zip" >&2; exit 2 ;;
+            esac
+            test -z "${DRIVE_PREVIOUS_FILE_NAME}" || { echo "repository-screenshots does not accept previous_file_name" >&2; exit 2; }
+            test "${DRIVE_GZIP}" = false || { echo "repository-screenshots requires caller-supplied ZIP bytes" >&2; exit 2; }
+            test "${DRIVE_RECONCILE_DUPLICATE_MANIFESTS}" = false || { echo "repository-screenshots does not support manifest reconciliation" >&2; exit 2; }
+            ;;
+          *) echo "destination_kind must be source-ref or repository-screenshots" >&2; exit 2 ;;
+        esac
 
         repository_name="${DRIVE_REPOSITORY##*/}"
         upload_path="${DRIVE_FILE_PATH}"
@@ -570,10 +600,15 @@ runs:
         else
           repository_folder_id="$(ensure_folder "${GOOGLE_DRIVE_ROOT_FOLDER_ID}" "${repository_name}")"
         fi
-        ref_folder_id="$(ensure_folder "${repository_folder_id}" "${DRIVE_REF}")"
-        target_folder_id="${ref_folder_id}"
-        if test -n "${DRIVE_SUBDIRECTORY}"; then
-          target_folder_id="$(ensure_folder "${ref_folder_id}" "${DRIVE_SUBDIRECTORY}")"
+        if test "${DRIVE_DESTINATION_KIND}" = repository-screenshots; then
+          screenshots_folder_id="$(ensure_folder "${repository_folder_id}" screenshots)"
+          target_folder_id="$(ensure_folder "${screenshots_folder_id}" "${DRIVE_SUBDIRECTORY}")"
+        else
+          ref_folder_id="$(ensure_folder "${repository_folder_id}" "${DRIVE_REF}")"
+          target_folder_id="${ref_folder_id}"
+          if test -n "${DRIVE_SUBDIRECTORY}"; then
+            target_folder_id="$(ensure_folder "${ref_folder_id}" "${DRIVE_SUBDIRECTORY}")"
+          fi
         fi
 
         existing_id="$(resolve_existing_file)"

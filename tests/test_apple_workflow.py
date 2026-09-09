@@ -868,5 +868,85 @@ CURRENT_PROJECT_VERSION = 1;
         self.assertEqual(full_line.count('"cache_save":false'), 2)
 
 
+    def test_screenshot_review_is_fixed_two_lane_repository_evidence_profile(self) -> None:
+        call = self.workflow["on"]["workflow_call"]
+        self.assertIn("GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID", call["secrets"])
+
+        jobs = self.workflow["jobs"]
+        plan_step = next(
+            step for step in jobs["plan"]["steps"]
+            if step.get("name") == "Resolve fixed Apple execution lanes"
+        )
+        plan = plan_step["run"]
+        self.assertIn("screenshot-review)", plan)
+        self.assertIn(
+            '{"include":[{"lane":"screenshot-ios","cache_save":false},{"lane":"screenshot-tvos","cache_save":false}]}',
+            plan,
+        )
+        self.assertIn("screenshot-review does not accept test_selectors", plan)
+        self.assertIn("screenshot-review does not accept test_platform", plan)
+        self.assertIn("screenshot-review does not accept native_component", plan)
+        self.assertIn("screenshot-review does not accept build_number", plan)
+        self.assertIn("StreamScapeTV/iptv-apple", plan)
+
+        by_name = {
+            step.get("name"): step
+            for step in jobs["execute"]["steps"]
+            if step.get("name")
+        }
+        cache = by_name["Resolve Apple default-branch dependency cache scope"]
+        self.assertIn("inputs.test_profile != 'screenshot-review'", cache["if"])
+        for name in (
+            "Connect to private Git service for Apple dependency materialization",
+            "Materialize fixed Streamscape Media Apple dependency",
+        ):
+            self.assertNotIn("inputs.test_profile != 'screenshot-review'", by_name[name]["if"])
+
+        command = by_name["Run fixed Apple lane"]
+        self.assertEqual(command["env"]["OBSERVED_SOURCE_SHA"], "${{ steps.source_identity.outputs.source_sha }}")
+        command_script = command["run"]
+        start = command_script.index("screenshot-review)")
+        end = command_script.index("testflight)", start)
+        block = command_script[start:end]
+        self.assertIn('screenshot-ios) screenshot_platform=ios', block)
+        self.assertIn('screenshot-tvos) screenshot_platform=tvos', block)
+        self.assertIn('wrapper="scripts/ci/run-apple-screenshot-review.sh"', block)
+        self.assertIn('export CI_APPLE_SCREENSHOT_PLATFORM="${screenshot_platform}"', block)
+        self.assertIn('export CI_APPLE_SCREENSHOT_OUTPUT_DIR="${screenshot_output}"', block)
+        self.assertIn('export CI_APPLE_SCREENSHOT_PACKAGE_PATH="${screenshot_package}"', block)
+        self.assertIn('git ls-files --error-unmatch -- "${wrapper}"', block)
+        self.assertNotIn("xcodebuild", block)
+        self.assertNotIn("GOOGLE_DRIVE", block)
+
+        validate = by_name["Validate screenshot-review package identity"]
+        validate_script = validate["run"]
+        for token in (
+            'archive.namelist().count("index.json") != 1',
+            '"source_sha": source_sha',
+            '"platform": platform',
+            '"drive_root": expected_root',
+            '"drive_source_folder": expected_source_folder',
+            '"drive_package_path": expected_path',
+        ):
+            self.assertIn(token, validate_script)
+
+        upload = by_name["Upload screenshot-review package to repository evidence"]
+        self.assertEqual(upload["uses"], "StreamScapeTV/ci-workflows/actions/google-drive@main")
+        self.assertEqual(upload["with"]["destination_kind"], "repository-screenshots")
+        self.assertNotIn("ref", upload["with"])
+        self.assertEqual(upload["with"]["subdirectory"], "${{ steps.screenshot_package.outputs.source_sha }}")
+        self.assertEqual(upload["with"]["file_name"], "${{ steps.screenshot_package.outputs.file_name }}")
+        self.assertEqual(
+            upload["env"]["GOOGLE_DRIVE_ROOT_FOLDER_ID"],
+            "${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}",
+        )
+
+        dispatch_text = (ROOT / ".github/workflows/central-ci-dispatch.yml").read_text(encoding="utf-8")
+        self.assertIn('if profile == "screenshot-review":', dispatch_text)
+        self.assertIn('repository != "StreamScapeTV/iptv-apple"', dispatch_text)
+        self.assertIn('raise SystemExit("screenshot-review accepts no semantic inputs")', dispatch_text)
+        self.assertFalse((ROOT / ".github/workflows/screenshot-review.yml").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
