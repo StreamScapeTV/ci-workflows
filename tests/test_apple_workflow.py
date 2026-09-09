@@ -918,6 +918,7 @@ CURRENT_PROJECT_VERSION = 1;
         self.assertIn('export CI_APPLE_SCREENSHOT_OUTPUT_DIR="${screenshot_output}"', block)
         self.assertIn('export CI_APPLE_SCREENSHOT_PACKAGE_PATH="${screenshot_package}"', block)
         self.assertIn('git ls-files --error-unmatch -- "${wrapper}"', block)
+        self.assertIn('run_screenshot_logged "apple-screenshot-${screenshot_platform}" "${screenshot_platform}" bash "${wrapper}"', block)
         self.assertNotIn("--allow-dirty", block)
         self.assertNotIn("xcodebuild", block)
         self.assertNotIn("GOOGLE_DRIVE", block)
@@ -952,6 +953,99 @@ CURRENT_PROJECT_VERSION = 1;
         self.assertIn('repository != "StreamScapeTV/iptv-apple"', dispatch_text)
         self.assertIn('raise SystemExit("screenshot-review accepts no semantic inputs")', dispatch_text)
         self.assertFalse((ROOT / ".github/workflows/screenshot-review.yml").exists())
+
+
+    def test_screenshot_review_retries_only_known_ios_simulator_launch_failure_once(self) -> None:
+        import shlex
+
+        command = next(
+            step
+            for step in self.workflow["jobs"]["execute"]["steps"]
+            if step.get("name") == "Run fixed Apple lane"
+        )
+        script = command["run"]
+        function_start = script.index("run_screenshot_logged() {")
+        function_end = script.index("\n\ncase \"${TEST_PROFILE}\" in", function_start)
+        function_text = script[function_start:function_end]
+
+        self.assertIn('if test "${platform}" = ios; then', function_text)
+        self.assertIn('max_attempts=2', function_text)
+        self.assertIn('test "${attempt}" -eq 1', function_text)
+        self.assertIn('Failed to get background assertion for target app', function_text)
+        self.assertIn('DebuggerLLDB\\.DebuggerVersionStore\\.StoreError', function_text)
+        self.assertIn('retrying the fixed product wrapper once', function_text)
+        self.assertIn('rm -rf -- "${CI_APPLE_SCREENSHOT_OUTPUT_DIR}"', function_text)
+        self.assertIn('rm -f -- "${CI_APPLE_SCREENSHOT_PACKAGE_PATH}"', function_text)
+        self.assertNotIn("xcodebuild", function_text)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            counter = root / "counter"
+            wrapper = root / "wrapper.sh"
+            wrapper.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -Eeuo pipefail\n"
+                "count=0\n"
+                "if test -f \"${COUNTER}\"; then count=$(cat \"${COUNTER}\"); fi\n"
+                "count=$((count + 1))\n"
+                "printf '%s\\n' \"${count}\" > \"${COUNTER}\"\n"
+                "if test \"${MODE}\" = transient && test \"${count}\" -eq 1; then\n"
+                "  echo 'Failed to get background assertion for target app with pid 42'\n"
+                "  echo 'DebuggerLLDB.DebuggerVersionStore.StoreError error 0'\n"
+                "  exit 2\n"
+                "fi\n"
+                "if test \"${MODE}\" = deterministic; then echo 'product assertion failed'; exit 3; fi\n"
+                "exit 0\n",
+                encoding="utf-8",
+            )
+            wrapper.chmod(0o755)
+            output_dir = root / "output"
+            package = root / "ios.zip"
+            base_env = {
+                "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                "RUNNER_TEMP": str(root),
+                "CI_LOG": str(root / "ci.log"),
+                "CI_APPLE_SCREENSHOT_OUTPUT_DIR": str(output_dir),
+                "CI_APPLE_SCREENSHOT_PACKAGE_PATH": str(package),
+                "COUNTER": str(counter),
+            }
+
+            def invoke(platform: str, mode: str) -> subprocess.CompletedProcess[str]:
+                counter.unlink(missing_ok=True)
+                (root / "ci.log").write_text("", encoding="utf-8")
+                env = dict(base_env, MODE=mode)
+                probe = (
+                    "set -Eeuo pipefail\n"
+                    + function_text
+                    + "\nrun_screenshot_logged screenshot-test "
+                    + shlex.quote(platform)
+                    + " bash "
+                    + shlex.quote(str(wrapper))
+                    + "\n"
+                )
+                return subprocess.run(
+                    ["bash", "-c", probe],
+                    env=env,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+
+            ios = invoke("ios", "transient")
+            self.assertEqual(ios.returncode, 0, ios.stderr)
+            self.assertEqual(counter.read_text(encoding="utf-8").strip(), "2")
+            self.assertIn(
+                "Known transient hosted iOS simulator launch failure detected",
+                (root / "ci.log").read_text(encoding="utf-8"),
+            )
+
+            tvos = invoke("tvos", "transient")
+            self.assertNotEqual(tvos.returncode, 0)
+            self.assertEqual(counter.read_text(encoding="utf-8").strip(), "1")
+
+            deterministic = invoke("ios", "deterministic")
+            self.assertNotEqual(deterministic.returncode, 0)
+            self.assertEqual(counter.read_text(encoding="utf-8").strip(), "1")
 
 
 if __name__ == "__main__":
