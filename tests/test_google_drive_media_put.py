@@ -353,6 +353,153 @@ verify_immutable_existing
                         completed.stderr,
                     )
 
+    def test_duplicate_manifest_reconciliation_keeps_oldest_valid_identity(self) -> None:
+        function_text = _function(self.script, "drive_list_url", "verify_repository_folder")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = Path(temp_dir)
+            expected = temp / "expected.json"
+            candidate_a = temp / "a.json"
+            candidate_b = temp / "b.json"
+            requests = temp / "requests.log"
+            import json
+            common = {
+                "repository": "StreamScapeTV/example",
+                "repository_name": "example",
+                "requested_ref": "feature/test",
+                "is_tag": False,
+                "folder_id": "ref-folder",
+                "archive_filename": "example-feature%2Ftest.zip",
+                "archive_file_id": "archive-id",
+                "source_zip_file_id": "archive-id",
+            }
+            expected.write_text(json.dumps({**common, "resolved_source_sha": "c" * 40}))
+            candidate_a.write_text(json.dumps({**common, "resolved_source_sha": "a" * 40, "manifest_file_id": "manifest-a"}))
+            candidate_b.write_text(json.dumps({**common, "resolved_source_sha": "b" * 40, "manifest_file_id": "manifest-a"}))
+            initial = (
+                '{"files":['
+                '{"id":"manifest-b","name":"manifest.json","mimeType":"application/json","createdTime":"2026-09-09T00:00:02Z"},'
+                '{"id":"manifest-a","name":"manifest.json","mimeType":"application/json","createdTime":"2026-09-09T00:00:01Z"}'
+                ']}'
+            )
+            final = '{"files":[{"id":"manifest-a","name":"manifest.json","mimeType":"application/json","createdTime":"2026-09-09T00:00:01Z"}]}'
+            harness = f'''set -Eeuo pipefail
+{function_text}
+access_token=masked
+DRIVE_FILE_PATH={str(expected)!r}
+DRIVE_FILE_NAME=manifest.json
+DRIVE_RECONCILE_DUPLICATE_MANIFESTS=true
+RUNNER_TEMP={str(temp)!r}
+GITHUB_RUN_ID=1
+GITHUB_RUN_ATTEMPT=1
+target_folder_id=ref-folder
+REQUESTS={str(requests)!r}
+A={str(candidate_a)!r}
+B={str(candidate_b)!r}
+INITIAL={initial!r}
+FINAL={final!r}
+LIST_COUNT={str(temp / "list-count")!r}
+printf '0' > "$LIST_COUNT"
+drive_backoff_sleep() {{ :; }}
+curl() {{
+  method=GET
+  output=""
+  url=""
+  while test "$#" -gt 0; do
+    case "$1" in
+      --request) method="$2"; shift 2 ;;
+      --output) output="$2"; shift 2 ;;
+      http*) url="$1"; shift ;;
+      *) shift ;;
+    esac
+  done
+  printf '%s %s\n' "$method" "$url" >> "$REQUESTS"
+  case "$url" in
+    *files/manifest-a?alt=media) cp "$A" "$output" ;;
+    *files/manifest-b?alt=media) cp "$B" "$output" ;;
+    *files/manifest-b?fields=id,trashed) test -z "$output" || : > "$output" ;;
+    *files?*)
+      list_count="$(cat "$LIST_COUNT")"
+      list_count=$((list_count + 1))
+      printf '%s' "$list_count" > "$LIST_COUNT"
+      if test "$list_count" -eq 1; then printf '%s' "$INITIAL"; else printf '%s' "$FINAL"; fi
+      ;;
+    *) echo "unexpected curl $method $url" >&2; return 97 ;;
+  esac
+}}
+result="$(current_file_id "$INITIAL")"
+test "$result" = manifest-a
+printf '%s' "$result"
+'''
+            completed = subprocess.run(
+                ["bash", "-c", harness],
+                cwd=ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(completed.stdout, "manifest-a")
+            request_text = requests.read_text()
+            self.assertIn("GET https://www.googleapis.com/drive/v3/files/manifest-a?alt=media", request_text)
+            self.assertIn("GET https://www.googleapis.com/drive/v3/files/manifest-b?alt=media", request_text)
+            self.assertIn("PATCH https://www.googleapis.com/drive/v3/files/manifest-b?fields=id,trashed", request_text)
+            self.assertNotIn("PATCH https://www.googleapis.com/drive/v3/files/manifest-a?fields=id,trashed", request_text)
+
+    def test_new_manifest_creation_waits_for_exact_name_visibility(self) -> None:
+        function_text = _function(self.script, "drive_list_url", "verify_repository_folder")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = Path(temp_dir)
+            expected = temp / "expected.json"
+            expected.write_text('{}')
+            harness = f'''set -Eeuo pipefail
+{function_text}
+access_token=masked
+DRIVE_FILE_PATH={str(expected)!r}
+DRIVE_FILE_NAME=manifest.json
+DRIVE_RECONCILE_DUPLICATE_MANIFESTS=true
+RUNNER_TEMP={str(temp)!r}
+GITHUB_RUN_ID=1
+GITHUB_RUN_ATTEMPT=1
+target_folder_id=ref-folder
+COUNT_FILE={str(temp / "count")!r}
+printf '0' > "$COUNT_FILE"
+drive_backoff_sleep() {{ :; }}
+curl() {{
+  url=""
+  while test "$#" -gt 0; do
+    case "$1" in
+      http*) url="$1"; shift ;;
+      *) shift ;;
+    esac
+  done
+  case "$url" in
+    *files?*)
+      count="$(cat "$COUNT_FILE")"
+      count=$((count + 1))
+      printf '%s' "$count" > "$COUNT_FILE"
+      if test "$count" -lt 2; then
+        printf '%s' '{{"files":[]}}'
+      else
+        printf '%s' '{{"files":[{{"id":"created-id","name":"manifest.json","mimeType":"application/json","createdTime":"2026-09-09T00:00:01Z"}}]}}'
+      fi
+      ;;
+    *) return 97 ;;
+  esac
+}}
+result="$(wait_for_created_file_visibility created-id)"
+test "$result" = created-id
+printf '%s' "$result"
+'''
+            completed = subprocess.run(
+                ["bash", "-c", harness],
+                cwd=ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(completed.stdout, "created-id")
+
     def test_optional_subdirectory_and_immutable_mode_are_bounded(self) -> None:
         inputs = self.action["inputs"]
         self.assertEqual(inputs["subdirectory"]["default"], "")
