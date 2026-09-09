@@ -42,6 +42,10 @@ class SourceSnapshotDeleteTests(unittest.TestCase):
                 _mod.validate_request("StreamScapeTV/example", ref, "a" * 40)
         _mod.validate_request("StreamScapeTV/example", "feature/cleanup", "a" * 40)
 
+    def test_duplicate_media_reads_have_a_bounded_large_file_timeout(self) -> None:
+        self.assertEqual(_mod.REQUEST_TIMEOUT_SECONDS, 20)
+        self.assertEqual(_mod.DUPLICATE_MEDIA_TIMEOUT_SECONDS, 120)
+
     def test_branch_delete_always_routes_same_ref_snapshot_cleanup(self) -> None:
         workflow = yaml.safe_load((ROOT / ".github/workflows/branch-delete.yml").read_text())
         delete = workflow["jobs"]["delete"]

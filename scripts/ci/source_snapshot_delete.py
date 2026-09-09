@@ -16,6 +16,8 @@ from typing import Any
 FOLDER_MIME = "application/vnd.google-apps.folder"
 SHA40 = re.compile(r"[0-9a-f]{40}")
 REPOSITORY = re.compile(r"StreamScapeTV/[A-Za-z0-9_.-]{1,100}")
+REQUEST_TIMEOUT_SECONDS = 20
+DUPLICATE_MEDIA_TIMEOUT_SECONDS = 120
 
 
 class SnapshotDeleteError(RuntimeError):
@@ -95,6 +97,7 @@ class DriveClient:
         *,
         method: str = "GET",
         json_body: dict[str, Any] | None = None,
+        timeout_seconds: int = REQUEST_TIMEOUT_SECONDS,
     ) -> bytes:
         data = None
         headers = {
@@ -111,7 +114,7 @@ class DriveClient:
             data=data,
         )
         try:
-            with urllib.request.urlopen(request, timeout=20) as response:
+            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
                 return response.read()
         except urllib.error.HTTPError as exc:
             raise SnapshotDeleteError(f"Google Drive snapshot deletion request was refused with HTTP {exc.code}") from None
@@ -171,7 +174,10 @@ class DriveClient:
         )
 
     def media(self, file_id: str) -> bytes:
-        return self._request(f"/files/{urllib.parse.quote(file_id, safe='')}?alt=media")
+        return self._request(
+            f"/files/{urllib.parse.quote(file_id, safe='')}?alt=media",
+            timeout_seconds=DUPLICATE_MEDIA_TIMEOUT_SECONDS,
+        )
 
     def trash(self, file_id: str) -> None:
         payload = self._json(
