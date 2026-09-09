@@ -47,6 +47,37 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertNotIn("streamscape-media-release.yml", names)
         self.assertNotIn("streamscape-media-apple-binary.yml", names)
 
+    def test_long_running_execution_jobs_have_five_hour_ceiling(self) -> None:
+        expected = {
+            "apple.yml": ("execute",),
+            "android.yml": ("ci",),
+            "python.yml": ("ci",),
+            "node.yml": ("ci",),
+            "flutter.yml": ("ci",),
+            "maven.yml": ("publish",),
+            "apple-binary.yml": ("publish",),
+            "container-service.yml": ("conformance",),
+            "oci-reproducibility.yml": ("prove",),
+            "public-native-image-chart.yml": ("publish",),
+        }
+        workflows = _prior.ROOT / ".github/workflows"
+        for filename, jobs in expected.items():
+            workflow = yaml.safe_load((workflows / filename).read_text())
+            for job in jobs:
+                self.assertEqual(workflow["jobs"][job]["timeout-minutes"], 300, f"{filename}:{job}")
+
+        apple = yaml.safe_load((workflows / "apple.yml").read_text())
+        self.assertEqual(apple["jobs"]["plan"]["timeout-minutes"], 10)
+        self.assertEqual(apple["jobs"]["finish"]["timeout-minutes"], 10)
+        for filename, job, minutes in (
+            ("branch-delete.yml", "delete", 10),
+            ("source-snapshot-delete.yml", "delete", 10),
+            ("source-snapshot.yml", "snapshot", 30),
+            ("source-checkpoint-publish.yml", "publish", 30),
+        ):
+            workflow = yaml.safe_load((workflows / filename).read_text())
+            self.assertEqual(workflow["jobs"][job]["timeout-minutes"], minutes, f"{filename}:{job}")
+
     def test_branch_delete_capability_is_bounded_and_fail_closed(self) -> None:
         super().test_branch_delete_capability_is_bounded_and_fail_closed()
         workflow = yaml.safe_load((_prior.ROOT / ".github/workflows/branch-delete.yml").read_text())

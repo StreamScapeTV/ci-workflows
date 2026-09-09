@@ -47,7 +47,7 @@ env:
 jobs:
   prove:
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 300
     steps:
       - name: Initialize private reproducibility log
         id: initialize
