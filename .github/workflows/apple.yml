@@ -904,8 +904,7 @@ jobs:
           if package.name != file_name or not package.is_file():
               raise SystemExit("screenshot-review package path/name mismatch")
           expected_root = "repositories/iptv-apple/screenshots"
-          expected_source_folder = f"{expected_root}/{source_sha}"
-          expected_path = f"{expected_source_folder}/{file_name}"
+          expected_path = f"{expected_root}/{file_name}"
           try:
               with zipfile.ZipFile(package) as archive:
                   if archive.testzip() is not None:
@@ -921,12 +920,13 @@ jobs:
               "source_sha": source_sha,
               "platform": platform,
               "drive_root": expected_root,
-              "drive_source_folder": expected_source_folder,
               "drive_package_path": expected_path,
           }
           for key, expected in checks.items():
               if index.get(key) != expected:
                   raise SystemExit(f"screenshot-review {key} mismatch")
+          if "drive_source_folder" in index:
+              raise SystemExit("screenshot-review index must not encode source SHA as a Drive folder")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"package_path={package}\n")
               output.write(f"file_name={file_name}\n")
@@ -944,7 +944,6 @@ jobs:
         with:
           repository: ${{ inputs.repository || github.repository }}
           destination_kind: repository-screenshots
-          subdirectory: ${{ steps.screenshot_package.outputs.source_sha }}
           file_path: ${{ steps.screenshot_package.outputs.package_path }}
           file_name: ${{ steps.screenshot_package.outputs.file_name }}
           mime_type: application/zip
