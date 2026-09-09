@@ -929,16 +929,18 @@ CURRENT_PROJECT_VERSION = 1;
             '"source_sha": source_sha',
             '"platform": platform',
             '"drive_root": expected_root',
-            '"drive_source_folder": expected_source_folder',
+            'expected_path = f"{expected_root}/{file_name}"',
             '"drive_package_path": expected_path',
+            'if "drive_source_folder" in index:',
         ):
             self.assertIn(token, validate_script)
+        self.assertNotIn('expected_source_folder = f"{expected_root}/{source_sha}"', validate_script)
 
         upload = by_name["Upload screenshot-review package to repository evidence"]
         self.assertEqual(upload["uses"], "StreamScapeTV/ci-workflows/actions/google-drive@main")
         self.assertEqual(upload["with"]["destination_kind"], "repository-screenshots")
         self.assertNotIn("ref", upload["with"])
-        self.assertEqual(upload["with"]["subdirectory"], "${{ steps.screenshot_package.outputs.source_sha }}")
+        self.assertNotIn("subdirectory", upload["with"])
         self.assertEqual(upload["with"]["file_name"], "${{ steps.screenshot_package.outputs.file_name }}")
         self.assertEqual(
             upload["env"]["GOOGLE_DRIVE_ROOT_FOLDER_ID"],

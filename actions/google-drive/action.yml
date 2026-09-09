@@ -15,7 +15,7 @@ inputs:
     required: false
     default: ""
   subdirectory:
-    description: Optional bounded child folder below a source ref, or exact source SHA for repository-screenshots
+    description: Optional bounded child folder below a source ref; repository-screenshots requires this to be empty
     required: false
     default: ""
   repository_folder_id:
@@ -140,10 +140,7 @@ runs:
               exit 2
             }
             test -z "${DRIVE_REF}" || { echo "repository-screenshots does not accept ref" >&2; exit 2; }
-            [[ "${DRIVE_SUBDIRECTORY}" =~ ^[0-9a-f]{40}$ ]] || {
-              echo "repository-screenshots requires subdirectory to be the exact lowercase source SHA" >&2
-              exit 2
-            }
+            test -z "${DRIVE_SUBDIRECTORY}" || { echo "repository-screenshots does not accept subdirectory" >&2; exit 2; }
             case "${DRIVE_FILE_NAME}" in
               ios.zip|tvos.zip) ;;
               *) echo "repository-screenshots accepts only ios.zip or tvos.zip" >&2; exit 2 ;;
@@ -602,7 +599,7 @@ runs:
         fi
         if test "${DRIVE_DESTINATION_KIND}" = repository-screenshots; then
           screenshots_folder_id="$(ensure_folder "${repository_folder_id}" screenshots)"
-          target_folder_id="$(ensure_folder "${screenshots_folder_id}" "${DRIVE_SUBDIRECTORY}")"
+          target_folder_id="${screenshots_folder_id}"
         else
           ref_folder_id="$(ensure_folder "${repository_folder_id}" "${DRIVE_REF}")"
           target_folder_id="${ref_folder_id}"
