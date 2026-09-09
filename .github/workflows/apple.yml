@@ -674,6 +674,13 @@ jobs:
               rm -rf -- "${screenshot_output}"
               rm -f -- "${screenshot_package}"
               mkdir -p -- "${screenshot_root}"
+              workspace_dirty="$(git status --porcelain --untracked-files=normal)"
+              test -z "${workspace_dirty}" || {
+                echo "screenshot-review requires a clean exact-source checkout after dependency materialization" >&2
+                printf '%s\n' "${workspace_dirty}" >&2
+                exit 1
+              }
+              export PYTHONDONTWRITEBYTECODE=1
               export CI_APPLE_SCREENSHOT_PLATFORM="${screenshot_platform}"
               export CI_APPLE_SCREENSHOT_OUTPUT_DIR="${screenshot_output}"
               export CI_APPLE_SCREENSHOT_PACKAGE_PATH="${screenshot_package}"
