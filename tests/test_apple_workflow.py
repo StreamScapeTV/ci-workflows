@@ -889,6 +889,36 @@ CURRENT_PROJECT_VERSION = 1;
         self.assertIn("screenshot-review does not accept build_number", plan)
         self.assertIn("StreamScapeTV/iptv-apple", plan)
 
+        plan_job = jobs["plan"]
+        self.assertEqual(
+            plan_job["outputs"]["screenshot_source_sha"],
+            "${{ steps.screenshot_source.outputs.source_sha }}",
+        )
+        plan_by_name = {
+            step.get("name"): step
+            for step in plan_job["steps"]
+            if step.get("name")
+        }
+        source_token = plan_by_name["Prepare screenshot-review source token"]
+        self.assertEqual(source_token["if"], "${{ inputs.test_profile == 'screenshot-review' }}")
+        self.assertEqual(source_token["uses"], "actions/create-github-app-token@v2")
+        source_identity = plan_by_name["Resolve screenshot-review source identity"]
+        self.assertEqual(source_identity["if"], "${{ inputs.test_profile == 'screenshot-review' }}")
+        source_script = source_identity["run"]
+        self.assertIn("https://api.github.com/repos/StreamScapeTV/iptv-apple/commits/${encoded_ref}", source_script)
+        self.assertIn("screenshot-review requires an explicit product source ref", source_script)
+        self.assertIn("refs/tags/*|refs/pull/*", source_script)
+        self.assertIn('[[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]]', source_script)
+        plan_observe = plan_by_name["Record screenshot-review source SHA"]
+        self.assertEqual(
+            plan_observe["if"],
+            "${{ inputs.test_profile == 'screenshot-review' && inputs.ci_run_id != '' }}",
+        )
+        self.assertEqual(
+            plan_observe["with"]["observed_source_sha"],
+            "${{ steps.screenshot_source.outputs.source_sha }}",
+        )
+
         by_name = {
             step.get("name"): step
             for step in jobs["execute"]["steps"]
@@ -901,6 +931,26 @@ CURRENT_PROJECT_VERSION = 1;
             "Materialize fixed Streamscape Media Apple dependency",
         ):
             self.assertNotIn("inputs.test_profile != 'screenshot-review'", by_name[name]["if"])
+
+        checkout = by_name["Check out source"]
+        self.assertEqual(
+            checkout["with"]["ref"],
+            "${{ inputs.test_profile == 'screenshot-review' && needs.plan.outputs.screenshot_source_sha || inputs.ref || github.sha }}",
+        )
+        observed = by_name["Resolve observed source SHA"]
+        self.assertEqual(
+            observed["env"]["EXPECTED_SCREENSHOT_SOURCE_SHA"],
+            "${{ needs.plan.outputs.screenshot_source_sha }}",
+        )
+        self.assertIn(
+            'test "${source_sha}" = "${EXPECTED_SCREENSHOT_SOURCE_SHA}"',
+            observed["run"],
+        )
+        record_observed = by_name["Record observed source SHA"]
+        self.assertEqual(
+            record_observed["if"],
+            "${{ inputs.ci_run_id != '' && inputs.test_profile != 'screenshot-review' }}",
+        )
 
         command = by_name["Run fixed Apple lane"]
         self.assertEqual(command["env"]["OBSERVED_SOURCE_SHA"], "${{ steps.source_identity.outputs.source_sha }}")
