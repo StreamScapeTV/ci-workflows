@@ -695,6 +695,8 @@ runs:
         PY
         }
 
+        use_http1=false
+
         run_media_put() {
           offset="$1"
           remaining=$((byte_size - offset))
@@ -704,8 +706,11 @@ runs:
             exit 1
           fi
           set --
+          if test "${use_http1:-false}" = true; then
+            set -- "$@" --http1.1
+          fi
           if test "${offset}" -gt 0; then
-            set -- --header "Content-Range: bytes ${offset}-$((byte_size - 1))/${byte_size}"
+            set -- "$@" --header "Content-Range: bytes ${offset}-$((byte_size - 1))/${byte_size}"
           fi
           : > "${media_headers_file}"
           : > "${media_response_file}"
@@ -734,8 +739,13 @@ runs:
           while test "${session_try}" -le 3; do
             : > "${media_headers_file}"
             : > "${media_response_file}"
+            set --
+            if test "${use_http1:-false}" = true; then
+              set -- --http1.1
+            fi
             set +e
             session_http_code="$(curl --silent --show-error \
+              "$@" \
               --request PUT \
               --dump-header "${media_headers_file}" \
               --output "${media_response_file}" \
@@ -774,6 +784,10 @@ runs:
         file_id=""
         while test "${media_attempt}" -le "${max_media_upload_attempts}"; do
           run_media_put "${offset}"
+          if test "${media_curl_status}" -eq 92 && test "${use_http1:-false}" != true; then
+            use_http1=true
+            echo "Google Drive resumable media upload hit curl 92 HTTP/2 protocol failure; switching remaining bounded recovery to HTTP/1.1" >&2
+          fi
           if test "${media_curl_status}" -eq 0; then
             case "${media_http_code}" in
               200|201) file_id="$(response_file_id "${media_response_file}")"; break ;;

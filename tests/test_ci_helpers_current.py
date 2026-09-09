@@ -19,6 +19,9 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertIn("failed after bounded recovery attempts", text)
         self.assertIn('drive_backoff_sleep "${retry_delay}"', text)
         self.assertNotIn('sleep "${media_attempt}"', text)
+        self.assertIn('media_curl_status}" -eq 92', text)
+        self.assertIn('--http1.1', text)
+        self.assertIn('switching remaining bounded recovery to HTTP/1.1', text)
 
     def test_inventory_is_the_only_inventory_and_matches_the_small_surface(self) -> None:
         inventory = yaml.safe_load((_prior.ROOT / "INVENTORY.yaml").read_text())
