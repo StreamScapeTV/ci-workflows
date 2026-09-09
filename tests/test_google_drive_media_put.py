@@ -304,6 +304,90 @@ test "${{media_http_code}}" = 200
                 else:
                     self.assertIn(expected_range, curl_args)
 
+    def test_curl_92_protocol_error_switches_recovery_to_http11_and_preserves_offset(self) -> None:
+        lines = self.script.splitlines()
+        start = next(i for i, line in enumerate(lines) if line.strip() == "retryable_media_failure() {")
+        end = next(i for i, line in enumerate(lines[start + 1 :], start + 1) if line.strip() == "max_media_upload_attempts=5")
+        function_text = "\n".join(lines[start:end]).rstrip()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = Path(temp_dir)
+            payload = temp / "payload.bin"
+            payload.write_bytes(b"abcdef")
+            calls = temp / "calls.log"
+            resumed_body = temp / "resumed.body"
+            harness = f'''set -Eeuo pipefail
+{function_text}
+byte_size=6
+upload_path={str(payload)!r}
+media_headers_file={str(temp / "media.headers")!r}
+media_response_file={str(temp / "media.json")!r}
+access_token=masked-test-token
+DRIVE_MIME_TYPE=application/octet-stream
+session_url=https://masked.invalid/upload-session
+CALLS={str(calls)!r}
+RESUMED_BODY={str(resumed_body)!r}
+curl() {{
+  http1=false
+  output=""
+  headers=""
+  content_range=""
+  while test "$#" -gt 0; do
+    case "$1" in
+      --http1.1) http1=true; shift ;;
+      --dump-header) headers="$2"; shift 2 ;;
+      --output) output="$2"; shift 2 ;;
+      --header)
+        case "$2" in Content-Range:*) content_range="$2" ;; esac
+        shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  printf 'http1=%s range=%s\n' "$http1" "$content_range" >> "$CALLS"
+  if test "$http1" != true; then
+    cat >/dev/null
+    printf '000'
+    return 92
+  fi
+  if test "$content_range" = 'Content-Range: bytes */6'; then
+    printf 'Range: bytes=0-1\r\n' > "$headers"
+    : > "$output"
+    printf '308'
+    return 0
+  fi
+  cat > "$RESUMED_BODY"
+  printf '{{"id":"done-id"}}' > "$output"
+  : > "$headers"
+  printf '200'
+}}
+run_media_put 0
+test "$media_curl_status" -eq 92
+test "$media_http_code" = 000
+if test "$media_curl_status" -eq 92 && test "$use_http1" != true; then
+  use_http1=true
+fi
+offset=0
+file_id=""
+reconcile_session
+test "$offset" -eq 2
+run_media_put "$offset"
+test "$media_curl_status" -eq 0
+test "$media_http_code" = 200
+test "$(cat "$RESUMED_BODY")" = cdef
+'''
+            completed = subprocess.run(
+                ["bash", "-c", harness],
+                cwd=ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            call_lines = calls.read_text().splitlines()
+            self.assertEqual(call_lines[0], "http1=false range=")
+            self.assertIn("http1=true range=Content-Range: bytes */6", call_lines[1])
+            self.assertIn("http1=true range=Content-Range: bytes 2-5/6", call_lines[2])
+
     def test_immutable_existing_file_is_idempotent_only_for_identical_bytes(self) -> None:
         lines = self.script.splitlines()
         start = next(i for i, line in enumerate(lines) if line.strip() == "verify_immutable_existing() {")
