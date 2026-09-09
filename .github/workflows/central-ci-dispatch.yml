@@ -814,6 +814,7 @@ jobs:
           file_path: ${{ steps.snapshot.outputs.manifest }}
           file_name: manifest.json
           mime_type: application/json
+          reconcile_duplicate_manifests: true
 
       - name: Add stable manifest Drive identity
         shell: bash
