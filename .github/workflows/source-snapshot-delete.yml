@@ -13,6 +13,10 @@ name: Delete repository source snapshot
         type: string
         required: false
         default: ""
+      allow_checkpoint_only_without_manifest:
+        type: boolean
+        required: false
+        default: false
     secrets:
       GOOGLE_DRIVE_CLIENT_ID:
         required: true
@@ -94,7 +98,12 @@ jobs:
           GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
         run: |
           set -Eeuo pipefail
-          python3 central/scripts/ci/source_snapshot_delete.py \
-            --repository '${{ inputs.repository }}' \
-            --ref '${{ inputs.ref }}' \
+          args=(
+            --repository '${{ inputs.repository }}'
+            --ref '${{ inputs.ref }}'
             --expected-source-sha '${{ inputs.expected_source_sha }}'
+          )
+          if test '${{ inputs.allow_checkpoint_only_without_manifest }}' = true; then
+            args+=(--allow-checkpoint-only-without-manifest)
+          fi
+          python3 central/scripts/ci/source_snapshot_delete.py "${args[@]}"

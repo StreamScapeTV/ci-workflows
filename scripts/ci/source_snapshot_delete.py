@@ -246,6 +246,7 @@ def delete_snapshot(
     repository: str,
     ref: str,
     expected_source_sha: str = "",
+    allow_checkpoint_only_without_manifest: bool = False,
 ) -> str:
     validate_request(repository, ref, expected_source_sha)
     if not root_folder_id:
@@ -277,6 +278,23 @@ def delete_snapshot(
         raise SnapshotDeleteError("Google Drive snapshot ref folder contains an unexpected child folder")
 
     manifests = [child for child in children if child.get("name") == "manifest.json"]
+    if not manifests:
+        if not allow_checkpoint_only_without_manifest:
+            raise SnapshotDeleteError("Google Drive snapshot ref folder must contain exactly one manifest.json")
+        if expected_source_sha:
+            raise SnapshotDeleteError(
+                "checkpoint-only snapshot retirement cannot verify an expected source SHA without manifest metadata"
+            )
+        if any(child.get("mimeType") != "application/zip" for child in children):
+            raise SnapshotDeleteError("checkpoint-only snapshot retirement requires ZIP checkpoint files only")
+        _validate_numbered_checkpoint_files(
+            client,
+            children,
+            repository=repository,
+            ref=ref,
+        )
+        client.trash(ref_folder["id"])
+        return "trashed-checkpoint-only"
     if len(manifests) != 1:
         raise SnapshotDeleteError("Google Drive snapshot ref folder must contain exactly one manifest.json")
 
@@ -321,6 +339,7 @@ def main() -> int:
     parser.add_argument("--repository", required=True)
     parser.add_argument("--ref", required=True)
     parser.add_argument("--expected-source-sha", default="")
+    parser.add_argument("--allow-checkpoint-only-without-manifest", action="store_true")
     parser.add_argument("--api-root", default="https://www.googleapis.com/drive/v3")
     args = parser.parse_args()
 
@@ -335,6 +354,7 @@ def main() -> int:
             repository=args.repository,
             ref=args.ref,
             expected_source_sha=args.expected_source_sha,
+            allow_checkpoint_only_without_manifest=args.allow_checkpoint_only_without_manifest,
         )
     except SnapshotDeleteError as exc:
         raise SystemExit(str(exc)) from None
