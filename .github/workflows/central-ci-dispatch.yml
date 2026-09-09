@@ -42,6 +42,7 @@ jobs:
         env:
           WORKFLOW_KEY: ${{ steps.claim.outputs.workflow_key }}
           TEST_PROFILE: ${{ steps.claim.outputs.test_profile }}
+          REPOSITORY: ${{ steps.claim.outputs.repository }}
           INPUTS_JSON: ${{ steps.claim.outputs.inputs_json }}
         run: |
           set -Eeuo pipefail
@@ -52,6 +53,7 @@ jobs:
 
           workflow = os.environ.get("WORKFLOW_KEY", "")
           profile = os.environ.get("TEST_PROFILE", "")
+          repository = os.environ.get("REPOSITORY", "")
           try:
               inputs = json.loads(os.environ.get("INPUTS_JSON", "{}"))
           except json.JSONDecodeError as exc:
@@ -66,7 +68,14 @@ jobs:
           if profile != "native-component" and native_component not in (None, ""):
               raise SystemExit("native_component is accepted only by Apple native-component")
 
-          if profile == "native-component":
+          if profile == "screenshot-review":
+              if workflow != "validation.apple":
+                  raise SystemExit("screenshot-review is supported only by validation.apple")
+              if repository != "StreamScapeTV/iptv-apple":
+                  raise SystemExit("screenshot-review is currently bounded to StreamScapeTV/iptv-apple")
+              if inputs:
+                  raise SystemExit("screenshot-review accepts no semantic inputs")
+          elif profile == "native-component":
               if workflow != "validation.apple":
                   raise SystemExit("native-component is supported only by validation.apple")
               if set(inputs) != {"native_component"}:

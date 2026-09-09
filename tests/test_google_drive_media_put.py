@@ -500,6 +500,56 @@ printf '%s' "$result"
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertEqual(completed.stdout, "created-id")
 
+
+    def test_repository_screenshots_mode_is_repository_scoped_and_ref_free(self) -> None:
+        inputs = self.action["inputs"]
+        self.assertEqual(inputs["destination_kind"]["default"], "source-ref")
+        self.assertFalse(inputs["ref"]["required"])
+        self.assertEqual(inputs["ref"]["default"], "")
+        self.assertIn('screenshots_folder_id="$(ensure_folder "${repository_folder_id}" screenshots)"', self.script)
+        self.assertIn('target_folder_id="$(ensure_folder "${screenshots_folder_id}" "${DRIVE_SUBDIRECTORY}")"', self.script)
+        self.assertIn("repository-screenshots does not accept ref", self.script)
+        self.assertIn("exact lowercase source SHA", self.script)
+        self.assertIn("repository-screenshots accepts only ios.zip or tvos.zip", self.script)
+
+        lines = self.script.splitlines()
+        end = next(i for i, line in enumerate(lines) if line.strip() == 'repository_name="${DRIVE_REPOSITORY##*/}"')
+        preflight = "\n".join(lines[:end])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "ios.zip"
+            source.write_bytes(b"zip-bytes")
+            base_env = {
+                "GOOGLE_DRIVE_CLIENT_ID": "client",
+                "GOOGLE_DRIVE_CLIENT_SECRET": "secret",
+                "GOOGLE_DRIVE_REFRESH_TOKEN": "refresh",
+                "GOOGLE_DRIVE_ROOT_FOLDER_ID": "root",
+                "DRIVE_REPOSITORY": "StreamScapeTV/iptv-apple",
+                "DRIVE_DESTINATION_KIND": "repository-screenshots",
+                "DRIVE_REF": "",
+                "DRIVE_SUBDIRECTORY": "a" * 40,
+                "DRIVE_REPOSITORY_FOLDER_ID": "",
+                "DRIVE_FILE_PATH": str(source),
+                "DRIVE_FILE_NAME": "ios.zip",
+                "DRIVE_PREVIOUS_FILE_NAME": "",
+                "DRIVE_GZIP": "false",
+                "DRIVE_MIME_TYPE": "application/zip",
+                "DRIVE_IMMUTABLE": "false",
+                "DRIVE_RECONCILE_DUPLICATE_MANIFESTS": "false",
+            }
+            good = subprocess.run(["bash", "-c", preflight], cwd=ROOT, env=base_env, text=True, capture_output=True)
+            self.assertEqual(good.returncode, 0, good.stderr)
+
+            for updates, message in (
+                ({"DRIVE_REF": "screenshots"}, "does not accept ref"),
+                ({"DRIVE_SUBDIRECTORY": "not-a-sha"}, "exact lowercase source SHA"),
+                ({"DRIVE_FILE_NAME": "review.zip"}, "accepts only ios.zip or tvos.zip"),
+            ):
+                env = dict(base_env)
+                env.update(updates)
+                bad = subprocess.run(["bash", "-c", preflight], cwd=ROOT, env=env, text=True, capture_output=True)
+                self.assertNotEqual(bad.returncode, 0)
+                self.assertIn(message, bad.stderr)
+
     def test_optional_subdirectory_and_immutable_mode_are_bounded(self) -> None:
         inputs = self.action["inputs"]
         self.assertEqual(inputs["subdirectory"]["default"], "")
