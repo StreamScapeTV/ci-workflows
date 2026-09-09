@@ -66,7 +66,15 @@ class SourceSnapshotDeleteTests(unittest.TestCase):
     def test_exact_manifest_identity_is_required_and_cleanup_is_idempotent(self) -> None:
         expected = "a" * 40
         records: list[tuple[str, str]] = []
-        state = {"missing_ref": False, "bad_sha": False, "manifest_only": False, "numbered": False, "unexpected": False}
+        state = {
+            "missing_ref": False,
+            "bad_sha": False,
+            "manifest_only": False,
+            "numbered": False,
+            "duplicate_numbered": False,
+            "conflicting_duplicate": False,
+            "unexpected": False,
+        }
 
         class Handler(http.server.BaseHTTPRequestHandler):
             def log_message(self, format: str, *args: object) -> None:
@@ -83,7 +91,18 @@ class SourceSnapshotDeleteTests(unittest.TestCase):
             def do_GET(self) -> None:
                 parsed = urllib.parse.urlsplit(self.path)
                 records.append(("GET", parsed.path))
-                if parsed.path == "/files/manifest-id" and urllib.parse.parse_qs(parsed.query).get("alt") == ["media"]:
+                media = urllib.parse.parse_qs(parsed.query).get("alt") == ["media"]
+                if media and parsed.path in {"/files/cp-1", "/files/cp-1-duplicate"}:
+                    payload = b"checkpoint-one"
+                    if parsed.path.endswith("duplicate") and state["conflicting_duplicate"]:
+                        payload = b"checkpoint-conflict"
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/zip")
+                    self.send_header("Content-Length", str(len(payload)))
+                    self.end_headers()
+                    self.wfile.write(payload)
+                    return
+                if parsed.path == "/files/manifest-id" and media:
                     manifest = {
                         "repository": "StreamScapeTV/example",
                         "requested_ref": "feature/cleanup",
@@ -117,6 +136,10 @@ class SourceSnapshotDeleteTests(unittest.TestCase):
                             {"id": "cp-1", "name": "example-feature%2Fcleanup-checkpoint-000001.zip", "mimeType": "application/zip"},
                             {"id": "cp-2", "name": "example-feature%2Fcleanup-checkpoint-000002.zip", "mimeType": "application/zip"},
                         ])
+                    if state["duplicate_numbered"]:
+                        children.append(
+                            {"id": "cp-1-duplicate", "name": "example-feature%2Fcleanup-checkpoint-000001.zip", "mimeType": "application/zip"}
+                        )
                     if state["unexpected"]:
                         children.append({"id": "other", "name": "notes.txt", "mimeType": "text/plain"})
                     self._json(200, {"files": children})
@@ -172,6 +195,34 @@ class SourceSnapshotDeleteTests(unittest.TestCase):
             )
             self.assertEqual(result, "trashed")
             self.assertIn(("PATCH", "/files/ref-folder"), records)
+
+            records.clear()
+            state["duplicate_numbered"] = True
+            result = _mod.delete_snapshot(
+                client,
+                root_folder_id="root",
+                repository="StreamScapeTV/example",
+                ref="feature/cleanup",
+                expected_source_sha=expected,
+            )
+            self.assertEqual(result, "trashed")
+            self.assertIn(("GET", "/files/cp-1"), records)
+            self.assertIn(("GET", "/files/cp-1-duplicate"), records)
+            self.assertIn(("PATCH", "/files/ref-folder"), records)
+
+            records.clear()
+            state["conflicting_duplicate"] = True
+            with self.assertRaisesRegex(_mod.SnapshotDeleteError, "conflicting duplicate checkpoint sequence"):
+                _mod.delete_snapshot(
+                    client,
+                    root_folder_id="root",
+                    repository="StreamScapeTV/example",
+                    ref="feature/cleanup",
+                    expected_source_sha=expected,
+                )
+            self.assertFalse(any(method == "PATCH" for method, _ in records))
+            state["duplicate_numbered"] = False
+            state["conflicting_duplicate"] = False
 
             records.clear()
             state["unexpected"] = True

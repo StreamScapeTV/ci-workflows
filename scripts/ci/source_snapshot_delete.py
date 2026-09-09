@@ -44,20 +44,43 @@ def _checkpoint_prefix(repository: str, ref: str) -> str:
     return f"{repository_name}-{urllib.parse.quote(ref, safe='')}-checkpoint-"
 
 
-def _validate_numbered_checkpoint_names(names: list[str], *, repository: str, ref: str) -> None:
+def _validate_numbered_checkpoint_files(
+    client: "DriveClient",
+    files: list[dict[str, Any]],
+    *,
+    repository: str,
+    ref: str,
+) -> None:
     prefix = _checkpoint_prefix(repository, ref)
     pattern = re.compile(re.escape(prefix) + r"([0-9]{6})\.zip\Z")
-    seen: set[int] = set()
-    for name in names:
+    seen: dict[int, dict[str, Any]] = {}
+    duplicate_content: dict[str, bytes] = {}
+    for value in files:
+        name = value["name"]
         match = pattern.fullmatch(name)
         if match is None:
             raise SnapshotDeleteError("Google Drive snapshot ref folder contains an unexpected non-snapshot file")
         sequence = int(match.group(1))
         if sequence < 1:
             raise SnapshotDeleteError("Google Drive snapshot checkpoint sequence must be positive")
-        if sequence in seen:
-            raise SnapshotDeleteError("Google Drive snapshot ref folder contains duplicate checkpoint sequence")
-        seen.add(sequence)
+        previous = seen.get(sequence)
+        if previous is None:
+            seen[sequence] = value
+            continue
+
+        # Duplicate numbered observations remain invalid for ordinary checkpoint
+        # selection/publication. Terminal whole-ref cleanup is different: once
+        # the bounded manifest-backed ref is already eligible for retirement,
+        # byte-identical duplicate observations must not strand the folder.
+        # Conflicting source remains fail-closed.
+        previous_id = previous["id"]
+        current_id = value["id"]
+        if previous_id not in duplicate_content:
+            duplicate_content[previous_id] = client.media(previous_id)
+        if current_id not in duplicate_content:
+            duplicate_content[current_id] = client.media(current_id)
+        if duplicate_content[previous_id] != duplicate_content[current_id]:
+            raise SnapshotDeleteError("Google Drive snapshot ref folder contains conflicting duplicate checkpoint sequence")
 
 
 @dataclass
@@ -268,11 +291,11 @@ def delete_snapshot(
     if len(baseline_matches) > 1:
         raise SnapshotDeleteError("Google Drive snapshot ref folder contains duplicate baseline archive")
     archive = baseline_matches[0] if baseline_matches else None
-    checkpoint_names = [
-        child["name"] for child in non_manifest
+    checkpoint_files = [
+        child for child in non_manifest
         if child.get("name") != baseline_name
     ]
-    _validate_numbered_checkpoint_names(checkpoint_names, repository=repository, ref=ref)
+    _validate_numbered_checkpoint_files(client, checkpoint_files, repository=repository, ref=ref)
 
     _validate_manifest(
         raw_manifest,
