@@ -599,7 +599,10 @@ if ( validate "$long" ); then exit 93; fi
         self.assertIn('source_sha="$(git rev-parse HEAD)"', identity["run"])
         self.assertIn('[[ "${source_sha}" =~ ^[0-9A-Fa-f]{40}$ ]] || exit 2', identity["run"])
         self.assertNotIn("github.sha", identity["run"])
-        self.assertEqual(record["if"], "${{ inputs.ci_run_id != '' }}")
+        self.assertEqual(
+            record["if"],
+            "${{ inputs.ci_run_id != '' && inputs.test_profile != 'screenshot-review' }}",
+        )
         self.assertEqual(record["uses"], "StreamScapeTV/ci-workflows/actions/agent-state@main")
         self.assertEqual(record["with"]["phase"], "observe-source")
         self.assertEqual(record["with"]["ci_run_id"], "${{ inputs.ci_run_id }}")
