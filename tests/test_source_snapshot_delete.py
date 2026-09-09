@@ -24,7 +24,11 @@ class SourceSnapshotDeleteTests(unittest.TestCase):
     def test_workflow_is_bounded_and_main_develop_are_refused(self) -> None:
         workflow = yaml.safe_load((ROOT / ".github/workflows/source-snapshot-delete.yml").read_text())
         call = workflow["on"]["workflow_call"]
-        self.assertEqual(set(call["inputs"]), {"repository", "ref", "expected_source_sha"})
+        self.assertEqual(
+            set(call["inputs"]),
+            {"repository", "ref", "expected_source_sha", "allow_checkpoint_only_without_manifest"},
+        )
+        self.assertIs(call["inputs"]["allow_checkpoint_only_without_manifest"]["default"], False)
         self.assertNotIn("workflow_dispatch", workflow["on"])
         self.assertEqual(workflow["permissions"], {"contents": "read"})
         self.assertEqual(
@@ -59,6 +63,7 @@ class SourceSnapshotDeleteTests(unittest.TestCase):
         self.assertEqual(cleanup["with"]["repository"], "${{ needs.delete.outputs.repository }}")
         self.assertEqual(cleanup["with"]["ref"], "${{ needs.delete.outputs.branch }}")
         self.assertEqual(cleanup["with"]["expected_source_sha"], "")
+        self.assertIs(cleanup["with"]["allow_checkpoint_only_without_manifest"], True)
         self.assertEqual(cleanup["secrets"], "inherit")
         self.assertIn("needs.snapshot_cleanup.result == 'success'", finish["steps"][0]["with"]["status"])
         self.assertIn("github.event_name != 'delete'", finish["if"])
@@ -66,6 +71,142 @@ class SourceSnapshotDeleteTests(unittest.TestCase):
         delete_script = next(step for step in delete["steps"] if step.get("name") == "Delete exact eligible branch")["run"]
         self.assertIn('output.write("branch_was_present=false\\n")', delete_script)
         self.assertIn('output.write("branch_was_present=true\\n")', delete_script)
+
+
+    def test_checkpoint_only_retirement_is_explicit_and_fail_closed(self) -> None:
+        class FakeDriveClient:
+            def __init__(self, children: list[dict[str, str]], media: dict[str, bytes] | None = None) -> None:
+                self._children = children
+                self._media = media or {}
+                self.trashed: list[str] = []
+
+            def exact_folders(self, parent: str, name: str) -> list[dict[str, str]]:
+                if parent == "root" and name == "example":
+                    return [{"id": "repo-folder", "name": "example", "mimeType": _mod.FOLDER_MIME}]
+                if parent == "repo-folder" and name == "feature/cleanup":
+                    return [{"id": "ref-folder", "name": "feature/cleanup", "mimeType": _mod.FOLDER_MIME}]
+                return []
+
+            def children(self, parent: str) -> list[dict[str, str]]:
+                self.assert_ref(parent)
+                return list(self._children)
+
+            def media(self, file_id: str) -> bytes:
+                return self._media[file_id]
+
+            def trash(self, file_id: str) -> None:
+                self.assert_ref(file_id)
+                self.trashed.append(file_id)
+
+            @staticmethod
+            def assert_ref(value: str) -> None:
+                if value != "ref-folder":
+                    raise AssertionError(value)
+
+        checkpoints = [
+            {
+                "id": "cp-1",
+                "name": "example-feature%2Fcleanup-checkpoint-000001.zip",
+                "mimeType": "application/zip",
+            },
+            {
+                "id": "cp-2",
+                "name": "example-feature%2Fcleanup-checkpoint-000002.zip",
+                "mimeType": "application/zip",
+            },
+        ]
+
+        client = FakeDriveClient(checkpoints)
+        with self.assertRaisesRegex(_mod.SnapshotDeleteError, "exactly one manifest"):
+            _mod.delete_snapshot(
+                client,
+                root_folder_id="root",
+                repository="StreamScapeTV/example",
+                ref="feature/cleanup",
+            )
+        self.assertEqual(client.trashed, [])
+
+        result = _mod.delete_snapshot(
+            client,
+            root_folder_id="root",
+            repository="StreamScapeTV/example",
+            ref="feature/cleanup",
+            allow_checkpoint_only_without_manifest=True,
+        )
+        self.assertEqual(result, "trashed-checkpoint-only")
+        self.assertEqual(client.trashed, ["ref-folder"])
+
+        client = FakeDriveClient(checkpoints)
+        with self.assertRaisesRegex(_mod.SnapshotDeleteError, "cannot verify an expected source SHA"):
+            _mod.delete_snapshot(
+                client,
+                root_folder_id="root",
+                repository="StreamScapeTV/example",
+                ref="feature/cleanup",
+                expected_source_sha="a" * 40,
+                allow_checkpoint_only_without_manifest=True,
+            )
+        self.assertEqual(client.trashed, [])
+
+        bad_mime = [dict(checkpoints[0], mimeType="application/octet-stream")]
+        client = FakeDriveClient(bad_mime)
+        with self.assertRaisesRegex(_mod.SnapshotDeleteError, "ZIP checkpoint files only"):
+            _mod.delete_snapshot(
+                client,
+                root_folder_id="root",
+                repository="StreamScapeTV/example",
+                ref="feature/cleanup",
+                allow_checkpoint_only_without_manifest=True,
+            )
+        self.assertEqual(client.trashed, [])
+
+        unexpected = [{"id": "notes", "name": "notes.txt", "mimeType": "application/zip"}]
+        client = FakeDriveClient(unexpected)
+        with self.assertRaisesRegex(_mod.SnapshotDeleteError, "unexpected non-snapshot file"):
+            _mod.delete_snapshot(
+                client,
+                root_folder_id="root",
+                repository="StreamScapeTV/example",
+                ref="feature/cleanup",
+                allow_checkpoint_only_without_manifest=True,
+            )
+        self.assertEqual(client.trashed, [])
+
+        baseline_without_manifest = [
+            {"id": "archive", "name": "example-feature%2Fcleanup.zip", "mimeType": "application/zip"}
+        ]
+        client = FakeDriveClient(baseline_without_manifest)
+        with self.assertRaisesRegex(_mod.SnapshotDeleteError, "unexpected non-snapshot file"):
+            _mod.delete_snapshot(
+                client,
+                root_folder_id="root",
+                repository="StreamScapeTV/example",
+                ref="feature/cleanup",
+                allow_checkpoint_only_without_manifest=True,
+            )
+        self.assertEqual(client.trashed, [])
+
+        duplicate = [checkpoints[0], dict(checkpoints[0], id="cp-1-copy")]
+        client = FakeDriveClient(duplicate, {"cp-1": b"same", "cp-1-copy": b"same"})
+        result = _mod.delete_snapshot(
+            client,
+            root_folder_id="root",
+            repository="StreamScapeTV/example",
+            ref="feature/cleanup",
+            allow_checkpoint_only_without_manifest=True,
+        )
+        self.assertEqual(result, "trashed-checkpoint-only")
+
+        client = FakeDriveClient(duplicate, {"cp-1": b"left", "cp-1-copy": b"right"})
+        with self.assertRaisesRegex(_mod.SnapshotDeleteError, "conflicting duplicate checkpoint sequence"):
+            _mod.delete_snapshot(
+                client,
+                root_folder_id="root",
+                repository="StreamScapeTV/example",
+                ref="feature/cleanup",
+                allow_checkpoint_only_without_manifest=True,
+            )
+        self.assertEqual(client.trashed, [])
 
     def test_exact_manifest_identity_is_required_and_cleanup_is_idempotent(self) -> None:
         expected = "a" * 40

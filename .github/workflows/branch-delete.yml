@@ -319,6 +319,7 @@ jobs:
       repository: ${{ needs.delete.outputs.repository }}
       ref: ${{ needs.delete.outputs.branch }}
       expected_source_sha: ''
+      allow_checkpoint_only_without_manifest: true
     secrets: inherit
 
   finish:
