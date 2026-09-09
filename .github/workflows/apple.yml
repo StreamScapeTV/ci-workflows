@@ -643,6 +643,47 @@ jobs:
             printf 'duration_seconds=%s\n' "$((SECONDS - started_at))" >> "${CI_LOG}"
           }
 
+          run_screenshot_logged() {
+            local label="$1"
+            local platform="$2"
+            shift 2
+            local max_attempts=1
+            if test "${platform}" = ios; then
+              max_attempts=2
+            fi
+            local attempt=1
+            while test "${attempt}" -le "${max_attempts}"; do
+              local started_at="${SECONDS}"
+              local attempt_log="${RUNNER_TEMP}/${label}-attempt-${attempt}.log"
+              : > "${attempt_log}"
+              printf '\n===== %s attempt=%s =====\n' "${label}" "${attempt}" >> "${CI_LOG}"
+              set +e
+              "$@" >> "${attempt_log}" 2>&1
+              local status=$?
+              set -e
+              cat "${attempt_log}" >> "${CI_LOG}"
+              printf 'duration_seconds=%s\n' "$((SECONDS - started_at))" >> "${CI_LOG}"
+              if test "${status}" -eq 0; then
+                rm -f -- "${attempt_log}"
+                return 0
+              fi
+              if test "${platform}" = ios &&
+                test "${attempt}" -eq 1 &&
+                grep -Eq 'Failed to get background assertion for target app|DebuggerLLDB\.DebuggerVersionStore\.StoreError' "${attempt_log}"; then
+                printf 'Known transient hosted iOS simulator launch failure detected; retrying the fixed product wrapper once with a fresh product-owned simulator.\n' >> "${CI_LOG}"
+                rm -f -- "${attempt_log}"
+                rm -rf -- "${CI_APPLE_SCREENSHOT_OUTPUT_DIR}"
+                rm -f -- "${CI_APPLE_SCREENSHOT_PACKAGE_PATH}"
+                attempt=$((attempt + 1))
+                continue
+              fi
+              rm -f -- "${attempt_log}"
+              printf '%s failed; inspect the private Google Drive CI log.\n' "${label}" >&2
+              return "${status}"
+            done
+            return 1
+          }
+
           case "${TEST_PROFILE}" in
             screenshot-review)
               test "${SOURCE_REPOSITORY}" = "StreamScapeTV/iptv-apple"
@@ -684,7 +725,7 @@ jobs:
               export CI_APPLE_SCREENSHOT_PLATFORM="${screenshot_platform}"
               export CI_APPLE_SCREENSHOT_OUTPUT_DIR="${screenshot_output}"
               export CI_APPLE_SCREENSHOT_PACKAGE_PATH="${screenshot_package}"
-              run_logged "apple-screenshot-${screenshot_platform}" bash "${wrapper}"
+              run_screenshot_logged "apple-screenshot-${screenshot_platform}" "${screenshot_platform}" bash "${wrapper}"
               test -s "${screenshot_package}"
               {
                 printf 'screenshot_platform=%s\n' "${screenshot_platform}"
