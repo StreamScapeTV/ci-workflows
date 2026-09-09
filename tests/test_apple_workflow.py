@@ -123,9 +123,9 @@ class AppleWorkflowTests(unittest.TestCase):
         )
         script = command_step["run"]
 
-        self.assertIn("run_xcode_logged ios-build xcodebuild build", script)
-        self.assertIn("run_xcode_logged tvos-build xcodebuild build", script)
-        self.assertIn("run_xcode_logged macos-test xcodebuild test", script)
+        self.assertIn("run_logged ios-build xcodebuild build", script)
+        self.assertIn("run_logged tvos-build xcodebuild build", script)
+        self.assertIn("run_logged macos-test xcodebuild test", script)
         self.assertNotIn("build-for-testing", script)
         self.assertNotIn("macos-build", script)
         self.assertNotIn("SelectedBackendStateSyncRoutingIntegrationTests", script)
@@ -532,30 +532,34 @@ if ( validate "$long" ); then exit 93; fi
             "/api/packages/mimranfaruqi/generic",
         )
         script = prepare["run"]
-        for exact in (
-            "512db0f5b2513ad7d3a2b53bbc132ea29742bb63",
-            "f610e568dabf621cf5e9e23d5541571e2feb7122",
-            "dbe258b0487b4dfe023bfda1f27bf2cc013c2490",
-            "492be28b492dd6bc3458cbd884893869e150818e",
-        ):
-            self.assertIn(exact, script)
-        self.assertIn("application/vnd.github.raw+json", script)
-        self.assertIn("git hash-object", script)
+        self.assertIn('helper="scripts/bootstrap-streamscape-media-binary.sh"', script)
+        self.assertIn('test -f "${helper}" || {', script)
+        self.assertIn("Missing required Apple bootstrap helper", script)
         self.assertIn('bash "${helper}"', script)
-        self.assertIn("HISTORICAL_RECOVERY_ACTIVE", script)
+        for stale in (
+            "application/vnd.github.raw+json",
+            "git hash-object",
+            "HISTORICAL_RECOVERY_ACTIVE",
+            "approved_helper_ref",
+            "approved_helper_blob",
+        ):
+            self.assertNotIn(stale, script)
 
         command = by_name["Run fixed Apple lane"]
         self.assertNotIn("CI_APPLE_BINARY_PACKAGE_READ_TOKEN", command.get("env", {}))
         self.assertNotIn("CI_APPLE_BINARY_PACKAGE_USERNAME", command.get("env", {}))
+        self.assertNotIn("CI_GITHUB_TOKEN", command.get("env", {}))
         command_script = command["run"]
         self.assertNotIn("bootstrap-streamscape-media-binary.sh", command_script)
-        self.assertIn("run_xcode_logged()", command_script)
-        self.assertIn("HISTORICAL_RECOVERY_ACTIVE", command_script)
-        self.assertIn(
+        self.assertNotIn("run_xcode_logged", command_script)
+        self.assertNotIn("HISTORICAL_RECOVERY_ACTIVE", command_script)
+        self.assertNotIn(
             "http.https://github.com/StreamScapeTV/streamscape-media.git.extraheader",
             command_script,
         )
-        self.assertEqual(command_script.count("run_xcode_logged"), 7)
+        self.assertIn("run_logged ios-build xcodebuild build", command_script)
+        self.assertIn("run_logged tvos-build xcodebuild build", command_script)
+        self.assertIn("run_logged macos-test xcodebuild test", command_script)
 
         scrub_env = by_name["Scrub configured CI secrets from private log"]["env"]
         self.assertEqual(
@@ -566,48 +570,6 @@ if ( validate "$long" ); then exit 93; fi
             scrub_env["CI_SECRET_FORGEJO_PACKAGE_READ_TOKEN"],
             "${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}",
         )
-
-    def test_historical_bootstrap_guard_and_scoped_media_step_execute(self) -> None:
-        execute = self.workflow["jobs"]["execute"]
-        prepare = next(
-            step
-            for step in execute["steps"]
-            if step.get("name") == "Materialize fixed Streamscape Media Apple dependency"
-        )
-        script = prepare["run"]
-        probe = f"""
-set -Eeuo pipefail
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
-cd "$work"
-mkdir -p scripts
-export CI_LOG="$work/ci.log"
-export GITHUB_ENV="$work/github.env"
-export SOURCE_REPOSITORY="StreamScapeTV/iptv-apple"
-export CI_APPLE_BINARY_PACKAGE_USERNAME='forgejo-user'
-export CI_APPLE_BINARY_PACKAGE_READ_TOKEN='read-token'
-gh_calls=0
-git() {{
-  case "$*" in
-    "rev-parse HEAD") printf '%s\\n' '512db0f5b2513ad7d3a2b53bbc132ea29742bb63' ;;
-    "rev-parse HEAD^{{tree}}") printf '%s\\n' 'f610e568dabf621cf5e9e23d5541571e2feb7122' ;;
-    "hash-object scripts/bootstrap-streamscape-media-binary.sh") printf '%s\\n' '492be28b492dd6bc3458cbd884893869e150818e' ;;
-    *) printf 'unexpected git call: %s\\n' "$*" >&2; return 97 ;;
-  esac
-}}
-gh() {{
-  gh_calls=$((gh_calls + 1))
-  printf '#!/usr/bin/env bash\\nexit 0\\n'
-}}
-{script}
-[[ -f scripts/bootstrap-streamscape-media-binary.sh ]]
-[[ "$gh_calls" -eq 1 ]]
-grep -q '^HISTORICAL_RECOVERY_ACTIVE=true$' "$GITHUB_ENV"
-[[ "$(cat "$CI_LOG")" == *'Materialized approved historical Apple bootstrap helper'* ]]
-[[ "$(cat "$CI_LOG")" == *'===== prepare-media ====='* ]]
-"""
-        result = subprocess.run(["bash"], input=probe, text=True, capture_output=True, check=False)
-        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_agent_state_lifecycle_is_single_coordinator_and_single_finalizer(self) -> None:
         self.assertEqual(self.text.count("phase: start"), 1)
@@ -885,13 +847,16 @@ CURRENT_PROJECT_VERSION = 1;
             self.assertEqual((old_develop["restore_enabled"], old_develop["save_enabled"]), ("true", "false"))
 
             (root / "scripts/bootstrap-streamscape-media-binary.sh").unlink()
-            historical = cache_flags(
+            missing_helper = cache_flags(
                 "StreamScapeTV/iptv-apple",
-                "512db0f5b2513ad7d3a2b53bbc132ea29742bb63",
+                "feature/missing-helper",
             )
-            self.assertEqual(historical["restore_eligible"], "true")
-            self.assertEqual((historical["restore_enabled"], historical["save_enabled"]), ("false", "false"))
-            self.assertNotIn("key", historical)
+            self.assertEqual(missing_helper["restore_eligible"], "true")
+            self.assertEqual(
+                (missing_helper["restore_enabled"], missing_helper["save_enabled"]),
+                ("false", "false"),
+            )
+            self.assertNotIn("key", missing_helper)
 
         plan_script = next(
             step

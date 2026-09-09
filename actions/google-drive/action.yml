@@ -69,6 +69,7 @@ runs:
         DRIVE_RECONCILE_DUPLICATE_MANIFESTS: ${{ inputs.reconcile_duplicate_manifests }}
       run: |
         set -Eeuo pipefail
+        DRIVE_RECONCILE_DUPLICATE_MANIFESTS="${DRIVE_RECONCILE_DUPLICATE_MANIFESTS:-false}"
         : "${GOOGLE_DRIVE_CLIENT_ID:?GOOGLE_DRIVE_CLIENT_ID is required}"
         : "${GOOGLE_DRIVE_CLIENT_SECRET:?GOOGLE_DRIVE_CLIENT_SECRET is required}"
         : "${GOOGLE_DRIVE_REFRESH_TOKEN:?GOOGLE_DRIVE_REFRESH_TOKEN is required}"
@@ -289,7 +290,7 @@ runs:
 
         current_file_id() {
           response="$1"
-          if test "${DRIVE_RECONCILE_DUPLICATE_MANIFESTS}" = "true"; then
+          if test "${DRIVE_RECONCILE_DUPLICATE_MANIFESTS:-false}" = "true"; then
             count="$(printf '%s' "${response}" | python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("files", [])))')"
             if test "${count}" -gt 1; then
               reconcile_duplicate_manifest_files "${response}"
