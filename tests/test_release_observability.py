@@ -42,7 +42,7 @@ class ReleaseObservabilityTests(unittest.TestCase):
         self.assertEqual(publication["env"]["CHART_PATH"], "${{ inputs.chart_path }}")
         self.assertIn('version_path="source/VERSION"', publication["run"])
         self.assertIn("git -C source ls-files --error-unmatch -- VERSION", publication["run"])
-        self.assertIn("Repository-root VERSION is not valid SemVer", publication["run"])
+        self.assertIn("Repository-root VERSION must be release SemVer without build metadata", publication["run"])
         self.assertIn('helm show chart "source/${CHART_PATH}"', publication["run"])
         self.assertIn('/^version:[[:space:]]+/', publication["run"])
         self.assertNotIn('$1 == "version:"', publication["run"])
@@ -210,7 +210,7 @@ class ReleaseObservabilityTests(unittest.TestCase):
                 "PATH": f"{bin_dir}:{os.environ['PATH']}",
                 "PYTHONPATH": str(fake_src),
                 "CHART_PATH": "charts/fixture",
-                "VERSION": "2.4.0-rc.1+build.5",
+                "VERSION": "2.4.0-rc.1",
                 "RUNNER_TEMP": str(runner_temp),
                 "GITHUB_OUTPUT": str(output),
                 "CI_LOG": str(ci_log),
@@ -231,8 +231,8 @@ class ReleaseObservabilityTests(unittest.TestCase):
             self.assertTrue((prepared / "charts" / "valkey-0.11.0.tgz").is_file())
             self.assertFalse((source_chart / "charts").exists())
             prepared_metadata = yaml.safe_load((prepared / "Chart.yaml").read_text())
-            self.assertEqual(prepared_metadata["version"], "2.4.0-rc.1+build.5")
-            self.assertEqual(prepared_metadata["appVersion"], "2.4.0-rc.1+build.5")
+            self.assertEqual(prepared_metadata["version"], "2.4.0-rc.1")
+            self.assertEqual(prepared_metadata["appVersion"], "2.4.0-rc.1")
             source_metadata = yaml.safe_load((source_chart / "Chart.yaml").read_text())
             self.assertEqual(source_metadata["version"], "1.0.0")
             self.assertNotIn("appVersion", source_metadata)
@@ -292,7 +292,7 @@ class ReleaseObservabilityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             env, output, helm_calls = self._publication_fixture(
-                root, version_contents="2.4.0-rc.1+build.5\n"
+                root, version_contents="2.4.0-rc.1\n"
             )
             completed = subprocess.run(
                 ["bash", "-c", publication["run"]],
@@ -304,7 +304,7 @@ class ReleaseObservabilityTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertEqual(
                 output.read_text(),
-                "publication_version=2.4.0-rc.1+build.5\npublication_source=root-VERSION\n",
+                "publication_version=2.4.0-rc.1\npublication_source=root-VERSION\n",
             )
             self.assertFalse(helm_calls.exists(), "Chart.yaml fallback must not run when VERSION exists")
 
@@ -348,6 +348,7 @@ class ReleaseObservabilityTests(unittest.TestCase):
             "1.2.3\n2.0.0\n",
             " 1.2.3\n",
             "1.2.3-01\n",
+            "1.2.3+build.5\n",
         )
         for value in invalid_values:
             with self.subTest(value=value), tempfile.TemporaryDirectory() as temp_dir:
