@@ -594,7 +594,9 @@ printf '%s' "$result"
         self.assertNotIn('target_folder_id="$(ensure_folder "${screenshots_folder_id}" "${DRIVE_SUBDIRECTORY}")"', self.script)
         self.assertIn("repository-screenshots does not accept ref", self.script)
         self.assertIn("repository-screenshots does not accept subdirectory", self.script)
-        self.assertIn("repository-screenshots accepts only ios.zip or tvos.zip", self.script)
+        self.assertIn("repository-screenshots rejects unsupported repository/file-name combination", self.script)
+        self.assertIn("StreamScapeTV/iptv-android:phone-portrait.zip", self.script)
+        self.assertIn("StreamScapeTV/iptv-android:tv.zip", self.script)
 
         lines = self.script.splitlines()
         end = next(i for i, line in enumerate(lines) if line.strip() == 'repository_name="${DRIVE_REPOSITORY##*/}"')
@@ -623,16 +625,47 @@ printf '%s' "$result"
             good = subprocess.run(["bash", "-c", preflight], cwd=ROOT, env=base_env, text=True, capture_output=True)
             self.assertEqual(good.returncode, 0, good.stderr)
 
+            for android_file_name in (
+                "phone-portrait.zip",
+                "phone-landscape.zip",
+                "tablet-portrait.zip",
+                "tablet-landscape.zip",
+                "tv.zip",
+            ):
+                env = dict(base_env)
+                env["DRIVE_REPOSITORY"] = "StreamScapeTV/iptv-android"
+                env["DRIVE_FILE_NAME"] = android_file_name
+                accepted = subprocess.run(
+                    ["bash", "-c", preflight],
+                    cwd=ROOT,
+                    env=env,
+                    text=True,
+                    capture_output=True,
+                )
+                self.assertEqual(accepted.returncode, 0, f"{android_file_name}: {accepted.stderr}")
+
             for updates, message in (
                 ({"DRIVE_REF": "screenshots"}, "does not accept ref"),
                 ({"DRIVE_SUBDIRECTORY": "a" * 40}, "does not accept subdirectory"),
-                ({"DRIVE_FILE_NAME": "review.zip"}, "accepts only ios.zip or tvos.zip"),
+                ({"DRIVE_FILE_NAME": "review.zip"}, "rejects unsupported repository/file-name combination"),
             ):
                 env = dict(base_env)
                 env.update(updates)
                 bad = subprocess.run(["bash", "-c", preflight], cwd=ROOT, env=env, text=True, capture_output=True)
                 self.assertNotEqual(bad.returncode, 0)
                 self.assertIn(message, bad.stderr)
+
+    def test_fixed_android_screenshot_cache_download_mode_is_bounded(self) -> None:
+        inputs = self.action["inputs"]
+        self.assertEqual(inputs["operation"]["default"], "upload")
+        self.assertIn("repository-screenshot-cache", self.script)
+        self.assertIn("repository-screenshot-cache is bounded to StreamScapeTV/iptv-android", self.script)
+        self.assertIn("repository-screenshot-cache accepts only xtream-screenshot-cache.zip", self.script)
+        self.assertIn('elif test "${DRIVE_DESTINATION_KIND}" = repository-screenshot-cache; then', self.script)
+        self.assertIn('screenshot_cache_folder_id="$(ensure_folder "${repository_folder_id}" screenshot-cache)"', self.script)
+        self.assertIn('if test "${DRIVE_OPERATION}" = download; then', self.script)
+        self.assertIn('--http1.1', self.script)
+        self.assertIn('printf \'file_sha256=%s\\n\'', self.script)
 
     def test_optional_subdirectory_and_immutable_mode_are_bounded(self) -> None:
         inputs = self.action["inputs"]

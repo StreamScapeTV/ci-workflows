@@ -1,13 +1,17 @@
 name: Upload file to Google Drive
 
-description: Upload one file under a fixed Drive repository namespace, using either source-ref storage or the bounded repository-screenshots evidence namespace.
+description: Transfer one file under a fixed Drive repository namespace using bounded source, screenshot, or Android screenshot-cache semantics.
 
 inputs:
   repository:
     description: Full GitHub repository name (owner/name)
     required: true
+  operation:
+    description: "Fixed transfer operation: upload, or download only for the Android screenshot-cache destination"
+    required: false
+    default: upload
   destination_kind:
-    description: "Fixed destination kind: source-ref or repository-screenshots"
+    description: "Fixed destination kind: source-ref, repository-screenshots, or repository-screenshot-cache"
     required: false
     default: source-ref
   ref:
@@ -23,7 +27,7 @@ inputs:
     required: false
     default: ""
   file_path:
-    description: Local file to upload
+    description: Local upload source or fixed download destination
     required: true
   file_name:
     description: Exact Google Drive filename
@@ -54,6 +58,8 @@ outputs:
     value: ${{ steps.upload.outputs.file_id }}
   folder_id:
     value: ${{ steps.upload.outputs.folder_id }}
+  file_sha256:
+    value: ${{ steps.upload.outputs.file_sha256 }}
 
 runs:
   using: composite
@@ -62,6 +68,7 @@ runs:
       shell: bash
       env:
         DRIVE_REPOSITORY: ${{ inputs.repository }}
+        DRIVE_OPERATION: ${{ inputs.operation }}
         DRIVE_DESTINATION_KIND: ${{ inputs.destination_kind }}
         DRIVE_REF: ${{ inputs.ref }}
         DRIVE_SUBDIRECTORY: ${{ inputs.subdirectory }}
@@ -75,6 +82,7 @@ runs:
         DRIVE_RECONCILE_DUPLICATE_MANIFESTS: ${{ inputs.reconcile_duplicate_manifests }}
       run: |
         set -Eeuo pipefail
+        DRIVE_OPERATION="${DRIVE_OPERATION:-upload}"
         DRIVE_DESTINATION_KIND="${DRIVE_DESTINATION_KIND:-source-ref}"
         DRIVE_RECONCILE_DUPLICATE_MANIFESTS="${DRIVE_RECONCILE_DUPLICATE_MANIFESTS:-false}"
         : "${GOOGLE_DRIVE_CLIENT_ID:?GOOGLE_DRIVE_CLIENT_ID is required}"
@@ -84,7 +92,13 @@ runs:
         : "${DRIVE_REPOSITORY:?repository is required}"
         : "${DRIVE_FILE_PATH:?file_path is required}"
         : "${DRIVE_FILE_NAME:?file_name is required}"
-        test -f "${DRIVE_FILE_PATH}"
+        case "${DRIVE_OPERATION}" in
+          upload|download) ;;
+          *) echo "operation must be upload or download" >&2; exit 2 ;;
+        esac
+        if test "${DRIVE_OPERATION}" = upload; then
+          test -f "${DRIVE_FILE_PATH}"
+        fi
         case "${DRIVE_GZIP}" in
           true|false) ;;
           *) echo "gzip must be true or false" >&2; exit 2 ;;
@@ -124,6 +138,7 @@ runs:
         esac
         case "${DRIVE_DESTINATION_KIND}" in
           source-ref)
+            test "${DRIVE_OPERATION}" = upload || { echo "source-ref supports upload only" >&2; exit 2; }
             test -n "${DRIVE_REF}" || { echo "source-ref destination requires ref" >&2; exit 2; }
             test "${DRIVE_REF#refs/heads/}" = "${DRIVE_REF}" || { echo "ref must be the requested logical ref name" >&2; exit 2; }
             test "${DRIVE_REF#refs/tags/}" = "${DRIVE_REF}" || { echo "ref must be the requested logical ref name" >&2; exit 2; }
@@ -135,21 +150,35 @@ runs:
             fi
             ;;
           repository-screenshots)
-            [[ "${DRIVE_REPOSITORY}" =~ ^StreamScapeTV/[A-Za-z0-9_.-]{1,100}$ ]] || {
-              echo "repository-screenshots requires one bounded StreamScapeTV repository" >&2
-              exit 2
-            }
+            test "${DRIVE_OPERATION}" = upload || { echo "repository-screenshots supports upload only" >&2; exit 2; }
             test -z "${DRIVE_REF}" || { echo "repository-screenshots does not accept ref" >&2; exit 2; }
             test -z "${DRIVE_SUBDIRECTORY}" || { echo "repository-screenshots does not accept subdirectory" >&2; exit 2; }
-            case "${DRIVE_FILE_NAME}" in
-              ios.zip|tvos.zip) ;;
-              *) echo "repository-screenshots accepts only ios.zip or tvos.zip" >&2; exit 2 ;;
+            case "${DRIVE_REPOSITORY}:${DRIVE_FILE_NAME}" in
+              StreamScapeTV/iptv-apple:ios.zip|\
+              StreamScapeTV/iptv-apple:tvos.zip|\
+              StreamScapeTV/iptv-android:phone-portrait.zip|\
+              StreamScapeTV/iptv-android:phone-landscape.zip|\
+              StreamScapeTV/iptv-android:tablet-portrait.zip|\
+              StreamScapeTV/iptv-android:tablet-landscape.zip|\
+              StreamScapeTV/iptv-android:tv.zip) ;;
+              *) echo "repository-screenshots rejects unsupported repository/file-name combination" >&2; exit 2 ;;
             esac
             test -z "${DRIVE_PREVIOUS_FILE_NAME}" || { echo "repository-screenshots does not accept previous_file_name" >&2; exit 2; }
             test "${DRIVE_GZIP}" = false || { echo "repository-screenshots requires caller-supplied ZIP bytes" >&2; exit 2; }
             test "${DRIVE_RECONCILE_DUPLICATE_MANIFESTS}" = false || { echo "repository-screenshots does not support manifest reconciliation" >&2; exit 2; }
             ;;
-          *) echo "destination_kind must be source-ref or repository-screenshots" >&2; exit 2 ;;
+          repository-screenshot-cache)
+            test "${DRIVE_REPOSITORY}" = StreamScapeTV/iptv-android || { echo "repository-screenshot-cache is bounded to StreamScapeTV/iptv-android" >&2; exit 2; }
+            test "${DRIVE_FILE_NAME}" = xtream-screenshot-cache.zip || { echo "repository-screenshot-cache accepts only xtream-screenshot-cache.zip" >&2; exit 2; }
+            test -z "${DRIVE_REF}" || { echo "repository-screenshot-cache does not accept ref" >&2; exit 2; }
+            test -z "${DRIVE_SUBDIRECTORY}" || { echo "repository-screenshot-cache does not accept subdirectory" >&2; exit 2; }
+            test -z "${DRIVE_PREVIOUS_FILE_NAME}" || { echo "repository-screenshot-cache does not accept previous_file_name" >&2; exit 2; }
+            test "${DRIVE_GZIP}" = false || { echo "repository-screenshot-cache requires exact ZIP bytes" >&2; exit 2; }
+            test "${DRIVE_IMMUTABLE}" = false || { echo "repository-screenshot-cache does not support immutable mode" >&2; exit 2; }
+            test "${DRIVE_RECONCILE_DUPLICATE_MANIFESTS}" = false || { echo "repository-screenshot-cache does not support manifest reconciliation" >&2; exit 2; }
+            test "${DRIVE_MIME_TYPE}" = application/zip || { echo "repository-screenshot-cache requires application/zip" >&2; exit 2; }
+            ;;
+          *) echo "destination_kind must be source-ref, repository-screenshots, or repository-screenshot-cache" >&2; exit 2 ;;
         esac
 
         repository_name="${DRIVE_REPOSITORY##*/}"
@@ -600,6 +629,9 @@ runs:
         if test "${DRIVE_DESTINATION_KIND}" = repository-screenshots; then
           screenshots_folder_id="$(ensure_folder "${repository_folder_id}" screenshots)"
           target_folder_id="${screenshots_folder_id}"
+        elif test "${DRIVE_DESTINATION_KIND}" = repository-screenshot-cache; then
+          screenshot_cache_folder_id="$(ensure_folder "${repository_folder_id}" screenshot-cache)"
+          target_folder_id="${screenshot_cache_folder_id}"
         else
           ref_folder_id="$(ensure_folder "${repository_folder_id}" "${DRIVE_REF}")"
           target_folder_id="${ref_folder_id}"
@@ -609,6 +641,56 @@ runs:
         fi
 
         existing_id="$(resolve_existing_file)"
+        if test "${DRIVE_OPERATION}" = download; then
+          test -n "${existing_id}" || {
+            echo "fixed Android screenshot cache is unavailable in owner-private Drive" >&2
+            exit 1
+          }
+          metadata="$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer ${access_token}" \
+            "https://www.googleapis.com/drive/v3/files/${existing_id}?fields=id,name,size,md5Checksum")"
+          expected_size="$(printf '%s' "${metadata}" | python3 -c 'import json,sys; v=json.load(sys.stdin); print(v.get("size", ""))')"
+          expected_md5="$(printf '%s' "${metadata}" | python3 -c 'import json,sys; v=json.load(sys.stdin); print(v.get("md5Checksum", ""))')"
+          [[ "${expected_size}" =~ ^[0-9]+$ ]] || { echo "fixed Android screenshot cache metadata has no byte size" >&2; exit 1; }
+          mkdir -p "$(dirname "${DRIVE_FILE_PATH}")"
+          download_tmp="${DRIVE_FILE_PATH}.partial-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -f -- "${download_tmp}"
+          download_attempt=1
+          download_retry_delays=(1 2 3 5)
+          while test "${download_attempt}" -le 5; do
+            rm -f -- "${download_tmp}"
+            set +e
+            curl --fail --silent --show-error --location --http1.1 \
+              --header "Authorization: Bearer ${access_token}" \
+              --output "${download_tmp}" \
+              "https://www.googleapis.com/drive/v3/files/${existing_id}?alt=media"
+            download_status=$?
+            set -e
+            if test "${download_status}" -eq 0; then
+              break
+            fi
+            if test "${download_attempt}" -ge 5; then
+              echo "fixed Android screenshot cache download failed after bounded attempts" >&2
+              rm -f -- "${download_tmp}"
+              exit 1
+            fi
+            delay="${download_retry_delays[$((download_attempt - 1))]}"
+            drive_backoff_sleep "${delay}"
+            download_attempt=$((download_attempt + 1))
+          done
+          actual_size="$(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "${download_tmp}")"
+          test "${actual_size}" = "${expected_size}" || { echo "fixed Android screenshot cache byte-size verification failed" >&2; rm -f -- "${download_tmp}"; exit 1; }
+          if test -n "${expected_md5}"; then
+            actual_md5="$(md5sum "${download_tmp}" | awk '{print $1}')"
+            test "${actual_md5}" = "${expected_md5}" || { echo "fixed Android screenshot cache MD5 verification failed" >&2; rm -f -- "${download_tmp}"; exit 1; }
+          fi
+          mv -f -- "${download_tmp}" "${DRIVE_FILE_PATH}"
+          file_sha256="$(sha256sum "${DRIVE_FILE_PATH}" | awk '{print $1}')"
+          printf 'file_id=%s\n' "${existing_id}" >> "${GITHUB_OUTPUT}"
+          printf 'folder_id=%s\n' "${target_folder_id}" >> "${GITHUB_OUTPUT}"
+          printf 'file_sha256=%s\n' "${file_sha256}" >> "${GITHUB_OUTPUT}"
+          exit 0
+        fi
         byte_size="$(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "${upload_path}")"
 
         if test -n "${existing_id}" && test "${DRIVE_IMMUTABLE}" = "true"; then
@@ -819,3 +901,4 @@ runs:
         fi
         printf 'file_id=%s\n' "${file_id}" >> "${GITHUB_OUTPUT}"
         printf 'folder_id=%s\n' "${target_folder_id}" >> "${GITHUB_OUTPUT}"
+        printf 'file_sha256=%s\n' "$(sha256sum "${upload_path}" | awk '{print $1}')" >> "${GITHUB_OUTPUT}"

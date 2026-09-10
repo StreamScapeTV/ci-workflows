@@ -69,10 +69,14 @@ jobs:
               raise SystemExit("native_component is accepted only by Apple native-component")
 
           if profile == "screenshot-review":
-              if workflow != "validation.apple":
-                  raise SystemExit("screenshot-review is supported only by validation.apple")
-              if repository != "StreamScapeTV/iptv-apple":
-                  raise SystemExit("screenshot-review is currently bounded to StreamScapeTV/iptv-apple")
+              allowed_repository = {
+                  "validation.apple": "StreamScapeTV/iptv-apple",
+                  "validation.android": "StreamScapeTV/iptv-android",
+              }.get(workflow)
+              if allowed_repository is None:
+                  raise SystemExit("screenshot-review is supported only by validation.apple or validation.android")
+              if repository != allowed_repository:
+                  raise SystemExit(f"screenshot-review is bounded to {allowed_repository} for {workflow}")
               if inputs:
                   raise SystemExit("screenshot-review accepts no semantic inputs")
           elif profile == "native-component":
