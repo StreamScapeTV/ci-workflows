@@ -1003,7 +1003,9 @@ CURRENT_PROJECT_VERSION = 1;
 
         dispatch_text = (ROOT / ".github/workflows/central-ci-dispatch.yml").read_text(encoding="utf-8")
         self.assertIn('if profile == "screenshot-review":', dispatch_text)
-        self.assertIn('repository != "StreamScapeTV/iptv-apple"', dispatch_text)
+        self.assertIn('"validation.apple": "StreamScapeTV/iptv-apple"', dispatch_text)
+        self.assertIn('"validation.android": "StreamScapeTV/iptv-android"', dispatch_text)
+        self.assertIn('if repository != allowed_repository:', dispatch_text)
         self.assertIn('raise SystemExit("screenshot-review accepts no semantic inputs")', dispatch_text)
         self.assertFalse((ROOT / ".github/workflows/screenshot-review.yml").exists())
 
