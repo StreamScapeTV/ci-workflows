@@ -1008,6 +1008,44 @@ CURRENT_PROJECT_VERSION = 1;
         self.assertFalse((ROOT / ".github/workflows/screenshot-review.yml").exists())
 
 
+    def test_screenshot_review_receives_only_fixed_profile_scoped_credentials(self) -> None:
+        fixed = (
+            "STREAMSCAPE_API_BASE",
+            "STREAMSCAPE_EMAIL",
+            "STREAMSCAPE_PASSWORD",
+            "STREAMSCAPE_DEMO_EMAIL",
+            "STREAMSCAPE_DEMO_PASSWORD",
+            "XTREAM_URL",
+            "XTREAM_USERNAME",
+            "XTREAM_PASSWORD",
+        )
+
+        workflow_call = self.workflow["on"]["workflow_call"]
+        for name in fixed:
+            self.assertIn(name, workflow_call["secrets"])
+            self.assertFalse(workflow_call["secrets"][name]["required"])
+
+        by_name = {
+            step.get("name"): step
+            for step in self.workflow["jobs"]["execute"]["steps"]
+            if step.get("name")
+        }
+        command_env = by_name["Run fixed Apple lane"]["env"]
+        scrub_env = by_name["Scrub configured CI secrets from private log"]["env"]
+        for name in fixed:
+            expression = (
+                "${{ inputs.test_profile == 'screenshot-review' && secrets."
+                + name
+                + " || '' }}"
+            )
+            self.assertEqual(command_env[name], expression)
+            self.assertEqual(scrub_env[f"CI_SECRET_SCREENSHOT_{name}"], expression)
+
+        self.assertNotIn("secret_name", self.workflow["on"]["workflow_call"]["inputs"])
+        self.assertNotIn("environment", self.workflow["on"]["workflow_call"]["inputs"])
+        self.assertNotIn("env", self.workflow["on"]["workflow_call"]["inputs"])
+
+
     def test_screenshot_review_retries_only_known_ios_simulator_launch_failure_once(self) -> None:
         import shlex
 
