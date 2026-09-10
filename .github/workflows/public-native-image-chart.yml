@@ -263,10 +263,12 @@ jobs:
               r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
               r"(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)"
               r"(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?"
-              r"(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
           )
           if pattern.fullmatch(value) is None:
-              raise SystemExit("Repository-root VERSION is not valid SemVer")
+              raise SystemExit(
+                  "Repository-root VERSION must be release SemVer without build metadata "
+                  "so the exact value is also a valid OCI image tag"
+              )
           print(value)
           PY_VERSION
             )"
