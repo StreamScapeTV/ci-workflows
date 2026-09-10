@@ -232,23 +232,66 @@ jobs:
           CHART_PATH: ${{ inputs.chart_path }}
         run: |
           set -Eeuo pipefail
-          chart_metadata="$(helm show chart "source/${CHART_PATH}")"
-          publication_version="$(
-            printf '%s\n' "${chart_metadata}" |
-              awk '
-                /^version:[[:space:]]+/ {
-                  if (found++) exit 2
-                  if (NF != 2) exit 2
-                  value = $2
-                }
-                END {
-                  if (found != 1 || value == "") exit 2
-                  print value
-                }
-              '
-          )"
-          test -n "${publication_version}"
+          version_path="source/VERSION"
+          if test -e "${version_path}" || test -L "${version_path}"; then
+            test -f "${version_path}" && test ! -L "${version_path}" || {
+              echo 'Repository-root VERSION must be a regular file.' >&2
+              exit 2
+            }
+            git -C source ls-files --error-unmatch -- VERSION >/dev/null 2>&1 || {
+              echo 'Repository-root VERSION must be tracked by Git.' >&2
+              exit 2
+            }
+            publication_version="$(python3 - "${version_path}" <<'PY_VERSION'
+          import re
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          raw = path.read_bytes()
+          if not raw or len(raw) > 256:
+              raise SystemExit("Repository-root VERSION must contain one bounded SemVer value")
+          try:
+              text = raw.decode("ascii")
+          except UnicodeDecodeError as exc:
+              raise SystemExit("Repository-root VERSION must be plain ASCII SemVer") from exc
+          lines = text.splitlines()
+          if len(lines) != 1 or text not in {lines[0], lines[0] + "\n", lines[0] + "\r\n"}:
+              raise SystemExit("Repository-root VERSION must contain exactly one line")
+          value = lines[0]
+          pattern = re.compile(
+              r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+              r"(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)"
+              r"(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?"
+              r"(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
+          )
+          if pattern.fullmatch(value) is None:
+              raise SystemExit("Repository-root VERSION is not valid SemVer")
+          print(value)
+          PY_VERSION
+            )"
+            publication_source=root-VERSION
+          else
+            chart_metadata="$(helm show chart "source/${CHART_PATH}")"
+            publication_version="$(
+              printf '%s\n' "${chart_metadata}" |
+                awk '
+                  /^version:[[:space:]]+/ {
+                    if (found++) exit 2
+                    if (NF != 2) exit 2
+                    value = $2
+                  }
+                  END {
+                    if (found != 1 || value == "") exit 2
+                    print value
+                  }
+                '
+            )"
+            test -n "${publication_version}"
+            publication_source=chart-version
+          fi
           printf 'publication_version=%s\n' "${publication_version}" >> "${GITHUB_OUTPUT}"
+          printf 'publication_source=%s\n' "${publication_source}" >> "${GITHUB_OUTPUT}"
 
       - name: Prepare isolated locked Helm dependencies
         id: chart_prepare
@@ -256,6 +299,7 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/.ciw/src
           CHART_PATH: ${{ inputs.chart_path }}
+          VERSION: ${{ steps.publication.outputs.publication_version }}
         run: |
           set -Eeuo pipefail
           source_chart="source/${CHART_PATH}"
@@ -264,6 +308,26 @@ jobs:
           test ! -e "${prepared_chart}"
           mkdir -m 0700 "${prepared_chart}"
           cp -a "${source_chart}/." "${prepared_chart}/"
+
+          python3 - "${prepared_chart}/Chart.yaml" "${VERSION}" <<'PY_CHART_VERSION'
+          import re
+          import sys
+          from pathlib import Path
+
+          chart = Path(sys.argv[1])
+          version = sys.argv[2]
+          lines = chart.read_text(encoding="utf-8").splitlines()
+          version_rows = [index for index, line in enumerate(lines) if re.match(r"^version\s*:", line)]
+          app_rows = [index for index, line in enumerate(lines) if re.match(r"^appVersion\s*:", line)]
+          if len(version_rows) != 1 or len(app_rows) > 1:
+              raise SystemExit("Prepared Chart.yaml has ambiguous version/appVersion metadata")
+          lines[version_rows[0]] = f'version: "{version}"'
+          if app_rows:
+              lines[app_rows[0]] = f'appVersion: "{version}"'
+          else:
+              lines.insert(version_rows[0] + 1, f'appVersion: "{version}"')
+          chart.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY_CHART_VERSION
 
           if test -f "${prepared_chart}/Chart.lock"; then
             dependency_table="$(helm dependency list "${prepared_chart}" 2>>"${CI_LOG}")"
@@ -437,6 +501,26 @@ jobs:
           chart_archive="${readback_root}/${CHART_NAME}-${VERSION}.tgz"
           test -f "${chart_archive}"
           test "$(sha256sum "${chart_archive}" | awk '{print $1}')" = "${CHART_PACKAGE_SHA256}"
+          chart_metadata="$(helm show chart "${chart_archive}")"
+          CHART_METADATA="${chart_metadata}" python3 - <<'PY_CHART_READBACK'
+          import os
+
+          metadata = os.environ["CHART_METADATA"].splitlines()
+          expected = os.environ["VERSION"]
+
+          def scalar(name: str) -> str:
+              prefix = name + ":"
+              values = [line[len(prefix):].strip() for line in metadata if line.startswith(prefix)]
+              if len(values) != 1:
+                  raise SystemExit(f"Published chart has ambiguous {name} metadata")
+              value = values[0]
+              if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+                  value = value[1:-1]
+              return value
+
+          if scalar("version") != expected or scalar("appVersion") != expected:
+              raise SystemExit("Published chart version/appVersion do not match publication VERSION")
+          PY_CHART_READBACK
           printf 'Authenticated private image/chart read-back verified.\n' >> "${CI_LOG}"
 
       - name: Clean publication state
