@@ -69,6 +69,22 @@ name: Apple CI
         required: false
       CIW_MAVEN_PACKAGE_READ_TOKEN:
         required: false
+      STREAMSCAPE_API_BASE:
+        required: false
+      STREAMSCAPE_EMAIL:
+        required: false
+      STREAMSCAPE_PASSWORD:
+        required: false
+      STREAMSCAPE_DEMO_EMAIL:
+        required: false
+      STREAMSCAPE_DEMO_PASSWORD:
+        required: false
+      XTREAM_URL:
+        required: false
+      XTREAM_USERNAME:
+        required: false
+      XTREAM_PASSWORD:
+        required: false
       APPLE_TEAM_ID:
         required: false
       APP_STORE_CONNECT_KEY_ID:
@@ -703,6 +719,14 @@ jobs:
           SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
           OBSERVED_SOURCE_SHA: ${{ steps.source_identity.outputs.source_sha }}
           GH_TOKEN: ${{ steps.source.outputs.token || github.token }}
+          STREAMSCAPE_API_BASE: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_API_BASE || '' }}
+          STREAMSCAPE_EMAIL: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_EMAIL || '' }}
+          STREAMSCAPE_PASSWORD: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_PASSWORD || '' }}
+          STREAMSCAPE_DEMO_EMAIL: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_DEMO_EMAIL || '' }}
+          STREAMSCAPE_DEMO_PASSWORD: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_DEMO_PASSWORD || '' }}
+          XTREAM_URL: ${{ inputs.test_profile == 'screenshot-review' && secrets.XTREAM_URL || '' }}
+          XTREAM_USERNAME: ${{ inputs.test_profile == 'screenshot-review' && secrets.XTREAM_USERNAME || '' }}
+          XTREAM_PASSWORD: ${{ inputs.test_profile == 'screenshot-review' && secrets.XTREAM_PASSWORD || '' }}
           CI_APPLE_TESTFLIGHT_TEAM_ID: ${{ inputs.test_profile == 'testflight' && secrets.APPLE_TEAM_ID || '' }}
           CI_APPLE_TESTFLIGHT_KEY_ID: ${{ inputs.test_profile == 'testflight' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
           CI_APPLE_TESTFLIGHT_ISSUER_ID: ${{ inputs.test_profile == 'testflight' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
@@ -1136,6 +1160,14 @@ jobs:
           CI_SECRET_TAILSCALE_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
           CI_SECRET_FORGEJO_PACKAGE_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
           CI_SECRET_FORGEJO_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+          CI_SECRET_SCREENSHOT_STREAMSCAPE_API_BASE: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_API_BASE || '' }}
+          CI_SECRET_SCREENSHOT_STREAMSCAPE_EMAIL: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_EMAIL || '' }}
+          CI_SECRET_SCREENSHOT_STREAMSCAPE_PASSWORD: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_PASSWORD || '' }}
+          CI_SECRET_SCREENSHOT_STREAMSCAPE_DEMO_EMAIL: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_DEMO_EMAIL || '' }}
+          CI_SECRET_SCREENSHOT_STREAMSCAPE_DEMO_PASSWORD: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_DEMO_PASSWORD || '' }}
+          CI_SECRET_SCREENSHOT_XTREAM_URL: ${{ inputs.test_profile == 'screenshot-review' && secrets.XTREAM_URL || '' }}
+          CI_SECRET_SCREENSHOT_XTREAM_USERNAME: ${{ inputs.test_profile == 'screenshot-review' && secrets.XTREAM_USERNAME || '' }}
+          CI_SECRET_SCREENSHOT_XTREAM_PASSWORD: ${{ inputs.test_profile == 'screenshot-review' && secrets.XTREAM_PASSWORD || '' }}
           CI_SECRET_APPLE_TEAM_ID: ${{ inputs.test_profile == 'testflight' && secrets.APPLE_TEAM_ID || '' }}
           CI_SECRET_APP_STORE_CONNECT_KEY_ID: ${{ inputs.test_profile == 'testflight' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
           CI_SECRET_APP_STORE_CONNECT_ISSUER_ID: ${{ inputs.test_profile == 'testflight' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
