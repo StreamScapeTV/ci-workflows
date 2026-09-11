@@ -89,7 +89,9 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
         self.assertIn("repository-screenshot-cache is bounded to StreamScapeTV/iptv-android", script)
         self.assertIn("repository-screenshot-cache accepts only xtream-screenshot-cache.zip", script)
         self.assertIn("fixed Android screenshot cache is unavailable in owner-private Drive", script)
-        self.assertIn("repository-screenshots rejects unsupported repository/file-name combination", script)
+        self.assertIn("repository-screenshots rejects unsupported legacy repository/file-name combination", script)
+        self.assertIn("repository-screenshots rejects unsupported direct-evidence review path", script)
+        self.assertIn("upload-directory", script)
         for name in ("phone-portrait.zip", "phone-landscape.zip", "tablet-portrait.zip", "tablet-landscape.zip", "tv.zip", "ios.zip", "tvos.zip"):
             self.assertIn(name, script)
         self.assertIn("file_sha256", self.drive["outputs"])

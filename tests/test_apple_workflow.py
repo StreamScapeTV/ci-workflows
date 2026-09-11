@@ -989,13 +989,25 @@ CURRENT_PROJECT_VERSION = 1;
         ):
             self.assertIn(token, validate_script)
         self.assertNotIn('expected_source_folder = f"{expected_root}/{source_sha}"', validate_script)
+        for token in (
+            'direct_dir = package.parent / "direct-evidence"',
+            '1 <= len(captures) <= 20',
+            'metadata.get("screen_id") != screen_id',
+            'metadata.get("source_sha") != source_sha',
+            'image_bytes.startswith(b"\\x89PNG',
+            'direct_dir / f"{screen_id}.png"',
+            'direct_dir / f"{screen_id}.json"',
+        ):
+            self.assertIn(token, validate_script)
 
-        upload = by_name["Upload screenshot-review package to repository evidence"]
+        upload = by_name["Upload direct screenshot-review evidence to repository review folder"]
         self.assertEqual(upload["uses"], "StreamScapeTV/ci-workflows/actions/google-drive@main")
         self.assertEqual(upload["with"]["destination_kind"], "repository-screenshots")
+        self.assertEqual(upload["with"]["operation"], "upload-directory")
         self.assertNotIn("ref", upload["with"])
-        self.assertNotIn("subdirectory", upload["with"])
-        self.assertEqual(upload["with"]["file_name"], "${{ steps.screenshot_package.outputs.file_name }}")
+        self.assertEqual(upload["with"]["subdirectory"], "review/${{ steps.screenshot_package.outputs.platform }}")
+        self.assertEqual(upload["with"]["file_path"], "${{ steps.screenshot_package.outputs.evidence_dir }}")
+        self.assertNotIn("file_name", upload["with"])
         self.assertEqual(
             upload["env"]["GOOGLE_DRIVE_ROOT_FOLDER_ID"],
             "${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}",
