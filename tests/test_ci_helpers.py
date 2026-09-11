@@ -612,9 +612,12 @@ class CiHelperTests(unittest.TestCase):
         self.assertNotIn("github.ref", restore["with"]["key"])
         self.assertEqual(save["with"]["key"], "${{ steps.gradle_dependency_cache.outputs.cache-primary-key }}")
         self.assertIn("steps.commands.outcome == 'success'", save["if"])
+        diagnostic = by_name["Classify Android terminal diagnostic"]
+        self.assertIn("CACHE_SAVE_OUTCOME", diagnostic["env"])
+        self.assertIn('test "${CACHE_SAVE_OUTCOME}" = success', diagnostic["run"])
+        self.assertIn('test "${CACHE_SAVE_OUTCOME}" = skipped', diagnostic["run"])
         finish = by_name["Finish Agent State run"]
-        self.assertIn("steps.gradle_dependency_cache_save.outcome == 'success'", finish["with"]["status"])
-        self.assertIn("steps.gradle_dependency_cache_save.outcome == 'skipped'", finish["with"]["status"])
+        self.assertEqual(finish["with"]["status"], "${{ steps.terminal_diagnostic.outputs.success == 'true' && 'succeeded' || 'failed' }}")
 
     def test_android_owner_profiles_and_gitops_retirement_are_explicit(self) -> None:
         android = (ROOT / ".github/workflows/android.yml").read_text()
