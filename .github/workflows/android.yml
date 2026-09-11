@@ -379,7 +379,7 @@ jobs:
           fi
           test -f "${CI_ANDROID_SCREENSHOT_PACKAGE_PATH}" || { echo "Android screenshot-review wrapper produced no package" >&2; exit 1; }
 
-      - name: Validate Android screenshot-review package identity
+      - name: Validate Android screenshot-review package and extract direct evidence
         id: screenshot_package
         if: ${{ steps.screenshot_commands.outcome == 'success' }}
         shell: bash
@@ -389,10 +389,17 @@ jobs:
           SOURCE_SHA: ${{ needs.screenshot_plan.outputs.source_sha }}
         run: |
           set -Eeuo pipefail
-          python3 - "${PACKAGE_PATH}" "${CAPTURE_PROFILE}" "${SOURCE_SHA}" <<'PY_ANDROID_SCREENSHOT_PACKAGE'
-          import json, sys, zipfile
-          from pathlib import Path
-          package, profile, source_sha = sys.argv[1:]
+          python3 - "${PACKAGE_PATH}" "${CAPTURE_PROFILE}" "${SOURCE_SHA}" "${GITHUB_OUTPUT}" <<'PY_ANDROID_SCREENSHOT_PACKAGE'
+          import json
+          import re
+          import sys
+          import zipfile
+          from pathlib import Path, PurePosixPath
+
+          package = Path(sys.argv[1])
+          profile = sys.argv[2]
+          source_sha = sys.argv[3]
+          github_output = Path(sys.argv[4])
           expected_root = "repositories/iptv-android/screenshots"
           expected_name = f"{profile}.zip"
           expected_path = f"{expected_root}/{expected_name}"
@@ -400,6 +407,9 @@ jobs:
               raise SystemExit("Android screenshot-review has an unsupported capture profile")
           if len(source_sha) != 40 or any(c not in "0123456789abcdef" for c in source_sha):
               raise SystemExit("Android screenshot-review has invalid source provenance")
+
+          direct_dir = package.parent / "direct-evidence"
+          direct_dir.mkdir(parents=True, exist_ok=False)
           with zipfile.ZipFile(package) as archive:
               names = archive.namelist()
               if names.count("index.json") != 1 or names.count("routes.json") != 1:
@@ -409,25 +419,84 @@ jobs:
               if archive.testzip() is not None:
                   raise SystemExit("Android screenshot-review ZIP contains a corrupt member")
               index = json.loads(archive.read("index.json"))
-          if not isinstance(index, dict):
-              raise SystemExit("Android screenshot-review index must be one object")
-          expected = {
-              "source_sha": source_sha,
-              "platform": "android",
-              "capture_profile": profile,
-              "drive_root": expected_root,
-              "drive_package_path": expected_path,
-          }
-          for key, value in expected.items():
-              if index.get(key) != value:
-                  raise SystemExit(f"Android screenshot-review {key} mismatch")
-          if Path(index["drive_package_path"]).name != expected_name:
-              raise SystemExit("Android screenshot-review package filename mismatch")
-          if source_sha in index["drive_package_path"].split("/"):
-              raise SystemExit("Android screenshot-review must not encode source SHA as a Drive folder")
+              if not isinstance(index, dict):
+                  raise SystemExit("Android screenshot-review index must be one object")
+              expected = {
+                  "source_sha": source_sha,
+                  "platform": "android",
+                  "capture_profile": profile,
+                  "drive_root": expected_root,
+                  "drive_package_path": expected_path,
+              }
+              for key, value in expected.items():
+                  if index.get(key) != value:
+                      raise SystemExit(f"Android screenshot-review {key} mismatch")
+              if Path(index["drive_package_path"]).name != expected_name:
+                  raise SystemExit("Android screenshot-review package filename mismatch")
+              if source_sha in index["drive_package_path"].split("/"):
+                  raise SystemExit("Android screenshot-review must not encode source SHA as a Drive folder")
+
+              captures = index.get("captures")
+              if not isinstance(captures, list) or not 1 <= len(captures) <= 20:
+                  raise SystemExit("Android screenshot-review index must contain 1 through 20 captures")
+              seen = set()
+              for capture in captures:
+                  if not isinstance(capture, dict):
+                      raise SystemExit("Android screenshot-review capture identity is malformed")
+                  screen_id = capture.get("canonical_id")
+                  member = capture.get("package_member")
+                  expected_prefix = "tv." if profile == "tv" else "mobile."
+                  if (
+                      not isinstance(screen_id, str)
+                      or not screen_id.startswith(expected_prefix)
+                      or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,191}", screen_id) is None
+                      or screen_id in seen
+                  ):
+                      raise SystemExit("Android screenshot-review canonical screen identity is invalid")
+                  seen.add(screen_id)
+                  if not isinstance(member, str) or member not in names:
+                      raise SystemExit("Android screenshot-review screenshot member is missing")
+                  pure = PurePosixPath(member)
+                  if pure.is_absolute() or ".." in pure.parts or pure.suffix != ".png":
+                      raise SystemExit("Android screenshot-review screenshot member path is unsafe")
+                  image = archive.read(member)
+                  if len(image) < 64 or not image.startswith(b"\x89PNG\r\n\x1a\n"):
+                      raise SystemExit("Android screenshot-review capture is not a valid PNG payload")
+
+                  metadata = {
+                      "schema_version": 1,
+                      "source_sha": source_sha,
+                      "platform": "android",
+                      "capture_profile": profile,
+                      "screen_id": screen_id,
+                      "canonical_path": capture.get("canonical_path"),
+                      "title": capture.get("title"),
+                      "presentation": capture.get("presentation"),
+                      "shared_logic_family": capture.get("shared_logic_family"),
+                      "target": capture.get("target"),
+                      "variant": capture.get("variant"),
+                      "navigation_plan": capture.get("navigation_plan"),
+                      "mounted_route": capture.get("mounted_route"),
+                      "width": capture.get("width"),
+                      "height": capture.get("height"),
+                      "captured_at_utc": capture.get("captured_at_utc"),
+                      "cache": index.get("cache"),
+                      "normalization": index.get("normalization"),
+                  }
+                  if metadata["canonical_path"] is None or metadata["navigation_plan"] is None:
+                      raise SystemExit("Android screenshot-review capture lacks direct-review provenance")
+                  (direct_dir / f"{screen_id}.png").write_bytes(image)
+                  (direct_dir / f"{screen_id}.json").write_text(
+                      json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+                      encoding="utf-8",
+                  )
+
+          with github_output.open("a", encoding="utf-8") as output:
+              output.write(f"evidence_dir={direct_dir}\n")
+              output.write(f"capture_profile={profile}\n")
           PY_ANDROID_SCREENSHOT_PACKAGE
 
-      - name: Upload Android screenshot-review package to repository evidence
+      - name: Upload direct Android screenshot-review evidence
         id: screenshot_upload
         if: ${{ steps.screenshot_package.outcome == 'success' }}
         uses: StreamScapeTV/ci-workflows/actions/google-drive@main
@@ -438,10 +507,10 @@ jobs:
           GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
         with:
           repository: StreamScapeTV/iptv-android
+          operation: upload-directory
           destination_kind: repository-screenshots
-          file_path: ${{ runner.temp }}/central-android-screenshot-review/${{ matrix.capture_profile }}.zip
-          file_name: ${{ matrix.capture_profile }}.zip
-          mime_type: application/zip
+          subdirectory: review/${{ steps.screenshot_package.outputs.capture_profile }}
+          file_path: ${{ steps.screenshot_package.outputs.evidence_dir }}
 
       - name: Stop Android screenshot emulator
         if: ${{ always() }}

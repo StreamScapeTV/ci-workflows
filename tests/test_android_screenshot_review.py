@@ -56,9 +56,9 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
         self.assertEqual(download["with"]["destination_kind"], "repository-screenshot-cache")
         self.assertEqual(download["with"]["file_name"], "xtream-screenshot-cache.zip")
 
-    def test_package_validation_is_exact_and_flat(self) -> None:
+    def test_package_validation_extracts_direct_per_screen_evidence(self) -> None:
         steps = self.workflow["jobs"]["screenshot"]["steps"]
-        validate = next(step for step in steps if step["name"] == "Validate Android screenshot-review package identity")
+        validate = next(step for step in steps if step["name"] == "Validate Android screenshot-review package and extract direct evidence")
         script = validate["run"]
         for value in ("phone-portrait", "phone-landscape", "tablet-portrait", "tablet-landscape", "tv"):
             self.assertIn(value, script)
@@ -67,9 +67,19 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
         self.assertIn('"platform": "android"', script)
         self.assertIn('"capture_profile": profile', script)
         self.assertIn("must not encode source SHA as a Drive folder", script)
-        upload = next(step for step in steps if step["name"] == "Upload Android screenshot-review package to repository evidence")
+        self.assertIn('direct_dir = package.parent / "direct-evidence"', script)
+        self.assertIn('screen_id = capture.get("canonical_id")', script)
+        self.assertIn('(direct_dir / f"{screen_id}.png").write_bytes(image)', script)
+        self.assertIn('(direct_dir / f"{screen_id}.json").write_text(', script)
+        self.assertIn('"cache": index.get("cache")', script)
+        self.assertIn('"normalization": index.get("normalization")', script)
+
+        upload = next(step for step in steps if step["name"] == "Upload direct Android screenshot-review evidence")
+        self.assertEqual(upload["with"]["operation"], "upload-directory")
         self.assertEqual(upload["with"]["destination_kind"], "repository-screenshots")
-        self.assertEqual(upload["with"]["file_name"], "${{ matrix.capture_profile }}.zip")
+        self.assertEqual(upload["with"]["subdirectory"], "review/${{ steps.screenshot_package.outputs.capture_profile }}")
+        self.assertEqual(upload["with"]["file_path"], "${{ steps.screenshot_package.outputs.evidence_dir }}")
+        self.assertNotIn("file_name", upload["with"])
 
     def test_normal_lanes_receive_demo_secrets_only_and_scrub_all_fixed_values(self) -> None:
         steps = self.workflow["jobs"]["screenshot"]["steps"]
