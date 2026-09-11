@@ -1070,13 +1070,52 @@ jobs:
                   raise SystemExit(f"screenshot-review {key} mismatch")
           if "drive_source_folder" in index:
               raise SystemExit("screenshot-review index must not encode source SHA as a Drive folder")
+          direct_dir = package.parent / "direct-evidence"
+          direct_dir.mkdir(parents=True, exist_ok=False)
+          captures = index.get("captures")
+          if not isinstance(captures, list) or not 1 <= len(captures) <= 20:
+              raise SystemExit("screenshot-review index must contain 1 through 20 captures")
+          seen_screen_ids = set()
+          expected_prefixes = ("mobile.", "tablet.") if platform == "ios" else ("tv.",)
+          with zipfile.ZipFile(package) as archive:
+              names = set(archive.namelist())
+              for capture in captures:
+                  if not isinstance(capture, dict):
+                      raise SystemExit("screenshot-review capture identity is malformed")
+                  screen_id = capture.get("screen_id")
+                  screenshot_member = capture.get("screenshot")
+                  metadata_member = capture.get("metadata")
+                  if (
+                      not isinstance(screen_id, str)
+                      or not screen_id.startswith(expected_prefixes)
+                      or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,191}", screen_id) is None
+                      or screen_id in seen_screen_ids
+                  ):
+                      raise SystemExit("screenshot-review capture screen identity is invalid")
+                  seen_screen_ids.add(screen_id)
+                  for member in (screenshot_member, metadata_member):
+                      if not isinstance(member, str) or member not in names or member.startswith("/") or ".." in Path(member).parts:
+                          raise SystemExit("screenshot-review capture member path is invalid")
+                  metadata = json.loads(archive.read(metadata_member))
+                  if metadata.get("screen_id") != screen_id or metadata.get("source_sha") != source_sha:
+                      raise SystemExit("screenshot-review per-screen metadata provenance mismatch")
+                  image_bytes = archive.read(screenshot_member)
+                  if len(image_bytes) < 64 or not image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+                      raise SystemExit("screenshot-review capture is not a valid PNG payload")
+                  (direct_dir / f"{screen_id}.png").write_bytes(image_bytes)
+                  (direct_dir / f"{screen_id}.json").write_text(
+                      json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+                      encoding="utf-8",
+                  )
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"package_path={package}\n")
               output.write(f"file_name={file_name}\n")
               output.write(f"source_sha={source_sha}\n")
+              output.write(f"platform={platform}\n")
+              output.write(f"evidence_dir={direct_dir}\n")
           PY_SCREENSHOT_PACKAGE
 
-      - name: Upload screenshot-review package to repository evidence
+      - name: Upload direct screenshot-review evidence to repository review folder
         if: ${{ inputs.test_profile == 'screenshot-review' && steps.screenshot_package.outcome == 'success' }}
         uses: StreamScapeTV/ci-workflows/actions/google-drive@main
         env:
@@ -1086,10 +1125,10 @@ jobs:
           GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
         with:
           repository: ${{ inputs.repository || github.repository }}
+          operation: upload-directory
           destination_kind: repository-screenshots
-          file_path: ${{ steps.screenshot_package.outputs.package_path }}
-          file_name: ${{ steps.screenshot_package.outputs.file_name }}
-          mime_type: application/zip
+          subdirectory: review/${{ steps.screenshot_package.outputs.platform }}
+          file_path: ${{ steps.screenshot_package.outputs.evidence_dir }}
 
       - name: Clean screenshot-review package state
         if: ${{ always() && inputs.test_profile == 'screenshot-review' }}

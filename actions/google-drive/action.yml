@@ -1,13 +1,13 @@
 name: Upload file to Google Drive
 
-description: Transfer one file under a fixed Drive repository namespace using bounded source, screenshot, or Android screenshot-cache semantics.
+description: Transfer files under fixed Drive repository namespaces using bounded source, screenshot, or Android screenshot-cache semantics.
 
 inputs:
   repository:
     description: Full GitHub repository name (owner/name)
     required: true
   operation:
-    description: "Fixed transfer operation: upload, or download only for the Android screenshot-cache destination"
+    description: "Fixed transfer operation: upload, upload-directory for direct screenshot evidence, or download only for Android screenshot-cache"
     required: false
     default: upload
   destination_kind:
@@ -19,7 +19,7 @@ inputs:
     required: false
     default: ""
   subdirectory:
-    description: Optional bounded child folder below a source ref; repository-screenshots requires this to be empty
+    description: Optional bounded source-ref child folder or fixed repository-screenshot review variant path
     required: false
     default: ""
   repository_folder_id:
@@ -30,8 +30,9 @@ inputs:
     description: Local upload source or fixed download destination
     required: true
   file_name:
-    description: Exact Google Drive filename
-    required: true
+    description: Exact Google Drive filename; omitted only for bounded screenshot upload-directory mode
+    required: false
+    default: ""
   previous_file_name:
     description: Optional exact legacy filename to rename/update in place only when the new filename is absent
     required: false
@@ -91,13 +92,19 @@ runs:
         : "${GOOGLE_DRIVE_ROOT_FOLDER_ID:?GOOGLE_DRIVE_ROOT_FOLDER_ID is required}"
         : "${DRIVE_REPOSITORY:?repository is required}"
         : "${DRIVE_FILE_PATH:?file_path is required}"
-        : "${DRIVE_FILE_NAME:?file_name is required}"
         case "${DRIVE_OPERATION}" in
-          upload|download) ;;
-          *) echo "operation must be upload or download" >&2; exit 2 ;;
+          upload|download)
+            : "${DRIVE_FILE_NAME:?file_name is required}"
+            ;;
+          upload-directory)
+            test -z "${DRIVE_FILE_NAME}" || { echo "upload-directory does not accept file_name" >&2; exit 2; }
+            ;;
+          *) echo "operation must be upload, upload-directory, or download" >&2; exit 2 ;;
         esac
         if test "${DRIVE_OPERATION}" = upload; then
           test -f "${DRIVE_FILE_PATH}"
+        elif test "${DRIVE_OPERATION}" = upload-directory; then
+          test -d "${DRIVE_FILE_PATH}" || { echo "upload-directory file_path must be a directory" >&2; exit 2; }
         fi
         case "${DRIVE_GZIP}" in
           true|false) ;;
@@ -150,21 +157,38 @@ runs:
             fi
             ;;
           repository-screenshots)
-            test "${DRIVE_OPERATION}" = upload || { echo "repository-screenshots supports upload only" >&2; exit 2; }
-            test -z "${DRIVE_REF}" || { echo "repository-screenshots does not accept ref" >&2; exit 2; }
-            test -z "${DRIVE_SUBDIRECTORY}" || { echo "repository-screenshots does not accept subdirectory" >&2; exit 2; }
-            case "${DRIVE_REPOSITORY}:${DRIVE_FILE_NAME}" in
-              StreamScapeTV/iptv-apple:ios.zip|\
-              StreamScapeTV/iptv-apple:tvos.zip|\
-              StreamScapeTV/iptv-android:phone-portrait.zip|\
-              StreamScapeTV/iptv-android:phone-landscape.zip|\
-              StreamScapeTV/iptv-android:tablet-portrait.zip|\
-              StreamScapeTV/iptv-android:tablet-landscape.zip|\
-              StreamScapeTV/iptv-android:tv.zip) ;;
-              *) echo "repository-screenshots rejects unsupported repository/file-name combination" >&2; exit 2 ;;
+            case "${DRIVE_OPERATION}" in
+              upload)
+                test -z "${DRIVE_SUBDIRECTORY}" || { echo "legacy repository screenshot ZIP upload does not accept subdirectory" >&2; exit 2; }
+                case "${DRIVE_REPOSITORY}:${DRIVE_FILE_NAME}" in
+                  StreamScapeTV/iptv-apple:ios.zip|\
+                  StreamScapeTV/iptv-apple:tvos.zip|\
+                  StreamScapeTV/iptv-android:phone-portrait.zip|\
+                  StreamScapeTV/iptv-android:phone-landscape.zip|\
+                  StreamScapeTV/iptv-android:tablet-portrait.zip|\
+                  StreamScapeTV/iptv-android:tablet-landscape.zip|\
+                  StreamScapeTV/iptv-android:tv.zip) ;;
+                  *) echo "repository-screenshots rejects unsupported legacy repository/file-name combination" >&2; exit 2 ;;
+                esac
+                ;;
+              upload-directory)
+                case "${DRIVE_REPOSITORY}:${DRIVE_SUBDIRECTORY}" in
+                  StreamScapeTV/iptv-apple:review/ios|\
+                  StreamScapeTV/iptv-apple:review/tvos|\
+                  StreamScapeTV/iptv-android:review/phone-portrait|\
+                  StreamScapeTV/iptv-android:review/phone-landscape|\
+                  StreamScapeTV/iptv-android:review/tablet-portrait|\
+                  StreamScapeTV/iptv-android:review/tablet-landscape|\
+                  StreamScapeTV/iptv-android:review/tv) ;;
+                  *) echo "repository-screenshots rejects unsupported direct-evidence review path" >&2; exit 2 ;;
+                esac
+                ;;
+              *) echo "repository-screenshots supports upload or upload-directory only" >&2; exit 2 ;;
             esac
+            test -z "${DRIVE_REF}" || { echo "repository-screenshots does not accept ref" >&2; exit 2; }
             test -z "${DRIVE_PREVIOUS_FILE_NAME}" || { echo "repository-screenshots does not accept previous_file_name" >&2; exit 2; }
-            test "${DRIVE_GZIP}" = false || { echo "repository-screenshots requires caller-supplied ZIP bytes" >&2; exit 2; }
+            test "${DRIVE_GZIP}" = false || { echo "repository-screenshots does not support gzip" >&2; exit 2; }
+            test "${DRIVE_IMMUTABLE}" = false || { echo "repository-screenshots review evidence is replaceable until finalized" >&2; exit 2; }
             test "${DRIVE_RECONCILE_DUPLICATE_MANIFESTS}" = false || { echo "repository-screenshots does not support manifest reconciliation" >&2; exit 2; }
             ;;
           repository-screenshot-cache)
@@ -194,7 +218,7 @@ runs:
         }
         trap cleanup EXIT
 
-        if test "${DRIVE_GZIP}" = "true"; then
+        if test "${DRIVE_OPERATION}" = upload && test "${DRIVE_GZIP}" = "true"; then
           temp_archive="${RUNNER_TEMP}/drive-upload-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.gz"
           gzip -c "${DRIVE_FILE_PATH}" > "${temp_archive}"
           upload_path="${temp_archive}"
@@ -629,6 +653,11 @@ runs:
         if test "${DRIVE_DESTINATION_KIND}" = repository-screenshots; then
           screenshots_folder_id="$(ensure_folder "${repository_folder_id}" screenshots)"
           target_folder_id="${screenshots_folder_id}"
+          if test "${DRIVE_OPERATION}" = upload-directory; then
+            review_folder_id="$(ensure_folder "${screenshots_folder_id}" review)"
+            review_variant="${DRIVE_SUBDIRECTORY#review/}"
+            target_folder_id="$(ensure_folder "${review_folder_id}" "${review_variant}")"
+          fi
         elif test "${DRIVE_DESTINATION_KIND}" = repository-screenshot-cache; then
           screenshot_cache_folder_id="$(ensure_folder "${repository_folder_id}" screenshot-cache)"
           target_folder_id="${screenshot_cache_folder_id}"
@@ -638,6 +667,121 @@ runs:
           if test -n "${DRIVE_SUBDIRECTORY}"; then
             target_folder_id="$(ensure_folder "${ref_folder_id}" "${DRIVE_SUBDIRECTORY}")"
           fi
+        fi
+
+        if test "${DRIVE_OPERATION}" = upload-directory; then
+          mapfile -t screenshot_files < <(find "${DRIVE_FILE_PATH}" -mindepth 1 -maxdepth 1 -type f -print | LC_ALL=C sort)
+          test "${#screenshot_files[@]}" -ge 1 || { echo "direct screenshot evidence directory is empty" >&2; exit 2; }
+          test "${#screenshot_files[@]}" -le 40 || { echo "direct screenshot evidence directory exceeds the bounded 40-file limit" >&2; exit 2; }
+          directory_digest_input="${RUNNER_TEMP}/drive-screenshot-directory-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.sha256"
+          : > "${directory_digest_input}"
+          cleanup_directory_digest() { rm -f "${directory_digest_input}"; }
+          trap 'cleanup_directory_digest; cleanup' EXIT
+
+          upload_direct_screenshot_file() {
+            local source_path="$1"
+            local evidence_name="$2"
+            local evidence_mime="$3"
+            local response existing_file_id metadata response_id expected_size expected_md5 actual_size actual_md5
+            DRIVE_FILE_NAME="${evidence_name}"
+            response="$(curl --fail --silent --show-error \
+              --header "Authorization: Bearer ${access_token}" \
+              "$(drive_list_url "${target_folder_id}" "${DRIVE_FILE_NAME}" file)")"
+            existing_file_id="$(printf '%s' "${response}" | unique_id)"
+            if test -z "${existing_file_id}"; then
+              metadata="$(python3 -c 'import json,sys; name,parent,mime=sys.argv[1:4]; print(json.dumps({"name":name,"parents":[parent],"mimeType":mime}))' "${DRIVE_FILE_NAME}" "${target_folder_id}" "${evidence_mime}")"
+              existing_file_id="$(curl --fail --silent --show-error --http1.1 \
+                --request POST \
+                --header "Authorization: Bearer ${access_token}" \
+                --header "Content-Type: application/json; charset=UTF-8" \
+                --data "${metadata}" \
+                'https://www.googleapis.com/drive/v3/files?fields=id' \
+                | python3 -c 'import json,sys; value=json.load(sys.stdin); file_id=value.get("id", ""); file_id or sys.exit("direct screenshot metadata create returned no id"); print(file_id)')"
+            fi
+            expected_size="$(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "${source_path}")"
+            direct_attempt=1
+            while test "${direct_attempt}" -le 5; do
+              set +e
+              direct_http_code="$(curl --silent --show-error --http1.1 \
+                --request PATCH \
+                --header "Authorization: Bearer ${access_token}" \
+                --header "Content-Type: ${evidence_mime}" \
+                --data-binary "@${source_path}" \
+                --output /dev/null \
+                --write-out '%{http_code}' \
+                "https://www.googleapis.com/upload/drive/v3/files/${existing_file_id}?uploadType=media")"
+              direct_curl_status=$?
+              set -e
+              direct_http_code="${direct_http_code:-000}"
+              if test "${direct_curl_status}" -eq 0 && [[ "${direct_http_code}" =~ ^2[0-9][0-9]$ ]]; then
+                break
+              fi
+              case "${direct_http_code}" in
+                000|408|429|5??) ;;
+                *) echo "direct screenshot upload failed with permanent HTTP ${direct_http_code}" >&2; return 1 ;;
+              esac
+              if test "${direct_attempt}" -ge 5; then
+                echo "direct screenshot upload failed after bounded retries" >&2
+                return 1
+              fi
+              drive_backoff_sleep "${direct_attempt}"
+              direct_attempt=$((direct_attempt + 1))
+            done
+            metadata="$(curl --fail --silent --show-error --http1.1 \
+              --header "Authorization: Bearer ${access_token}" \
+              "https://www.googleapis.com/drive/v3/files/${existing_file_id}?fields=id,name,size,md5Checksum,parents")"
+            read -r response_id actual_size expected_md5 <<< "$(printf '%s' "${metadata}" | python3 -c 'import json,sys; expected_name,expected_parent=sys.argv[1:3]; value=json.load(sys.stdin); (value.get("name")==expected_name and expected_parent in value.get("parents",[])) or sys.exit("direct screenshot Drive identity verification failed"); print(value.get("id",""), value.get("size",""), value.get("md5Checksum",""))' "${DRIVE_FILE_NAME}" "${target_folder_id}")"
+            test -n "${response_id}" && test "${actual_size}" = "${expected_size}" || {
+              echo "direct screenshot Drive size verification failed" >&2
+              return 1
+            }
+            if test -n "${expected_md5}"; then
+              actual_md5="$(md5sum "${source_path}" | awk '{print $1}')"
+              test "${actual_md5}" = "${expected_md5}" || {
+                echo "direct screenshot Drive content verification failed" >&2
+                return 1
+              }
+            fi
+            sha256sum "${source_path}" >> "${directory_digest_input}"
+          }
+
+          test $(( ${#screenshot_files[@]} % 2 )) -eq 0 || { echo "direct screenshot evidence must contain PNG/JSON pairs" >&2; exit 2; }
+          for evidence_path in "${screenshot_files[@]}"; do
+            evidence_name="$(basename "${evidence_path}")"
+            [[ "${evidence_name}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,191}\.(png|json)$ ]] || {
+              echo "direct screenshot evidence filename must be one bounded canonical screen id with .png or .json" >&2
+              exit 2
+            }
+            screen_id="${evidence_name%.*}"
+            case "${DRIVE_REPOSITORY}:${DRIVE_SUBDIRECTORY}:${screen_id}" in
+              StreamScapeTV/iptv-apple:review/ios:mobile.*|\
+              StreamScapeTV/iptv-apple:review/ios:tablet.*|\
+              StreamScapeTV/iptv-apple:review/tvos:tv.*|\
+              StreamScapeTV/iptv-android:review/phone-portrait:mobile.*|\
+              StreamScapeTV/iptv-android:review/phone-landscape:mobile.*|\
+              StreamScapeTV/iptv-android:review/tablet-portrait:mobile.*|\
+              StreamScapeTV/iptv-android:review/tablet-landscape:mobile.*|\
+              StreamScapeTV/iptv-android:review/tv:tv.*) ;;
+              *) echo "direct screenshot evidence screen id is not valid for the repository/review variant" >&2; exit 2 ;;
+            esac
+            case "${evidence_name}" in
+              *.png)
+                test -f "${DRIVE_FILE_PATH}/${screen_id}.json" || { echo "direct screenshot PNG is missing adjacent metadata" >&2; exit 2; }
+                evidence_mime=image/png
+                ;;
+              *.json)
+                test -f "${DRIVE_FILE_PATH}/${screen_id}.png" || { echo "direct screenshot metadata is missing adjacent PNG" >&2; exit 2; }
+                evidence_mime=application/json
+                ;;
+              *) exit 2 ;;
+            esac
+            upload_direct_screenshot_file "${evidence_path}" "${evidence_name}" "${evidence_mime}"
+          done
+          directory_sha256="$(LC_ALL=C sort "${directory_digest_input}" | sha256sum | awk '{print $1}')"
+          printf 'file_id=\n' >> "${GITHUB_OUTPUT}"
+          printf 'folder_id=%s\n' "${target_folder_id}" >> "${GITHUB_OUTPUT}"
+          printf 'file_sha256=%s\n' "${directory_sha256}" >> "${GITHUB_OUTPUT}"
+          exit 0
         fi
 
         existing_id="$(resolve_existing_file)"
