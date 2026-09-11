@@ -593,8 +593,11 @@ printf '%s' "$result"
         self.assertIn('target_folder_id="${screenshots_folder_id}"', self.script)
         self.assertNotIn('target_folder_id="$(ensure_folder "${screenshots_folder_id}" "${DRIVE_SUBDIRECTORY}")"', self.script)
         self.assertIn("repository-screenshots does not accept ref", self.script)
-        self.assertIn("repository-screenshots does not accept subdirectory", self.script)
-        self.assertIn("repository-screenshots rejects unsupported repository/file-name combination", self.script)
+        self.assertIn("legacy repository screenshot ZIP upload does not accept subdirectory", self.script)
+        self.assertIn("repository-screenshots rejects unsupported legacy repository/file-name combination", self.script)
+        self.assertIn("repository-screenshots rejects unsupported direct-evidence review path", self.script)
+        self.assertIn("StreamScapeTV/iptv-apple:review/ios", self.script)
+        self.assertIn("StreamScapeTV/iptv-android:review/phone-portrait", self.script)
         self.assertIn("StreamScapeTV/iptv-android:phone-portrait.zip", self.script)
         self.assertIn("StreamScapeTV/iptv-android:tv.zip", self.script)
 
@@ -647,7 +650,7 @@ printf '%s' "$result"
             for updates, message in (
                 ({"DRIVE_REF": "screenshots"}, "does not accept ref"),
                 ({"DRIVE_SUBDIRECTORY": "a" * 40}, "does not accept subdirectory"),
-                ({"DRIVE_FILE_NAME": "review.zip"}, "rejects unsupported repository/file-name combination"),
+                ({"DRIVE_FILE_NAME": "review.zip"}, "rejects unsupported legacy repository/file-name combination"),
             ):
                 env = dict(base_env)
                 env.update(updates)
