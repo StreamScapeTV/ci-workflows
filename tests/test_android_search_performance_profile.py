@@ -279,11 +279,15 @@ class AndroidSharedCacheContractTest(unittest.TestCase):
         self.assertIn("gradle_modules", script)
         self.assertNotIn("gradle_build_cache", script)
         self.assertIn('>> "${CI_LOG}"', script)
+        diagnostic = self.by_name["Classify Android terminal diagnostic"]
+        self.assertEqual(diagnostic["env"]["CACHE_MEASUREMENTS_OUTCOME"], "${{ steps.android_cache_measurements.outcome }}")
+        self.assertEqual(diagnostic["env"]["CACHE_SAVE_OUTCOME"], "${{ steps.gradle_dependency_cache_save.outcome }}")
+        diagnostic_script = diagnostic["run"]
+        self.assertIn('test "${CACHE_MEASUREMENTS_OUTCOME}" = success || test "${CACHE_MEASUREMENTS_OUTCOME}" = skipped', diagnostic_script)
+        self.assertIn('test "${CACHE_SAVE_OUTCOME}" = success || test "${CACHE_SAVE_OUTCOME}" = skipped', diagnostic_script)
+        self.assertNotIn("gradle_build_cache_save", diagnostic_script)
         finish = self.by_name["Finish Agent State run"]
-        status = finish["with"]["status"]
-        self.assertIn("steps.android_cache_measurements.outcome == 'success'", status)
-        self.assertIn("steps.gradle_dependency_cache_save.outcome == 'success'", status)
-        self.assertNotIn("gradle_build_cache_save", status)
+        self.assertEqual(finish["with"]["status"], "${{ steps.terminal_diagnostic.outputs.success == 'true' && 'succeeded' || 'failed' }}")
 
 
 class AndroidGenericHostedProfileContractTest(unittest.TestCase):
@@ -422,8 +426,11 @@ class AndroidPlayReleaseContractTest(unittest.TestCase):
         ):
             self.assertIn(key, scrub["env"])
             self.assertIn("inputs.test_profile == 'play'", scrub["env"][key])
+        diagnostic = self.by_name["Classify Android terminal diagnostic"]
+        self.assertEqual(diagnostic["env"]["PLAY_CLEANUP_OUTCOME"], "${{ steps.play_cleanup.outcome }}")
+        self.assertIn('test "${PLAY_CLEANUP_OUTCOME}" = success || test "${PLAY_CLEANUP_OUTCOME}" = skipped', diagnostic["run"])
         finish = self.by_name["Finish Agent State run"]
-        self.assertIn("steps.play_cleanup.outcome == 'success'", finish["with"]["status"])
+        self.assertEqual(finish["with"]["status"], "${{ steps.terminal_diagnostic.outputs.success == 'true' && 'succeeded' || 'failed' }}")
 
 
 
