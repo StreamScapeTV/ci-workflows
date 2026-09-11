@@ -578,6 +578,7 @@ jobs:
           owner: StreamScapeTV
 
       - name: Check out source
+        id: checkout
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.repository || github.repository }}
@@ -585,6 +586,30 @@ jobs:
           token: ${{ steps.source.outputs.token || github.token }}
           fetch-depth: 1
           persist-credentials: false
+
+      - name: Resolve observed product source SHA
+        id: source_identity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          source_sha="$(git rev-parse HEAD)"
+          [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "Android source checkout did not resolve to one exact lowercase commit SHA" >&2
+            exit 2
+          }
+          printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Record observed product source SHA
+        id: source_observe
+        if: ${{ inputs.ci_run_id != '' }}
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: observe-source
+          ci_run_id: ${{ inputs.ci_run_id }}
+          observed_source_sha: ${{ steps.source_identity.outputs.source_sha }}
 
       - name: Set up Java 25
         uses: actions/setup-java@v5
@@ -1456,6 +1481,63 @@ jobs:
           file_name: ${{ github.run_id }}-${{ github.run_attempt }}.txt
           mime_type: text/plain
 
+      - name: Classify Android terminal diagnostic
+        id: terminal_diagnostic
+        if: ${{ always() && inputs.ci_run_id != '' }}
+        shell: bash
+        env:
+          TEST_PROFILE: ${{ inputs.test_profile }}
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          SOURCE_IDENTITY_OUTCOME: ${{ steps.source_identity.outcome }}
+          SOURCE_OBSERVE_OUTCOME: ${{ steps.source_observe.outcome }}
+          COMMANDS_OUTCOME: ${{ steps.commands.outcome }}
+          PLAY_CLEANUP_OUTCOME: ${{ steps.play_cleanup.outcome }}
+          SCRUB_OUTCOME: ${{ steps.scrub.outcome }}
+          DRIVE_OUTCOME: ${{ steps.drive.outcome }}
+          CACHE_MEASUREMENTS_OUTCOME: ${{ steps.android_cache_measurements.outcome }}
+          CACHE_SAVE_OUTCOME: ${{ steps.gradle_dependency_cache_save.outcome }}
+        run: |
+          set -Eeuo pipefail
+          success=false
+          if test "${COMMANDS_OUTCOME}" = success \
+            && { test "${PLAY_CLEANUP_OUTCOME}" = success || test "${PLAY_CLEANUP_OUTCOME}" = skipped; } \
+            && test "${SCRUB_OUTCOME}" = success \
+            && test "${DRIVE_OUTCOME}" = success \
+            && { test "${CACHE_MEASUREMENTS_OUTCOME}" = success || test "${CACHE_MEASUREMENTS_OUTCOME}" = skipped; } \
+            && { test "${CACHE_SAVE_OUTCOME}" = success || test "${CACHE_SAVE_OUTCOME}" = skipped; }; then
+            success=true
+          fi
+
+          error_summary=""
+          if test "${success}" != true; then
+            if test "${CHECKOUT_OUTCOME}" != success; then
+              error_summary="Android source checkout failed before product source identity could be recorded."
+            elif test "${SOURCE_IDENTITY_OUTCOME}" != success || test "${SOURCE_OBSERVE_OUTCOME}" != success; then
+              error_summary="Android source checkout succeeded, but exact product source observation failed."
+            elif test "${COMMANDS_OUTCOME}" = failure; then
+              error_summary="Android ${TEST_PROFILE} product validation failed after exact source observation; see the private CI log diagnostic."
+            elif test "${SCRUB_OUTCOME}" != success; then
+              error_summary="Android validation reached terminal evidence handling, but private log scrubbing failed."
+            elif test "${DRIVE_OUTCOME}" != success; then
+              error_summary="Android validation failed or completed, but private CI log upload did not succeed."
+            else
+              error_summary="Android ${TEST_PROFILE} validation failed during bounded Central post-processing; see the private CI log diagnostic when available."
+            fi
+          fi
+
+          diagnostic_key=""
+          diagnostic_status="unavailable"
+          if test "${DRIVE_OUTCOME}" = success; then
+            diagnostic_key="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.txt"
+            diagnostic_status="available"
+          fi
+          {
+            printf 'success=%s\n' "${success}"
+            printf 'error_summary=%s\n' "${error_summary}"
+            printf 'diagnostic_key=%s\n' "${diagnostic_key}"
+            printf 'diagnostic_status=%s\n' "${diagnostic_status}"
+          } >> "${GITHUB_OUTPUT}"
+
       - name: Finish Agent State run
         if: ${{ always() && inputs.ci_run_id != '' }}
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
@@ -1465,4 +1547,7 @@ jobs:
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}
-          status: ${{ steps.commands.outcome == 'success' && (steps.play_cleanup.outcome == 'success' || steps.play_cleanup.outcome == 'skipped') && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && (steps.android_cache_measurements.outcome == 'success' || steps.android_cache_measurements.outcome == 'skipped') && (steps.gradle_dependency_cache_save.outcome == 'success' || steps.gradle_dependency_cache_save.outcome == 'skipped') && 'succeeded' || 'failed' }}
+          status: ${{ steps.terminal_diagnostic.outputs.success == 'true' && 'succeeded' || 'failed' }}
+          error_summary: ${{ steps.terminal_diagnostic.outputs.error_summary }}
+          diagnostic_key: ${{ steps.terminal_diagnostic.outputs.diagnostic_key }}
+          diagnostic_status: ${{ steps.terminal_diagnostic.outputs.diagnostic_status }}

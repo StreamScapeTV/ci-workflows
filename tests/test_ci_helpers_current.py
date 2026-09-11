@@ -235,7 +235,12 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertIn('succeeded|failed) agent_state_status="${TERMINAL_STATUS}"', text)
         self.assertNotIn('p_patch:{status:"cancelled"}', text)
         self.assertIn("Agent State cancellation settlement failed", text)
-        self.assertNotIn("diagnostic_", text)
+        for name in ("error_summary", "diagnostic_key", "diagnostic_status"):
+            self.assertIn(name, action["inputs"])
+            self.assertFalse(action["inputs"][name]["required"])
+        self.assertIn("error_summary:$error_summary", text)
+        self.assertIn("diagnostic_key:$diagnostic_key", text)
+        self.assertIn("diagnostic_status:$diagnostic_status", text)
 
     def test_persistent_dependency_cache_is_limited_to_apple_android_and_node(self) -> None:
         cache_capable = ("apple", "android", "node")
