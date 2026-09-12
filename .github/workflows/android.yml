@@ -316,6 +316,13 @@ jobs:
             printf 'Existing private Android screenshot cache is incompatible; one bounded refresh will run.\n' >> "${CI_LOG}"
           fi
 
+      - name: Connect to private Git service for Android screenshot-cache bootstrap
+        if: ${{ steps.cache_probe.outputs.file_found != 'true' || steps.cache_validation.outputs.cache_usable != 'true' }}
+        uses: StreamScapeTV/ci-workflows/actions/private-git@main
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+
       - name: Prepare one-shot Android screenshot-cache emulator
         id: cache_emulator
         if: ${{ steps.cache_probe.outputs.file_found != 'true' || steps.cache_validation.outputs.cache_usable != 'true' }}
@@ -452,6 +459,8 @@ jobs:
           CI_SECRET_XTREAM_URL: ${{ secrets.XTREAM_URL }}
           CI_SECRET_XTREAM_USERNAME: ${{ secrets.XTREAM_USERNAME }}
           CI_SECRET_XTREAM_PASSWORD: ${{ secrets.XTREAM_PASSWORD }}
+          CI_SECRET_TAILSCALE_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          CI_SECRET_TAILSCALE_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
         run: |
           set -Eeuo pipefail
           python3 - <<'PY_ANDROID_SCREENSHOT_CACHE_REDACT'
