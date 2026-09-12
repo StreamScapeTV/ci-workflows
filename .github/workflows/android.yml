@@ -337,6 +337,7 @@ jobs:
           adb="$(command -v adb || true)"; test -n "${adb}" || adb="${sdk_root}/platform-tools/adb"
           emulator="$(command -v emulator || true)"; test -n "${emulator}" || emulator="${sdk_root}/emulator/emulator"
           test -x "${adb}" && test -x "${emulator}" || { echo "Android screenshot-cache emulator runtime is unavailable" >&2; exit 1; }
+          printf '%s\n' "${sdk_root}/platform-tools" >> "${GITHUB_PATH}"
           rm -rf -- "${avd_home}"
           mkdir -p "${avd_home}"
           export ANDROID_AVD_HOME="${avd_home}"
