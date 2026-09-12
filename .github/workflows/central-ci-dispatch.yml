@@ -77,8 +77,29 @@ jobs:
                   raise SystemExit("screenshot-review is supported only by validation.apple or validation.android")
               if repository != allowed_repository:
                   raise SystemExit(f"screenshot-review is bounded to {allowed_repository} for {workflow}")
-              if inputs:
-                  raise SystemExit("screenshot-review accepts no semantic inputs")
+              if workflow == "validation.apple":
+                  if inputs:
+                      raise SystemExit("Apple screenshot-review accepts no semantic inputs")
+              else:
+                  if set(inputs) - {"test_selectors"}:
+                      raise SystemExit("Android screenshot-review accepts only test_selectors")
+                  if not isinstance(selector_payload, str) or len(selector_payload) > 2048:
+                      raise SystemExit("Android screenshot-review test_selectors must be one bounded JSON-array string")
+                  try:
+                      selectors = json.loads(selector_payload)
+                  except json.JSONDecodeError as exc:
+                      raise SystemExit("Android screenshot-review test_selectors must be valid JSON") from exc
+                  if not isinstance(selectors, list) or len(selectors) > 20:
+                      raise SystemExit("Android screenshot-review accepts zero through 20 canonical screen ids")
+                  if any(
+                      not isinstance(value, str)
+                      or re.fullmatch(r"[a-z0-9][a-z0-9.-]{0,127}", value) is None
+                      or not value.startswith(("mobile.", "tv."))
+                      for value in selectors
+                  ):
+                      raise SystemExit("Android screenshot-review selectors must be bounded mobile.* or tv.* canonical ids")
+                  if len(selectors) != len(set(selectors)):
+                      raise SystemExit("Android screenshot-review selectors must be unique")
           elif profile == "native-component":
               if workflow != "validation.apple":
                   raise SystemExit("native-component is supported only by validation.apple")
