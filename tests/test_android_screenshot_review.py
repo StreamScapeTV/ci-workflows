@@ -19,7 +19,10 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
         script = step["run"]
         self.assertIn('"validation.android": "StreamScapeTV/iptv-android"', script)
         self.assertIn('"validation.apple": "StreamScapeTV/iptv-apple"', script)
-        self.assertIn("screenshot-review accepts no semantic inputs", script)
+        self.assertIn("Apple screenshot-review accepts no semantic inputs", script)
+        self.assertIn("Android screenshot-review accepts only test_selectors", script)
+        self.assertIn("Android screenshot-review accepts zero through 20 canonical screen ids", script)
+        self.assertIn("mobile.* or tv.* canonical ids", script)
         self.assertNotIn("screenshot-review is supported only by validation.apple\n", script)
 
     def test_android_profile_has_exactly_five_fixed_hosted_lanes(self) -> None:
@@ -36,7 +39,8 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
         self.assertNotIn("tv-portrait", profiles)
         self.assertTrue(all("system_image" in row and "avd_device" in row for row in include))
         self.assertEqual(jobs["screenshot_plan"]["if"], "${{ inputs.test_profile == 'screenshot-review' }}")
-        self.assertEqual(jobs["screenshot_finish"]["needs"], ["screenshot_plan", "screenshot"])
+        self.assertEqual(jobs["screenshot"]["needs"], ["screenshot_plan", "screenshot_cache"])
+        self.assertEqual(jobs["screenshot_finish"]["needs"], ["screenshot_plan", "screenshot_cache", "screenshot"])
 
     def test_product_wrapper_and_cache_contract_are_fixed(self) -> None:
         steps = self.workflow["jobs"]["screenshot"]["steps"]
@@ -46,6 +50,7 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
         self.assertIn("wrapper must not be a symlink", run["run"])
         self.assertEqual(run["env"]["CI_ANDROID_SCREENSHOT_PROFILE"], "${{ matrix.capture_profile }}")
         self.assertEqual(run["env"]["CI_ANDROID_SCREENSHOT_CACHE_SHA256"], "${{ steps.screenshot_cache.outputs.file_sha256 }}")
+        self.assertEqual(run["env"]["CI_ANDROID_SCREENSHOT_CANONICAL_IDS_JSON"], "${{ steps.screenshot_selection.outputs.selectors_json }}")
         self.assertEqual(run["env"]["STREAMSCAPE_API_BASE"], "${{ secrets.STREAMSCAPE_API_BASE }}")
         self.assertEqual(run["env"]["STREAMSCAPE_DEMO_EMAIL"], "${{ secrets.STREAMSCAPE_DEMO_EMAIL }}")
         self.assertEqual(run["env"]["STREAMSCAPE_DEMO_PASSWORD"], "${{ secrets.STREAMSCAPE_DEMO_PASSWORD }}")
@@ -55,6 +60,53 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
         self.assertEqual(download["with"]["operation"], "download")
         self.assertEqual(download["with"]["destination_kind"], "repository-screenshot-cache")
         self.assertEqual(download["with"]["file_name"], "xtream-screenshot-cache.zip")
+
+
+    def test_selector_transport_is_bounded_and_profile_filtered(self) -> None:
+        plan = self.workflow["jobs"]["screenshot_plan"]
+        normalize = next(step for step in plan["steps"] if step["name"] == "Normalize bounded Android screenshot selectors")
+        script = normalize["run"]
+        self.assertIn("zero through 20 canonical screen ids", script)
+        self.assertIn("mobile.* or tv.* canonical ids", script)
+        self.assertIn("selector is duplicated", script)
+        self.assertIn("selection_mode={'default' if not values else 'explicit'}", script)
+
+        screenshot = self.workflow["jobs"]["screenshot"]
+        resolve = next(step for step in screenshot["steps"] if step["name"] == "Resolve Android screenshot selectors for capture profile")
+        profile_script = resolve["run"]
+        self.assertIn('prefix = "tv." if profile == "tv" else "mobile."', profile_script)
+        self.assertIn("should_run = bool(selected)", profile_script)
+        self.assertIn("if not values:", profile_script)
+        self.assertIn("should_run = True", profile_script)
+
+    def test_pre_matrix_cache_owner_probes_validates_and_bootstraps_once(self) -> None:
+        cache = self.workflow["jobs"]["screenshot_cache"]
+        self.assertEqual(cache["needs"], "screenshot_plan")
+        self.assertEqual(cache["outputs"]["cache_sha256"], "${{ steps.cache_identity.outputs.cache_sha256 }}")
+        steps = cache["steps"]
+        probe = next(step for step in steps if step["name"] == "Probe fixed private Android screenshot cache")
+        self.assertEqual(probe["with"]["operation"], "download")
+        self.assertEqual(probe["with"]["destination_kind"], "repository-screenshot-cache")
+        self.assertTrue(probe["with"]["allow_missing_download"])
+        validate = next(step for step in steps if step["name"] == "Validate existing private Android screenshot cache")
+        self.assertIn("inspect-cache", validate["run"])
+        bootstrap = next(step for step in steps if step["name"] == "Bootstrap fixed private Android screenshot cache once")
+        self.assertIn("bootstrap-private-cache.sh", bootstrap["run"])
+        self.assertIn("git ls-files --error-unmatch", bootstrap["run"])
+        for name in ("STREAMSCAPE_API_BASE", "STREAMSCAPE_EMAIL", "STREAMSCAPE_PASSWORD", "XTREAM_URL", "XTREAM_USERNAME", "XTREAM_PASSWORD"):
+            self.assertEqual(bootstrap["env"][name], "${{ secrets.%s }}" % name)
+        upload = next(step for step in steps if step["name"] == "Upload refreshed private Android screenshot cache")
+        self.assertEqual(upload["with"]["destination_kind"], "repository-screenshot-cache")
+        self.assertEqual(upload["with"]["file_name"], "xtream-screenshot-cache.zip")
+        identity = next(step for step in steps if step["name"] == "Resolve exact Android screenshot cache identity")
+        self.assertIn("PROBE_USABLE", identity["env"])
+        self.assertIn("UPLOAD_SHA256", identity["env"])
+
+        normal_run = next(step for step in self.workflow["jobs"]["screenshot"]["steps"] if step["name"] == "Run fixed Android screenshot-review wrapper")
+        for forbidden in ("STREAMSCAPE_EMAIL", "STREAMSCAPE_PASSWORD", "XTREAM_URL", "XTREAM_USERNAME", "XTREAM_PASSWORD"):
+            self.assertNotIn(forbidden, normal_run["env"])
+        verify = next(step for step in self.workflow["jobs"]["screenshot"]["steps"] if step["name"] == "Verify shared Android screenshot cache identity")
+        self.assertEqual(verify["env"]["EXPECTED_CACHE_SHA256"], "${{ needs.screenshot_cache.outputs.cache_sha256 }}")
 
     def test_package_validation_extracts_direct_per_screen_evidence(self) -> None:
         steps = self.workflow["jobs"]["screenshot"]["steps"]
@@ -95,10 +147,14 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
     def test_drive_modes_are_fixed_and_do_not_become_general_download_api(self) -> None:
         inputs = self.drive["inputs"]
         self.assertEqual(inputs["operation"]["default"], "upload")
+        self.assertEqual(inputs["allow_missing_download"]["default"], "false")
         script = self.drive["runs"]["steps"][0]["run"]
         self.assertIn("repository-screenshot-cache is bounded to StreamScapeTV/iptv-android", script)
         self.assertIn("repository-screenshot-cache accepts only xtream-screenshot-cache.zip", script)
         self.assertIn("fixed Android screenshot cache is unavailable in owner-private Drive", script)
+        self.assertIn("allow_missing_download is restricted to fixed Android screenshot-cache download probes", script)
+        self.assertIn("file_found=false", script)
+        self.assertIn("file_found=true", script)
         self.assertIn("repository-screenshots rejects unsupported legacy repository/file-name combination", script)
         self.assertIn("repository-screenshots rejects unsupported direct-evidence review path", script)
         self.assertIn("upload-directory", script)
@@ -109,6 +165,7 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
     def test_workflow_yaml_parses_and_no_new_workflow_entrypoint_is_needed(self) -> None:
         self.assertIn("screenshot", self.workflow["jobs"])
         self.assertIn("screenshot_plan", self.workflow["jobs"])
+        self.assertIn("screenshot_cache", self.workflow["jobs"])
         self.assertIn("screenshot_finish", self.workflow["jobs"])
 
 

@@ -53,6 +53,10 @@ inputs:
     description: Internal source-snapshot repair mode for one exact manifest.json identity; never use for ordinary files
     required: false
     default: "false"
+  allow_missing_download:
+    description: Allow only a fixed Android screenshot-cache download probe to succeed when the cache object is absent
+    required: false
+    default: "false"
 
 outputs:
   file_id:
@@ -61,6 +65,8 @@ outputs:
     value: ${{ steps.upload.outputs.folder_id }}
   file_sha256:
     value: ${{ steps.upload.outputs.file_sha256 }}
+  file_found:
+    value: ${{ steps.upload.outputs.file_found }}
 
 runs:
   using: composite
@@ -81,11 +87,13 @@ runs:
         DRIVE_MIME_TYPE: ${{ inputs.mime_type }}
         DRIVE_IMMUTABLE: ${{ inputs.immutable }}
         DRIVE_RECONCILE_DUPLICATE_MANIFESTS: ${{ inputs.reconcile_duplicate_manifests }}
+        DRIVE_ALLOW_MISSING_DOWNLOAD: ${{ inputs.allow_missing_download }}
       run: |
         set -Eeuo pipefail
         DRIVE_OPERATION="${DRIVE_OPERATION:-upload}"
         DRIVE_DESTINATION_KIND="${DRIVE_DESTINATION_KIND:-source-ref}"
         DRIVE_RECONCILE_DUPLICATE_MANIFESTS="${DRIVE_RECONCILE_DUPLICATE_MANIFESTS:-false}"
+        DRIVE_ALLOW_MISSING_DOWNLOAD="${DRIVE_ALLOW_MISSING_DOWNLOAD:-false}"
         : "${GOOGLE_DRIVE_CLIENT_ID:?GOOGLE_DRIVE_CLIENT_ID is required}"
         : "${GOOGLE_DRIVE_CLIENT_SECRET:?GOOGLE_DRIVE_CLIENT_SECRET is required}"
         : "${GOOGLE_DRIVE_REFRESH_TOKEN:?GOOGLE_DRIVE_REFRESH_TOKEN is required}"
@@ -118,6 +126,16 @@ runs:
           true|false) ;;
           *) echo "reconcile_duplicate_manifests must be true or false" >&2; exit 2 ;;
         esac
+        case "${DRIVE_ALLOW_MISSING_DOWNLOAD}" in
+          true|false) ;;
+          *) echo "allow_missing_download must be true or false" >&2; exit 2 ;;
+        esac
+        if test "${DRIVE_ALLOW_MISSING_DOWNLOAD}" = true; then
+          test "${DRIVE_OPERATION}" = download && test "${DRIVE_DESTINATION_KIND}" = repository-screenshot-cache || {
+            echo "allow_missing_download is restricted to fixed Android screenshot-cache download probes" >&2
+            exit 2
+          }
+        fi
         if test "${DRIVE_RECONCILE_DUPLICATE_MANIFESTS}" = "true"; then
           test "${DRIVE_FILE_NAME}" = manifest.json || { echo "duplicate manifest reconciliation is restricted to manifest.json" >&2; exit 2; }
           test "${DRIVE_MIME_TYPE}" = application/json || { echo "duplicate manifest reconciliation requires application/json" >&2; exit 2; }
@@ -786,10 +804,17 @@ runs:
 
         existing_id="$(resolve_existing_file)"
         if test "${DRIVE_OPERATION}" = download; then
-          test -n "${existing_id}" || {
+          if test -z "${existing_id}"; then
+            if test "${DRIVE_ALLOW_MISSING_DOWNLOAD}" = true; then
+              printf 'file_id=\n' >> "${GITHUB_OUTPUT}"
+              printf 'folder_id=%s\n' "${target_folder_id}" >> "${GITHUB_OUTPUT}"
+              printf 'file_sha256=\n' >> "${GITHUB_OUTPUT}"
+              printf 'file_found=false\n' >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
             echo "fixed Android screenshot cache is unavailable in owner-private Drive" >&2
             exit 1
-          }
+          fi
           metadata="$(curl --fail --silent --show-error \
             --header "Authorization: Bearer ${access_token}" \
             "https://www.googleapis.com/drive/v3/files/${existing_id}?fields=id,name,size,md5Checksum")"
@@ -833,6 +858,7 @@ runs:
           printf 'file_id=%s\n' "${existing_id}" >> "${GITHUB_OUTPUT}"
           printf 'folder_id=%s\n' "${target_folder_id}" >> "${GITHUB_OUTPUT}"
           printf 'file_sha256=%s\n' "${file_sha256}" >> "${GITHUB_OUTPUT}"
+          printf 'file_found=true\n' >> "${GITHUB_OUTPUT}"
           exit 0
         fi
         byte_size="$(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "${upload_path}")"

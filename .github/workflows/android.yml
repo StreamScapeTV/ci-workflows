@@ -104,6 +104,8 @@ jobs:
     timeout-minutes: 10
     outputs:
       source_sha: ${{ steps.source_identity.outputs.source_sha }}
+      selectors_json: ${{ steps.screenshot_selectors.outputs.selectors_json }}
+      selection_mode: ${{ steps.screenshot_selectors.outputs.selection_mode }}
     steps:
       - name: Mark Agent State run as running
         if: ${{ inputs.ci_run_id != '' }}
@@ -132,10 +134,49 @@ jobs:
           test -n "${SOURCE_REF}" || { echo "Android screenshot-review requires an explicit product branch ref" >&2; exit 2; }
           test "${PROJECT_DIRECTORY}" = . || { echo "Android screenshot-review does not accept project_directory" >&2; exit 2; }
           test -z "${TEST_FILTER}" || { echo "Android screenshot-review does not accept test_filter" >&2; exit 2; }
-          test "${TEST_SELECTORS}" = '[]' || { echo "Android screenshot-review does not accept test_selectors" >&2; exit 2; }
           test -z "${TEST_PLATFORM}" || { echo "Android screenshot-review does not accept test_platform" >&2; exit 2; }
           test "${ROOM_SCHEMA}" = false || { echo "Android screenshot-review does not accept room_schema" >&2; exit 2; }
           test -z "${BUILD_NUMBER}" || { echo "Android screenshot-review does not accept build_number" >&2; exit 2; }
+
+      - name: Normalize bounded Android screenshot selectors
+        id: screenshot_selectors
+        shell: bash
+        env:
+          TEST_SELECTORS: ${{ inputs.test_selectors }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY_ANDROID_SCREENSHOT_SELECTORS'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          raw = os.environ.get("TEST_SELECTORS", "[]")
+          if len(raw) > 2048:
+              raise SystemExit("Android screenshot-review test_selectors exceeds the bounded payload size")
+          try:
+              values = json.loads(raw)
+          except json.JSONDecodeError as exc:
+              raise SystemExit("Android screenshot-review test_selectors must be valid JSON") from exc
+          if not isinstance(values, list) or len(values) > 20:
+              raise SystemExit("Android screenshot-review accepts zero through 20 canonical screen ids")
+          seen = set()
+          for value in values:
+              if (
+                  not isinstance(value, str)
+                  or re.fullmatch(r"[a-z0-9][a-z0-9.-]{0,127}", value) is None
+                  or not value.startswith(("mobile.", "tv."))
+              ):
+                  raise SystemExit("Android screenshot-review selectors must be bounded mobile.* or tv.* canonical ids")
+              if value in seen:
+                  raise SystemExit(f"Android screenshot-review selector is duplicated: {value}")
+              seen.add(value)
+          normalized = json.dumps(values, separators=(",", ":"))
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as stream:
+              stream.write(f"selectors_json={normalized}\n")
+              stream.write(f"selection_mode={'default' if not values else 'explicit'}\n")
+          PY_ANDROID_SCREENSHOT_SELECTORS
 
       - name: Prepare Android screenshot-review source token
         id: source_token
@@ -184,8 +225,275 @@ jobs:
           ci_run_id: ${{ inputs.ci_run_id }}
           observed_source_sha: ${{ steps.source_identity.outputs.source_sha }}
 
-  screenshot:
+  screenshot_cache:
     needs: screenshot_plan
+    if: ${{ inputs.test_profile == 'screenshot-review' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    outputs:
+      cache_sha256: ${{ steps.cache_identity.outputs.cache_sha256 }}
+    steps:
+      - name: Initialize Android screenshot-cache log
+        shell: bash
+        run: |
+          log="${RUNNER_TEMP}/central-ci-screenshot-cache.log"
+          : > "${log}"
+          printf 'CI_LOG=%s\n' "${log}" >> "${GITHUB_ENV}"
+
+      - name: Prepare Android screenshot-cache source token
+        id: source
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.SOURCE_APP_ID }}
+          private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          owner: StreamScapeTV
+
+      - name: Check out exact Android screenshot-cache source
+        uses: actions/checkout@v4
+        with:
+          repository: StreamScapeTV/iptv-android
+          ref: ${{ needs.screenshot_plan.outputs.source_sha }}
+          token: ${{ steps.source.outputs.token || github.token }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact Android screenshot-cache source
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ needs.screenshot_plan.outputs.source_sha }}
+        run: |
+          set -Eeuo pipefail
+          observed="$(git rev-parse HEAD)"
+          test "${observed}" = "${EXPECTED_SOURCE_SHA}" || { echo "Android screenshot-cache checkout moved from the plan-pinned source SHA" >&2; exit 1; }
+          [[ "${observed}" =~ ^[0-9a-f]{40}$ ]]
+          test -z "$(git status --porcelain --untracked-files=all)" || { echo "Android screenshot-cache requires a clean exact-source checkout" >&2; exit 1; }
+
+      - name: Set up Java 25 for Android screenshot-cache bootstrap
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Probe fixed private Android screenshot cache
+        id: cache_probe
+        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+        with:
+          repository: StreamScapeTV/iptv-android
+          operation: download
+          destination_kind: repository-screenshot-cache
+          allow_missing_download: true
+          file_path: ${{ runner.temp }}/central-android-screenshot-cache/xtream-screenshot-cache.zip
+          file_name: xtream-screenshot-cache.zip
+          mime_type: application/zip
+
+      - name: Validate existing private Android screenshot cache
+        id: cache_validation
+        if: ${{ steps.cache_probe.outputs.file_found == 'true' }}
+        shell: bash
+        env:
+          CACHE_PATH: ${{ runner.temp }}/central-android-screenshot-cache/xtream-screenshot-cache.zip
+          CACHE_SHA256: ${{ steps.cache_probe.outputs.file_sha256 }}
+        run: |
+          set -Eeuo pipefail
+          helper=scripts/ci/android-screenshot-review/review.py
+          test -f "${helper}" && test ! -L "${helper}" || { echo "Android screenshot cache validator is unavailable" >&2; exit 1; }
+          git ls-files --error-unmatch "${helper}" >/dev/null 2>&1 || { echo "Android screenshot cache validator must be tracked source" >&2; exit 1; }
+          rm -rf -- "${RUNNER_TEMP}/central-android-screenshot-cache/inspect"
+          mkdir -p "${RUNNER_TEMP}/central-android-screenshot-cache/inspect"
+          if python3 "${helper}" inspect-cache \
+            --cache "${CACHE_PATH}" \
+            --expected-sha "${CACHE_SHA256}" \
+            --extract-dir "${RUNNER_TEMP}/central-android-screenshot-cache/inspect" \
+            --meta-output "${RUNNER_TEMP}/central-android-screenshot-cache/cache-meta.json" >> "${CI_LOG}" 2>&1; then
+            printf 'cache_usable=true\n' >> "${GITHUB_OUTPUT}"
+          else
+            printf 'cache_usable=false\n' >> "${GITHUB_OUTPUT}"
+            printf 'Existing private Android screenshot cache is incompatible; one bounded refresh will run.\n' >> "${CI_LOG}"
+          fi
+
+      - name: Prepare one-shot Android screenshot-cache emulator
+        id: cache_emulator
+        if: ${{ steps.cache_probe.outputs.file_found != 'true' || steps.cache_validation.outputs.cache_usable != 'true' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          test -n "${sdk_root}" || { echo "Android SDK root is unavailable for screenshot-cache bootstrap" >&2; exit 1; }
+          sdkmanager="$(command -v sdkmanager || true)"
+          avdmanager="$(command -v avdmanager || true)"
+          test -n "${sdkmanager}" || sdkmanager="${sdk_root}/cmdline-tools/latest/bin/sdkmanager"
+          test -n "${avdmanager}" || avdmanager="${sdk_root}/cmdline-tools/latest/bin/avdmanager"
+          test -x "${sdkmanager}" && test -x "${avdmanager}" || { echo "Android screenshot-cache SDK tools are unavailable" >&2; exit 1; }
+          image='system-images;android-36;google_apis;x86_64'
+          avd_name='central-screenshot-cache-bootstrap'
+          avd_home="${RUNNER_TEMP}/central-android-screenshot-cache-avd"
+          avd_path="${avd_home}/${avd_name}.avd"
+          "${sdkmanager}" --install platform-tools emulator "${image}" >> "${CI_LOG}" 2>&1
+          adb="$(command -v adb || true)"; test -n "${adb}" || adb="${sdk_root}/platform-tools/adb"
+          emulator="$(command -v emulator || true)"; test -n "${emulator}" || emulator="${sdk_root}/emulator/emulator"
+          test -x "${adb}" && test -x "${emulator}" || { echo "Android screenshot-cache emulator runtime is unavailable" >&2; exit 1; }
+          rm -rf -- "${avd_home}"
+          mkdir -p "${avd_home}"
+          export ANDROID_AVD_HOME="${avd_home}"
+          printf 'ANDROID_AVD_HOME=%s\n' "${ANDROID_AVD_HOME}" >> "${GITHUB_ENV}"
+          printf 'no\n' | "${avdmanager}" create avd --force --name "${avd_name}" --package "${image}" --device pixel -p "${avd_path}" >> "${CI_LOG}" 2>&1
+          if test -e /dev/kvm && test ! -w /dev/kvm; then sudo chmod 666 /dev/kvm; fi
+          "${adb}" start-server >> "${CI_LOG}" 2>&1
+          "${emulator}" -avd "${avd_name}" -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot-save -wipe-data -gpu swiftshader_indirect >> "${CI_LOG}" 2>&1 &
+          emulator_pid=$!
+          printf 'pid=%s\n' "${emulator_pid}" >> "${GITHUB_OUTPUT}"
+          printf 'ANDROID_SERIAL=emulator-5554\n' >> "${GITHUB_ENV}"
+          booted=false
+          for _ in $(seq 1 180); do
+            if "${adb}" -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | grep -qx 1; then booted=true; break; fi
+            kill -0 "${emulator_pid}" 2>/dev/null || { echo "Android screenshot-cache emulator exited before boot" >&2; exit 1; }
+            sleep 2
+          done
+          test "${booted}" = true || { echo "Android screenshot-cache emulator did not boot within the bounded timeout" >&2; exit 1; }
+
+      - name: Bootstrap fixed private Android screenshot cache once
+        id: cache_bootstrap
+        if: ${{ steps.cache_probe.outputs.file_found != 'true' || steps.cache_validation.outputs.cache_usable != 'true' }}
+        shell: bash
+        env:
+          STREAMSCAPE_API_BASE: ${{ secrets.STREAMSCAPE_API_BASE }}
+          STREAMSCAPE_EMAIL: ${{ secrets.STREAMSCAPE_EMAIL }}
+          STREAMSCAPE_PASSWORD: ${{ secrets.STREAMSCAPE_PASSWORD }}
+          XTREAM_URL: ${{ secrets.XTREAM_URL }}
+          XTREAM_USERNAME: ${{ secrets.XTREAM_USERNAME }}
+          XTREAM_PASSWORD: ${{ secrets.XTREAM_PASSWORD }}
+          CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+          CACHE_PATH: ${{ runner.temp }}/central-android-screenshot-cache/xtream-screenshot-cache.zip
+        run: |
+          set -Eeuo pipefail
+          bootstrap=scripts/ci/android-screenshot-review/bootstrap-private-cache.sh
+          test -f "${bootstrap}" || { echo "Missing fixed Android screenshot-cache bootstrap wrapper" >&2; exit 1; }
+          test ! -L "${bootstrap}" || { echo "Android screenshot-cache bootstrap wrapper must not be a symlink" >&2; exit 1; }
+          git ls-files --error-unmatch "${bootstrap}" >/dev/null 2>&1 || { echo "Android screenshot-cache bootstrap wrapper must be tracked source" >&2; exit 1; }
+          test -z "$(git status --porcelain --untracked-files=all)" || { echo "Android screenshot-cache bootstrap requires a clean exact-source checkout" >&2; exit 1; }
+          mkdir -p "$(dirname "${CACHE_PATH}")"
+          printf '\n===== android-screenshot-cache-bootstrap =====\n' >> "${CI_LOG}"
+          if ! bash "${bootstrap}" "${CACHE_PATH}" >> "${CI_LOG}" 2>&1; then
+            echo "Android screenshot-cache product bootstrap failed; inspect the private Google Drive CI log." >&2
+            exit 1
+          fi
+          test -s "${CACHE_PATH}" || { echo "Android screenshot-cache bootstrap produced no cache package" >&2; exit 1; }
+
+      - name: Upload refreshed private Android screenshot cache
+        id: cache_upload
+        if: ${{ steps.cache_bootstrap.outcome == 'success' }}
+        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+        with:
+          repository: StreamScapeTV/iptv-android
+          operation: upload
+          destination_kind: repository-screenshot-cache
+          file_path: ${{ runner.temp }}/central-android-screenshot-cache/xtream-screenshot-cache.zip
+          file_name: xtream-screenshot-cache.zip
+          mime_type: application/zip
+
+      - name: Resolve exact Android screenshot cache identity
+        id: cache_identity
+        shell: bash
+        env:
+          PROBE_FOUND: ${{ steps.cache_probe.outputs.file_found }}
+          PROBE_USABLE: ${{ steps.cache_validation.outputs.cache_usable }}
+          PROBE_SHA256: ${{ steps.cache_probe.outputs.file_sha256 }}
+          UPLOAD_SHA256: ${{ steps.cache_upload.outputs.file_sha256 }}
+        run: |
+          set -Eeuo pipefail
+          if test "${PROBE_FOUND}" = true && test "${PROBE_USABLE}" = true; then
+            cache_sha256="${PROBE_SHA256}"
+          else
+            cache_sha256="${UPLOAD_SHA256}"
+          fi
+          [[ "${cache_sha256}" =~ ^[0-9a-f]{64}$ ]] || { echo "Android screenshot-cache preparation produced no exact SHA-256 identity" >&2; exit 1; }
+          printf 'cache_sha256=%s\n' "${cache_sha256}" >> "${GITHUB_OUTPUT}"
+
+      - name: Stop Android screenshot-cache emulator
+        if: ${{ always() }}
+        shell: bash
+        env:
+          EMULATOR_PID: ${{ steps.cache_emulator.outputs.pid }}
+        run: |
+          set -Eeuo pipefail
+          adb -s "${ANDROID_SERIAL:-emulator-5554}" emu kill >/dev/null 2>&1 || true
+          if test -n "${EMULATOR_PID}" && kill -0 "${EMULATOR_PID}" 2>/dev/null; then
+            kill "${EMULATOR_PID}" 2>/dev/null || true
+            wait "${EMULATOR_PID}" 2>/dev/null || true
+          fi
+
+      - name: Scrub configured CI secrets from Android screenshot-cache log
+        id: cache_scrub
+        if: ${{ always() }}
+        shell: bash
+        env:
+          CI_SECRET_SOURCE_TOKEN: ${{ steps.source.outputs.token }}
+          CI_SECRET_GITHUB_TOKEN: ${{ github.token }}
+          CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          CI_SECRET_DRIVE_REPOSITORIES_FOLDER: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+          CI_SECRET_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          CI_SECRET_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          CI_SECRET_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          CI_SECRET_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+          CI_SECRET_STREAMSCAPE_API_BASE: ${{ secrets.STREAMSCAPE_API_BASE }}
+          CI_SECRET_STREAMSCAPE_EMAIL: ${{ secrets.STREAMSCAPE_EMAIL }}
+          CI_SECRET_STREAMSCAPE_PASSWORD: ${{ secrets.STREAMSCAPE_PASSWORD }}
+          CI_SECRET_XTREAM_URL: ${{ secrets.XTREAM_URL }}
+          CI_SECRET_XTREAM_USERNAME: ${{ secrets.XTREAM_USERNAME }}
+          CI_SECRET_XTREAM_PASSWORD: ${{ secrets.XTREAM_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY_ANDROID_SCREENSHOT_CACHE_REDACT'
+          import os
+          from pathlib import Path
+          path = Path(os.environ["CI_LOG"])
+          data = path.read_bytes()
+          for name, value in os.environ.items():
+              if not name.startswith("CI_SECRET_") or not value:
+                  continue
+              raw = value.encode()
+              data = data.replace(raw, b"[REDACTED]")
+              escaped = value.replace("\n", "\\n").encode()
+              if escaped != raw:
+                  data = data.replace(escaped, b"[REDACTED]")
+          path.write_bytes(data)
+          PY_ANDROID_SCREENSHOT_CACHE_REDACT
+
+      - name: Upload Android screenshot-cache private log
+        if: ${{ always() && steps.cache_scrub.outcome == 'success' && (inputs.ci_run_id != '' || inputs.upload_private_log) }}
+        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+        with:
+          repository: StreamScapeTV/iptv-android
+          ref: ${{ inputs.ref }}
+          file_path: ${{ runner.temp }}/central-ci-screenshot-cache.log
+          file_name: ${{ github.run_id }}-${{ github.run_attempt }}-screenshot-cache.txt
+          mime_type: text/plain
+
+      - name: Clean Android screenshot-cache state
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          rm -rf -- "${RUNNER_TEMP}/central-android-screenshot-cache" "${RUNNER_TEMP}/central-android-screenshot-cache-avd"
+
+  screenshot:
+    needs:
+      - screenshot_plan
+      - screenshot_cache
     if: ${{ inputs.test_profile == 'screenshot-review' }}
     name: screenshot-${{ matrix.capture_profile }}
     runs-on: ubuntu-24.04
@@ -237,7 +545,38 @@ jobs:
           : > "${log}"
           printf 'CI_LOG=%s\n' "${log}" >> "${GITHUB_ENV}"
 
+      - name: Resolve Android screenshot selectors for capture profile
+        id: screenshot_selection
+        shell: bash
+        env:
+          NORMALIZED_SELECTORS: ${{ needs.screenshot_plan.outputs.selectors_json }}
+          CAPTURE_PROFILE: ${{ matrix.capture_profile }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY_ANDROID_SCREENSHOT_PROFILE_SELECTORS'
+          import json
+          import os
+          from pathlib import Path
+
+          values = json.loads(os.environ["NORMALIZED_SELECTORS"])
+          profile = os.environ["CAPTURE_PROFILE"]
+          if not values:
+              selected = []
+              should_run = True
+          else:
+              prefix = "tv." if profile == "tv" else "mobile."
+              selected = [value for value in values if value.startswith(prefix)]
+              should_run = bool(selected)
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as stream:
+              stream.write(f"selectors_json={json.dumps(selected,separators=(',',':'))}\n")
+              stream.write(f"should_run={'true' if should_run else 'false'}\n")
+          if not should_run:
+              print(f"Android screenshot-review profile {profile} has no requested canonical screens; skipping its hosted capture lane.")
+          PY_ANDROID_SCREENSHOT_PROFILE_SELECTORS
+
       - name: Prepare source token
+        if: ${{ steps.screenshot_selection.outputs.should_run == 'true' }}
         id: source
         uses: actions/create-github-app-token@v2
         with:
@@ -246,6 +585,7 @@ jobs:
           owner: StreamScapeTV
 
       - name: Check out exact Android screenshot source
+        if: ${{ steps.screenshot_selection.outputs.should_run == 'true' }}
         uses: actions/checkout@v4
         with:
           repository: StreamScapeTV/iptv-android
@@ -255,6 +595,7 @@ jobs:
           persist-credentials: false
 
       - name: Verify exact Android screenshot source
+        if: ${{ steps.screenshot_selection.outputs.should_run == 'true' }}
         shell: bash
         env:
           EXPECTED_SOURCE_SHA: ${{ needs.screenshot_plan.outputs.source_sha }}
@@ -265,12 +606,14 @@ jobs:
           [[ "${observed}" =~ ^[0-9a-f]{40}$ ]]
 
       - name: Set up Java 25
+        if: ${{ steps.screenshot_selection.outputs.should_run == 'true' }}
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "25"
 
       - name: Download fixed private Android screenshot cache
+        if: ${{ steps.screenshot_selection.outputs.should_run == 'true' }}
         id: screenshot_cache
         uses: StreamScapeTV/ci-workflows/actions/google-drive@main
         env:
@@ -286,7 +629,19 @@ jobs:
           file_name: xtream-screenshot-cache.zip
           mime_type: application/zip
 
+      - name: Verify shared Android screenshot cache identity
+        if: ${{ steps.screenshot_selection.outputs.should_run == 'true' }}
+        shell: bash
+        env:
+          EXPECTED_CACHE_SHA256: ${{ needs.screenshot_cache.outputs.cache_sha256 }}
+          OBSERVED_CACHE_SHA256: ${{ steps.screenshot_cache.outputs.file_sha256 }}
+        run: |
+          set -Eeuo pipefail
+          [[ "${EXPECTED_CACHE_SHA256}" =~ ^[0-9a-f]{64}$ ]]
+          test "${OBSERVED_CACHE_SHA256}" = "${EXPECTED_CACHE_SHA256}" || { echo "Android screenshot lane did not consume the pre-matrix cache identity" >&2; exit 1; }
+
       - name: Prepare fixed Android screenshot emulator
+        if: ${{ steps.screenshot_selection.outputs.should_run == 'true' }}
         id: screenshot_emulator
         shell: bash
         env:
@@ -351,6 +706,7 @@ jobs:
           } >> "${CI_LOG}" 2>&1
 
       - name: Run fixed Android screenshot-review wrapper
+        if: ${{ steps.screenshot_selection.outputs.should_run == 'true' }}
         id: screenshot_commands
         shell: bash
         env:
@@ -358,6 +714,7 @@ jobs:
           CI_ANDROID_SCREENSHOT_SOURCE_SHA: ${{ needs.screenshot_plan.outputs.source_sha }}
           CI_ANDROID_SCREENSHOT_CACHE_PATH: ${{ runner.temp }}/central-android-screenshot-cache/xtream-screenshot-cache.zip
           CI_ANDROID_SCREENSHOT_CACHE_SHA256: ${{ steps.screenshot_cache.outputs.file_sha256 }}
+          CI_ANDROID_SCREENSHOT_CANONICAL_IDS_JSON: ${{ steps.screenshot_selection.outputs.selectors_json }}
           CI_ANDROID_SCREENSHOT_OUTPUT_DIR: ${{ runner.temp }}/central-android-screenshot-review/raw
           CI_ANDROID_SCREENSHOT_PACKAGE_PATH: ${{ runner.temp }}/central-android-screenshot-review/${{ matrix.capture_profile }}.zip
           STREAMSCAPE_API_BASE: ${{ secrets.STREAMSCAPE_API_BASE }}
@@ -381,7 +738,7 @@ jobs:
 
       - name: Validate Android screenshot-review package and extract direct evidence
         id: screenshot_package
-        if: ${{ steps.screenshot_commands.outcome == 'success' }}
+        if: ${{ steps.screenshot_selection.outputs.should_run == 'true' && steps.screenshot_commands.outcome == 'success' }}
         shell: bash
         env:
           PACKAGE_PATH: ${{ runner.temp }}/central-android-screenshot-review/${{ matrix.capture_profile }}.zip
@@ -498,7 +855,7 @@ jobs:
 
       - name: Upload direct Android screenshot-review evidence
         id: screenshot_upload
-        if: ${{ steps.screenshot_package.outcome == 'success' }}
+        if: ${{ steps.screenshot_selection.outputs.should_run == 'true' && steps.screenshot_package.outcome == 'success' }}
         uses: StreamScapeTV/ci-workflows/actions/google-drive@main
         env:
           GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
@@ -589,6 +946,7 @@ jobs:
   screenshot_finish:
     needs:
       - screenshot_plan
+      - screenshot_cache
       - screenshot
     if: ${{ always() && inputs.test_profile == 'screenshot-review' && inputs.ci_run_id != '' }}
     runs-on: ubuntu-24.04
@@ -602,7 +960,7 @@ jobs:
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}
-          status: ${{ (needs.screenshot_plan.result == 'cancelled' || needs.screenshot.result == 'cancelled') && 'cancelled' || (needs.screenshot_plan.result == 'success' && needs.screenshot.result == 'success') && 'succeeded' || 'failed' }}
+          status: ${{ (needs.screenshot_plan.result == 'cancelled' || needs.screenshot_cache.result == 'cancelled' || needs.screenshot.result == 'cancelled') && 'cancelled' || (needs.screenshot_plan.result == 'success' && needs.screenshot_cache.result == 'success' && needs.screenshot.result == 'success') && 'succeeded' || 'failed' }}
 
   ci:
     if: ${{ inputs.test_profile != 'screenshot-review' }}
