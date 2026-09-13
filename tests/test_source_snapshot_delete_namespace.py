@@ -48,12 +48,13 @@ class FakeDriveClient:
             return [{"id": "diagnostic-text", "name": "34691496090-1.txt", "mimeType": "text/plain"}]
         if parent != "source-ref":
             raise AssertionError(parent)
-        if self.unexpected:
-            return [{"id": "unexpected", "name": "notes.txt", "mimeType": "text/plain"}]
-        return [
+        children = [
             {"id": "manifest", "name": "manifest.json", "mimeType": "application/json"},
             {"id": "archive", "name": "example-feature%2Fcleanup.zip", "mimeType": "application/zip"},
         ]
+        if self.unexpected:
+            children.append({"id": "unexpected", "name": "notes.txt", "mimeType": "text/plain"})
+        return children
 
     def media(self, file_id: str) -> bytes:
         if file_id != "manifest":
