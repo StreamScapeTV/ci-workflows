@@ -163,6 +163,8 @@ class SourceSnapshotDeleteNamespaceTests(unittest.TestCase):
         self.assertIn("export GOOGLE_DRIVE_ROOT_FOLDER_ID", text)
         self.assertIn('python3 central/scripts/ci/source_snapshot_delete.py "${args[@]}"', text)
         self.assertNotIn("GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}", text)
+        self.assertIn("assert token; print(token)'\n          )\"", text)
+        self.assertNotIn("assert token; print(token)')\"", text)
 
 
 if __name__ == "__main__":
