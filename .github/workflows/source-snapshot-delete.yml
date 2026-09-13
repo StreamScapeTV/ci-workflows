@@ -85,7 +85,7 @@ jobs:
               --data-urlencode "refresh_token=${GOOGLE_DRIVE_REFRESH_TOKEN}" \
               --data-urlencode "grant_type=refresh_token" \
               https://oauth2.googleapis.com/token \
-            | python3 -c 'import json,sys; value=json.load(sys.stdin); token=value.get("access_token", ""); assert token; print(token)')"
+            | python3 -c 'import json,sys; value=json.load(sys.stdin); token=value.get("access_token", ""); assert token; print(token)'
           )"
           echo "::add-mask::${access_token}"
           printf 'access_token=%s\n' "${access_token}" >> "${GITHUB_OUTPUT}"
