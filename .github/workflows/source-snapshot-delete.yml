@@ -95,9 +95,10 @@ jobs:
         shell: bash
         env:
           GOOGLE_DRIVE_ACCESS_TOKEN: ${{ steps.drive_token.outputs.access_token }}
-          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
         run: |
           set -Eeuo pipefail
+          GOOGLE_DRIVE_ROOT_FOLDER_ID="$(python3 central/scripts/ci/source_snapshot_root.py)"
+          export GOOGLE_DRIVE_ROOT_FOLDER_ID
           args=(
             --repository '${{ inputs.repository }}'
             --ref '${{ inputs.ref }}'
