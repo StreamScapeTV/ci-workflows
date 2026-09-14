@@ -9,6 +9,7 @@ workflows:
   flutter: .github/workflows/flutter.yml
   maven: .github/workflows/maven.yml
   apple_binary: .github/workflows/apple-binary.yml
+  apple_swiftpm: .github/workflows/apple-swiftpm.yml
   container_service: .github/workflows/container-service.yml
   public_native_image_chart: .github/workflows/public-native-image-chart.yml
   oci_reproducibility: .github/workflows/oci-reproducibility.yml

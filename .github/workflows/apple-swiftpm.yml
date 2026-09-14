@@ -1,0 +1,696 @@
+name: Apple SwiftPM publication
+
+"on":
+  workflow_call:
+    inputs:
+      repository:
+        type: string
+        required: true
+      ref:
+        type: string
+        required: true
+      source_is_tag:
+        type: boolean
+        required: true
+      ci_run_id:
+        type: string
+        required: false
+        default: ""
+      upload_private_log:
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      SOURCE_APP_ID:
+        required: false
+      SOURCE_APP_PRIVATE_KEY:
+        required: false
+      AGENT_STATE_SUPABASE_URL:
+        required: false
+      AGENT_STATE_SUPABASE_SECRET_KEY:
+        required: false
+      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID:
+        required: false
+      GOOGLE_DRIVE_CLIENT_ID:
+        required: false
+      GOOGLE_DRIVE_CLIENT_SECRET:
+        required: false
+      GOOGLE_DRIVE_REFRESH_TOKEN:
+        required: false
+      TS_OAUTH_CLIENT_ID:
+        required: false
+      TS_OAUTH_SECRET:
+        required: false
+      PACKAGE_PUBLISH_USERNAME:
+        required: false
+      PACKAGE_PUBLISH_TOKEN:
+        required: false
+      PACKAGE_READ_TOKEN:
+        required: false
+    outputs:
+      source_sha:
+        description: Exact immutable SDK source SHA admitted by Central
+        value: ${{ jobs.publish.outputs.source_sha }}
+      package_revision:
+        description: Verified Git revision behind the SwiftPM semantic version tag
+        value: ${{ jobs.publish.outputs.package_revision }}
+      package_url:
+        description: Credential-free private SwiftPM package address
+        value: ${{ jobs.publish.outputs.package_url }}
+      package_version:
+        description: Published semantic SwiftPM version
+        value: ${{ jobs.publish.outputs.package_version }}
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: [macOS, ARM64]
+    timeout-minutes: 300
+    outputs:
+      source_sha: ${{ steps.source_identity.outputs.source_sha }}
+      package_revision: ${{ steps.publication.outputs.package_revision }}
+      package_url: ${{ steps.publication.outputs.package_url }}
+      package_version: ${{ steps.publication.outputs.package_version }}
+    env:
+      CI_APPLE_SWIFTPM_VERSION: "2.1.5"
+      CI_APPLE_SWIFTPM_SDK_SOURCE_SHA: "7e0eeb834758cc87c061fcedcc7bf806a3183f15"
+      CI_APPLE_SWIFTPM_TOOLING_SHA: "d828ba9e9ddd9237ea697ac88ba49549786001e0"
+      CI_APPLE_SWIFTPM_ORIGINAL_ARCHIVE_SHA256: "f58c72bcf56dac6d1c2288369d89e01d988e0db085f2fdd5a46b9caf5b9ca6b6"
+      CI_APPLE_SWIFTPM_PACKAGE_URL: "https://git.faruqi.dev/mimranfaruqi/streamscape-media.git"
+      CI_APPLE_SWIFTPM_ARTIFACT_BASE_URL: "https://git.faruqi.dev/api/packages/mimranfaruqi/generic/streamscape-media-apple"
+    steps:
+      - name: Initialize CI log
+        shell: bash
+        run: |
+          log="${RUNNER_TEMP}/central-ci.log"
+          : > "${log}"
+          printf 'CI_LOG=%s\n' "${log}" >> "${GITHUB_ENV}"
+
+      - name: Mark Agent State run as running
+        if: ${{ inputs.ci_run_id != '' }}
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: start
+          ci_run_id: ${{ inputs.ci_run_id }}
+
+      - name: Validate fixed SwiftPM release identity
+        shell: bash
+        env:
+          SOURCE_REPOSITORY: ${{ inputs.repository }}
+          SOURCE_REF: ${{ inputs.ref }}
+          SOURCE_IS_TAG: ${{ inputs.source_is_tag }}
+        run: |
+          set -Eeuo pipefail
+          test "${SOURCE_REPOSITORY}" = "StreamScapeTV/streamscape-media" || {
+            echo "Apple SwiftPM publication is bounded to StreamScapeTV/streamscape-media" >&2
+            exit 2
+          }
+          case "${SOURCE_REF}" in
+            "${CI_APPLE_SWIFTPM_VERSION}"|"refs/tags/${CI_APPLE_SWIFTPM_VERSION}") ;;
+            *)
+              echo "Apple SwiftPM publication requires exact release tag ${CI_APPLE_SWIFTPM_VERSION}" >&2
+              exit 2
+              ;;
+          esac
+          test "${SOURCE_IS_TAG}" = "true" || {
+            echo "Apple SwiftPM publication requires a tag source" >&2
+            exit 2
+          }
+
+      - name: Prepare source token
+        id: source
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.SOURCE_APP_ID }}
+          private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          owner: StreamScapeTV
+
+      - name: Check out immutable SDK source tag
+        uses: actions/checkout@v4
+        with:
+          repository: StreamScapeTV/streamscape-media
+          ref: ${{ inputs.ref }}
+          token: ${{ steps.source.outputs.token }}
+          path: sdk-source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Resolve immutable SDK source SHA
+        id: source_identity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          source_sha="$(git -C sdk-source rev-parse HEAD)"
+          test "${source_sha}" = "${CI_APPLE_SWIFTPM_SDK_SOURCE_SHA}" || {
+            echo "Apple SwiftPM source tag no longer resolves to the admitted SDK source" >&2
+            exit 2
+          }
+          printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Record observed source SHA
+        if: ${{ inputs.ci_run_id != '' }}
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: observe-source
+          ci_run_id: ${{ inputs.ci_run_id }}
+          observed_source_sha: ${{ steps.source_identity.outputs.source_sha }}
+
+      - name: Validate fixed private package credentials
+        shell: bash
+        env:
+          CI_PACKAGE_USERNAME: ${{ secrets.PACKAGE_PUBLISH_USERNAME }}
+          CI_PACKAGE_PUBLISH_TOKEN: ${{ secrets.PACKAGE_PUBLISH_TOKEN }}
+          CI_PACKAGE_READ_TOKEN: ${{ secrets.PACKAGE_READ_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          for name in CI_PACKAGE_USERNAME CI_PACKAGE_PUBLISH_TOKEN CI_PACKAGE_READ_TOKEN; do
+            test -n "${!name-}" || {
+              echo "Missing fixed Apple SwiftPM package credential: ${name}" >&2
+              exit 1
+            }
+          done
+
+      - name: Connect to private Git service
+        uses: StreamScapeTV/ci-workflows/actions/private-git@main
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+
+      - name: Check out fixed product tooling
+        uses: actions/checkout@v4
+        with:
+          repository: StreamScapeTV/streamscape-media
+          ref: ${{ env.CI_APPLE_SWIFTPM_TOOLING_SHA }}
+          token: ${{ steps.source.outputs.token }}
+          path: product-tooling
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Validate fixed product wrappers
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C product-tooling rev-parse HEAD)" = "${CI_APPLE_SWIFTPM_TOOLING_SHA}"
+          for wrapper in \
+            scripts/release/create-apple-swiftpm-distribution.py \
+            scripts/release/apple_swiftpm_publication.py \
+            scripts/ci/run-apple-swiftpm-consumer-validation.sh; do
+            test -f "product-tooling/${wrapper}" && test ! -L "product-tooling/${wrapper}" || exit 2
+            git -C product-tooling ls-files --error-unmatch -- "${wrapper}" >/dev/null 2>&1 || exit 2
+          done
+
+      - name: Prepare original SDK bytes and remote SwiftPM distribution
+        id: compose
+        shell: bash
+        env:
+          CI_PACKAGE_USERNAME: ${{ secrets.PACKAGE_PUBLISH_USERNAME }}
+          CI_PACKAGE_READ_TOKEN: ${{ secrets.PACKAGE_READ_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          input_root="${RUNNER_TEMP}/apple-swiftpm-original"
+          distribution="${RUNNER_TEMP}/apple-swiftpm-distribution"
+          archive="${input_root}/streamscape-media-${CI_APPLE_SWIFTPM_VERSION}-apple-binary.zip"
+          rm -rf "${input_root}" "${distribution}"
+          mkdir -p "${input_root}"
+
+          url="${CI_APPLE_SWIFTPM_ARTIFACT_BASE_URL}/${CI_APPLE_SWIFTPM_VERSION}/$(basename "${archive}")"
+          if ! curl --fail --silent --show-error --location \
+            --user "${CI_PACKAGE_USERNAME}:${CI_PACKAGE_READ_TOKEN}" \
+            --output "${archive}" "${url}" >>"${CI_LOG}" 2>&1; then
+            echo "Failed to read the existing immutable Apple 2.1.5 aggregate package" >&2
+            exit 1
+          fi
+          actual_sha="$(shasum -a 256 "${archive}" | awk '{print $1}')"
+          test "${actual_sha}" = "${CI_APPLE_SWIFTPM_ORIGINAL_ARCHIVE_SHA256}" || {
+            echo "Existing Apple 2.1.5 aggregate package does not match its verified immutable digest" >&2
+            exit 2
+          }
+          ditto -x -k "${archive}" "${input_root}/expanded"
+          sdk_root="${input_root}/expanded/StreamscapeMediaApple"
+          test -d "${sdk_root}" && test ! -L "${sdk_root}" || exit 2
+
+          python3 product-tooling/scripts/release/create-apple-swiftpm-distribution.py \
+            --sdk-package-root "${sdk_root}" \
+            --output-dir "${distribution}" \
+            --version "${CI_APPLE_SWIFTPM_VERSION}" \
+            --sdk-source-sha "${CI_APPLE_SWIFTPM_SDK_SOURCE_SHA}" \
+            --tooling-source-sha "${CI_APPLE_SWIFTPM_TOOLING_SHA}" \
+            --package-url "${CI_APPLE_SWIFTPM_PACKAGE_URL}" \
+            --artifact-base-url "${CI_APPLE_SWIFTPM_ARTIFACT_BASE_URL}" \
+            >>"${CI_LOG}" 2>&1
+          printf 'distribution=%s\n' "${distribution}" >> "${GITHUB_OUTPUT}"
+
+      - name: Publish and read back complete SwiftPM release
+        id: publication
+        shell: bash
+        env:
+          CI_PACKAGE_USERNAME: ${{ secrets.PACKAGE_PUBLISH_USERNAME }}
+          CI_PACKAGE_PUBLISH_TOKEN: ${{ secrets.PACKAGE_PUBLISH_TOKEN }}
+          CI_PACKAGE_READ_TOKEN: ${{ secrets.PACKAGE_READ_TOKEN }}
+          DISTRIBUTION_ROOT: ${{ steps.compose.outputs.distribution }}
+        run: |
+          set -Eeuo pipefail
+          publisher="${RUNNER_TEMP}/apple-swiftpm-central-publish.py"
+          result="${RUNNER_TEMP}/apple-swiftpm-publication-result.json"
+          askpass="${RUNNER_TEMP}/gitea-askpass.sh"
+          cat >"${askpass}" <<'SH_ASKPASS'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' "${CI_GIT_USERNAME:?}" ;;
+            *Password*) printf '%s\n' "${CI_GIT_TOKEN:?}" ;;
+            *) exit 1 ;;
+          esac
+          SH_ASKPASS
+          chmod 700 "${askpass}"
+          export CI_GIT_ASKPASS="${askpass}"
+
+          cat >"${publisher}" <<'PY_PUBLISH'
+          from __future__ import annotations
+          import base64, hashlib, http.client, importlib.util, json, os, shutil, ssl, stat, subprocess, sys, tempfile
+          from pathlib import Path
+          from urllib.parse import urlsplit
+
+          tooling = Path("product-tooling").resolve()
+          spec = importlib.util.spec_from_file_location("streamscape_swiftpm_publication", tooling / "scripts/release/apple_swiftpm_publication.py")
+          if spec is None or spec.loader is None:
+              raise SystemExit("fixed product publication module unavailable")
+          publication = importlib.util.module_from_spec(spec)
+          sys.modules[spec.name] = publication
+          spec.loader.exec_module(publication)
+
+          USERNAME = os.environ["CI_PACKAGE_USERNAME"]
+          PUBLISH_TOKEN = os.environ["CI_PACKAGE_PUBLISH_TOKEN"]
+          READ_TOKEN = os.environ["CI_PACKAGE_READ_TOKEN"]
+          PACKAGE_URL = os.environ["CI_APPLE_SWIFTPM_PACKAGE_URL"]
+          ARTIFACT_BASE = os.environ["CI_APPLE_SWIFTPM_ARTIFACT_BASE_URL"]
+          ASKPASS = os.environ["CI_GIT_ASKPASS"]
+          CONTEXT = ssl.create_default_context()
+
+          def auth(token: str) -> str:
+              return "Basic " + base64.b64encode(f"{USERNAME}:{token}".encode()).decode()
+
+          def digest(path: Path) -> str:
+              value = hashlib.sha256()
+              with path.open("rb") as handle:
+                  for block in iter(lambda: handle.read(1024 * 1024), b""):
+                      value.update(block)
+              return value.hexdigest()
+
+          class ArtifactStore:
+              def identity(self, url: str, path: Path) -> tuple[int, int, str]:
+                  parsed = urlsplit(url)
+                  if parsed.scheme != "https" or parsed.hostname != "git.faruqi.dev" or parsed.query or parsed.fragment:
+                      raise publication.PublicationError("artifact URL escaped the fixed private registry")
+                  connection = http.client.HTTPSConnection(parsed.hostname, timeout=90, context=CONTEXT)
+                  try:
+                      connection.request("GET", parsed.path, headers={"Authorization": auth(READ_TOKEN)})
+                      response = connection.getresponse()
+                      if response.status == 404:
+                          response.read()
+                          return 404, 0, ""
+                      if response.status != 200:
+                          response.read()
+                          raise publication.PublicationError(f"artifact readback failed with HTTP {response.status}")
+                      size = 0
+                      value = hashlib.sha256()
+                      while True:
+                          block = response.read(1024 * 1024)
+                          if not block:
+                              break
+                          size += len(block)
+                          value.update(block)
+                      return 200, size, value.hexdigest()
+                  finally:
+                      connection.close()
+
+              def identical_or_missing(self, url: str, path: Path) -> bool:
+                  status, size, sha = self.identity(url, path)
+                  if status == 404:
+                      return False
+                  if size != path.stat().st_size or sha != digest(path):
+                      raise publication.PublicationError(f"immutable SwiftPM artifact conflict for {path.name}")
+                  return True
+
+              def create_and_verify(self, url: str, path: Path) -> None:
+                  parsed = urlsplit(url)
+                  connection = http.client.HTTPSConnection(parsed.hostname, timeout=180, context=CONTEXT)
+                  try:
+                      connection.putrequest("PUT", parsed.path)
+                      connection.putheader("Authorization", auth(PUBLISH_TOKEN))
+                      connection.putheader("Content-Type", "application/octet-stream")
+                      connection.putheader("Content-Length", str(path.stat().st_size))
+                      connection.endheaders()
+                      with path.open("rb") as handle:
+                          for block in iter(lambda: handle.read(1024 * 1024), b""):
+                              connection.send(block)
+                      response = connection.getresponse()
+                      status = response.status
+                      response.read()
+                  finally:
+                      connection.close()
+                  if status not in (200, 201) and not self.identical_or_missing(url, path):
+                      raise publication.PublicationError(f"artifact create failed with HTTP {status}")
+                  if not self.identical_or_missing(url, path):
+                      raise publication.PublicationError("artifact readback missing after create")
+
+          class PackageRepository:
+              def git_env(self, token: str) -> dict[str, str]:
+                  env = os.environ.copy()
+                  env.update({"GIT_ASKPASS": ASKPASS, "GIT_TERMINAL_PROMPT": "0", "CI_GIT_USERNAME": USERNAME, "CI_GIT_TOKEN": token})
+                  return env
+
+              def run(self, args: list[str], *, token: str, cwd: Path | None = None, capture: bool = False) -> subprocess.CompletedProcess[str]:
+                  return subprocess.run(args, cwd=cwd, env=self.git_env(token), check=True, text=True,
+                                        stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
+                                        stderr=subprocess.PIPE if capture else subprocess.DEVNULL, timeout=120)
+
+              def remote_revision(self, version: str) -> str | None:
+                  result = self.run(["git", "ls-remote", "--refs", "--tags", PACKAGE_URL, f"refs/tags/{version}"], token=READ_TOKEN, capture=True)
+                  lines = [line for line in result.stdout.splitlines() if line.strip()]
+                  if not lines:
+                      return None
+                  if len(lines) != 1:
+                      raise publication.PublicationError("package version tag is ambiguous")
+                  revision = lines[0].split()[0]
+                  if len(revision) != 40:
+                      raise publication.PublicationError("package version tag revision is malformed")
+                  return revision
+
+              def checkout(self, version: str, destination: Path) -> str:
+                  destination.mkdir()
+                  self.run(["git", "init", "-q"], token=READ_TOKEN, cwd=destination)
+                  self.run(["git", "remote", "add", "origin", PACKAGE_URL], token=READ_TOKEN, cwd=destination)
+                  self.run(["git", "fetch", "-q", "--depth=1", "origin", f"refs/tags/{version}"], token=READ_TOKEN, cwd=destination)
+                  self.run(["git", "checkout", "-q", "--detach", "FETCH_HEAD"], token=READ_TOKEN, cwd=destination)
+                  return self.run(["git", "rev-parse", "HEAD"], token=READ_TOKEN, cwd=destination, capture=True).stdout.strip()
+
+              def compare_tree(self, version: str, package_root: Path) -> str:
+                  with tempfile.TemporaryDirectory(prefix="swiftpm-tag-readback-") as temporary:
+                      checkout = Path(temporary) / "checkout"
+                      revision = self.checkout(version, checkout)
+                      actual = {p.relative_to(checkout).as_posix(): digest(p) for p in checkout.rglob("*") if p.is_file() and ".git" not in p.parts}
+                      expected = {p.relative_to(package_root).as_posix(): digest(p) for p in package_root.rglob("*") if p.is_file()}
+                      if actual != expected:
+                          raise publication.PublicationError("existing SwiftPM version tag has different package bytes")
+                      dirty = self.run(["git", "status", "--porcelain=v1", "--untracked-files=all"], token=READ_TOKEN, cwd=checkout, capture=True)
+                      if dirty.stdout.strip():
+                          raise publication.PublicationError("SwiftPM tag readback is not clean")
+                      return revision
+
+              def identical_or_missing(self, version: str, package_root: Path) -> bool:
+                  if self.remote_revision(version) is None:
+                      return False
+                  self.compare_tree(version, package_root)
+                  return True
+
+              def create_tag_and_verify(self, version: str, package_root: Path) -> str:
+                  if self.remote_revision(version) is not None:
+                      return self.compare_tree(version, package_root)
+                  with tempfile.TemporaryDirectory(prefix="swiftpm-tag-create-") as temporary:
+                      repo = Path(temporary) / "repo"
+                      repo.mkdir()
+                      self.run(["git", "init", "-q"], token=PUBLISH_TOKEN, cwd=repo)
+                      for child in package_root.iterdir():
+                          target = repo / child.name
+                          if child.is_dir():
+                              shutil.copytree(child, target)
+                          else:
+                              shutil.copy2(child, target)
+                      self.run(["git", "add", "--all"], token=PUBLISH_TOKEN, cwd=repo)
+                      self.run(["git", "-c", f"user.name={USERNAME}", "-c", "user.email=ci@git.faruqi.dev",
+                                "commit", "-q", "-m", f"Publish StreamScape Media SwiftPM {version}"], token=PUBLISH_TOKEN, cwd=repo)
+                      self.run(["git", "tag", version], token=PUBLISH_TOKEN, cwd=repo)
+                      self.run(["git", "remote", "add", "origin", PACKAGE_URL], token=PUBLISH_TOKEN, cwd=repo)
+                      try:
+                          self.run(["git", "push", "-q", "origin", f"refs/tags/{version}:refs/tags/{version}"], token=PUBLISH_TOKEN, cwd=repo)
+                      except subprocess.CalledProcessError:
+                          if self.remote_revision(version) is None:
+                              raise
+                  return self.compare_tree(version, package_root)
+
+              def verified_revision(self, version: str, package_root: Path) -> str:
+                  return self.compare_tree(version, package_root)
+
+          root = Path(os.environ["DISTRIBUTION_ROOT"])
+          result = publication.publish(
+              root,
+              ArtifactStore(),
+              PackageRepository(),
+              version=os.environ["CI_APPLE_SWIFTPM_VERSION"],
+              sdk_sha=os.environ["CI_APPLE_SWIFTPM_SDK_SOURCE_SHA"],
+              tooling_sha=os.environ["CI_APPLE_SWIFTPM_TOOLING_SHA"],
+              package_url=PACKAGE_URL,
+              artifact_base_url=ARTIFACT_BASE,
+          )
+          Path(os.environ["PUBLICATION_RESULT"]).write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY_PUBLISH
+
+          export PUBLICATION_RESULT="${result}"
+          if ! python3 "${publisher}" >>"${CI_LOG}" 2>&1; then
+            echo "SwiftPM publication/readback failed; inspect the private CI log" >&2
+            exit 1
+          fi
+
+          package_revision="$(python3 - "${result}" <<'PY_RESULT'
+          import json, re, sys
+          value = json.load(open(sys.argv[1], encoding="utf-8"))
+          if set(value) != {"schemaVersion", "packageURL", "version", "product", "packageRevision", "sdkSourceSha", "toolingSourceSha", "binaryTargetCount", "replayed", "nativeConsumerAcceptance"}:
+              raise SystemExit("unexpected publication result schema")
+          if value["schemaVersion"] != 1 or value["packageURL"] != "https://git.faruqi.dev/mimranfaruqi/streamscape-media.git" or value["version"] != "2.1.5":
+              raise SystemExit("unexpected publication identity")
+          if value["sdkSourceSha"] != "7e0eeb834758cc87c061fcedcc7bf806a3183f15" or value["toolingSourceSha"] != "d828ba9e9ddd9237ea697ac88ba49549786001e0":
+              raise SystemExit("unexpected publication provenance")
+          if not isinstance(value["binaryTargetCount"], int) or value["binaryTargetCount"] <= 0 or not re.fullmatch(r"[0-9a-f]{40}", value["packageRevision"]):
+              raise SystemExit("invalid publication result")
+          print(value["packageRevision"])
+          PY_RESULT
+          )"
+          printf 'package_revision=%s\n' "${package_revision}" >> "${GITHUB_OUTPUT}"
+          printf 'package_url=%s\n' "${CI_APPLE_SWIFTPM_PACKAGE_URL}" >> "${GITHUB_OUTPUT}"
+          printf 'package_version=%s\n' "${CI_APPLE_SWIFTPM_VERSION}" >> "${GITHUB_OUTPUT}"
+          printf 'result=%s\n' "${result}" >> "${GITHUB_OUTPUT}"
+
+      - name: Prove private endpoint rejects unauthenticated Git and artifact reads
+        shell: bash
+        env:
+          DISTRIBUTION_ROOT: ${{ steps.compose.outputs.distribution }}
+        run: |
+          set -Eeuo pipefail
+          first_url="$(python3 - "${DISTRIBUTION_ROOT}/package/Distribution.json" <<'PY_URL'
+          import json, sys
+          value = json.load(open(sys.argv[1], encoding="utf-8"))
+          targets = value.get("binaryTargets")
+          if not isinstance(targets, list) or not targets:
+              raise SystemExit("binary targets missing")
+          print(targets[0]["url"])
+          PY_URL
+          )"
+          status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 30 "${first_url}" || true)"
+          case "${status}" in 2??) echo "Private SwiftPM artifact is readable without authentication" >&2; exit 1 ;; esac
+
+          unauth_home="${RUNNER_TEMP}/swiftpm-unauth-home"
+          rm -rf "${unauth_home}" && mkdir -p "${unauth_home}"
+          if env HOME="${unauth_home}" GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/usr/bin/false \
+            git -c credential.helper= ls-remote --refs --tags "${CI_APPLE_SWIFTPM_PACKAGE_URL}" "refs/tags/${CI_APPLE_SWIFTPM_VERSION}" \
+            >/dev/null 2>&1; then
+            echo "Private SwiftPM Git package is readable without authentication" >&2
+            exit 1
+          fi
+          printf 'Unauthenticated private Git and binary HTTPS controls rejected as required.\n' >>"${CI_LOG}"
+
+      - name: Install fixed consumer prerequisite
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen >>"${CI_LOG}" 2>&1
+          fi
+          xcodegen --version >>"${CI_LOG}" 2>&1
+          xcodebuild -version >>"${CI_LOG}" 2>&1
+
+      - name: Run two fresh ordinary SwiftPM Xcode consumers
+        id: consumer
+        shell: bash
+        env:
+          CI_PACKAGE_USERNAME: ${{ secrets.PACKAGE_PUBLISH_USERNAME }}
+          CI_PACKAGE_READ_TOKEN: ${{ secrets.PACKAGE_READ_TOKEN }}
+          PACKAGE_REVISION: ${{ steps.publication.outputs.package_revision }}
+        run: |
+          set -Eeuo pipefail
+          context="${RUNNER_TEMP}/apple-swiftpm-context.json"
+          python3 - "${context}" <<'PY_CONTEXT'
+          import json, os, sys
+          value = {
+              "schemaVersion": 1,
+              "packageURL": os.environ["CI_APPLE_SWIFTPM_PACKAGE_URL"],
+              "version": os.environ["CI_APPLE_SWIFTPM_VERSION"],
+              "packageRevision": os.environ["PACKAGE_REVISION"],
+              "sdkSourceSha": os.environ["CI_APPLE_SWIFTPM_SDK_SOURCE_SHA"],
+              "toolingSourceSha": os.environ["CI_APPLE_SWIFTPM_TOOLING_SHA"],
+          }
+          with open(sys.argv[1], "w", encoding="utf-8") as handle:
+              json.dump(value, handle, indent=2, sort_keys=True)
+              handle.write("\n")
+          PY_CONTEXT
+
+          askpass="${RUNNER_TEMP}/gitea-askpass.sh"
+          for attempt in 1 2; do
+            home="${RUNNER_TEMP}/swiftpm-consumer-home-${attempt}"
+            work="${RUNNER_TEMP}/swiftpm-consumer-work-${attempt}"
+            result="${RUNNER_TEMP}/swiftpm-consumer-result-${attempt}.json"
+            rm -rf "${home}" "${work}" "${result}"
+            mkdir -p "${home}" "${work}"
+            umask 077
+            cat >"${home}/.netrc" <<EOF_NETRC
+          machine git.faruqi.dev
+            login ${CI_PACKAGE_USERNAME}
+            password ${CI_PACKAGE_READ_TOKEN}
+          EOF_NETRC
+            chmod 600 "${home}/.netrc"
+            if ! env \
+              HOME="${home}" \
+              GIT_ASKPASS="${askpass}" \
+              GIT_TERMINAL_PROMPT=0 \
+              CI_GIT_USERNAME="${CI_PACKAGE_USERNAME}" \
+              CI_GIT_TOKEN="${CI_PACKAGE_READ_TOKEN}" \
+              CI_APPLE_SWIFTPM_CONTEXT_FILE="${context}" \
+              CI_APPLE_SWIFTPM_WORK_DIR="${work}" \
+              CI_APPLE_SWIFTPM_RESULT_FILE="${result}" \
+              bash product-tooling/scripts/ci/run-apple-swiftpm-consumer-validation.sh \
+              >>"${CI_LOG}" 2>&1; then
+              echo "Fresh SwiftPM/Xcode consumer ${attempt} failed; inspect the private CI log" >&2
+              exit 1
+            fi
+            test -s "${result}" && test ! -L "${result}" || exit 2
+          done
+          printf 'context=%s\n' "${context}" >> "${GITHUB_OUTPUT}"
+          printf 'result_one=%s\n' "${RUNNER_TEMP}/swiftpm-consumer-result-1.json" >> "${GITHUB_OUTPUT}"
+          printf 'result_two=%s\n' "${RUNNER_TEMP}/swiftpm-consumer-result-2.json" >> "${GITHUB_OUTPUT}"
+
+      - name: Validate consumer acceptance evidence
+        id: evidence
+        shell: bash
+        env:
+          RESULT_ONE: ${{ steps.consumer.outputs.result_one }}
+          RESULT_TWO: ${{ steps.consumer.outputs.result_two }}
+        run: |
+          set -Eeuo pipefail
+          python3 - "${RESULT_ONE}" "${RESULT_TWO}" <<'PY_EVIDENCE'
+          import json, sys
+          values = []
+          for path in sys.argv[1:]:
+              with open(path, encoding="utf-8") as handle:
+                  value = json.load(handle)
+              if not isinstance(value, dict):
+                  raise SystemExit("consumer evidence must be JSON objects")
+              values.append(value)
+          # Both independent consumers must resolve the same immutable identity.
+          for key in ("packageURL", "version", "packageRevision", "sdkSourceSha", "toolingSourceSha"):
+              if key in values[0] or key in values[1]:
+                  if values[0].get(key) != values[1].get(key):
+                      raise SystemExit("fresh consumer identities disagree")
+          print("Two fresh remote SwiftPM/Xcode consumer validations accepted.")
+          PY_EVIDENCE
+
+      - name: Scrub configured CI secrets from private log
+        id: scrub
+        if: ${{ always() }}
+        shell: bash
+        env:
+          CI_SECRET_SOURCE_TOKEN: ${{ steps.source.outputs.token }}
+          CI_SECRET_GITHUB_TOKEN: ${{ github.token }}
+          CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          CI_SECRET_AGENT_STATE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          CI_SECRET_AGENT_STATE_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          CI_SECRET_DRIVE_LOG_FOLDER: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+          CI_SECRET_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          CI_SECRET_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          CI_SECRET_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          CI_SECRET_TAILSCALE_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          CI_SECRET_TAILSCALE_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          CI_SECRET_PACKAGE_USERNAME: ${{ secrets.PACKAGE_PUBLISH_USERNAME }}
+          CI_SECRET_PACKAGE_TOKEN: ${{ secrets.PACKAGE_PUBLISH_TOKEN }}
+          CI_SECRET_PACKAGE_READ_TOKEN: ${{ secrets.PACKAGE_READ_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY_REDACT'
+          import os
+          from pathlib import Path
+          path = Path(os.environ["CI_LOG"])
+          data = path.read_bytes()
+          for name, value in os.environ.items():
+              if not name.startswith("CI_SECRET_") or not value:
+                  continue
+              raw = value.encode()
+              data = data.replace(raw, b"[REDACTED]")
+              escaped = value.replace("\n", "\\n").encode()
+              if escaped != raw:
+                  data = data.replace(escaped, b"[REDACTED]")
+          path.write_bytes(data)
+          PY_REDACT
+
+      - name: Upload CI log to Google Drive
+        id: drive
+        if: ${{ always() && steps.scrub.outcome == 'success' && (inputs.ci_run_id != '' || inputs.upload_private_log) }}
+        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          file_path: ${{ runner.temp }}/central-ci.log
+          file_name: ${{ github.run_id }}-${{ github.run_attempt }}-apple-swiftpm.txt
+          mime_type: text/plain
+
+      - name: Clean SwiftPM publication workspace
+        id: cleanup
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf \
+            "${RUNNER_TEMP}/apple-swiftpm-original" \
+            "${RUNNER_TEMP}/apple-swiftpm-distribution" \
+            "${RUNNER_TEMP}/swiftpm-unauth-home" \
+            "${RUNNER_TEMP}/swiftpm-consumer-home-1" \
+            "${RUNNER_TEMP}/swiftpm-consumer-home-2" \
+            "${RUNNER_TEMP}/swiftpm-consumer-work-1" \
+            "${RUNNER_TEMP}/swiftpm-consumer-work-2"
+          rm -f \
+            "${RUNNER_TEMP}/apple-swiftpm-central-publish.py" \
+            "${RUNNER_TEMP}/apple-swiftpm-publication-result.json" \
+            "${RUNNER_TEMP}/apple-swiftpm-context.json" \
+            "${RUNNER_TEMP}/swiftpm-consumer-result-1.json" \
+            "${RUNNER_TEMP}/swiftpm-consumer-result-2.json" \
+            "${RUNNER_TEMP}/gitea-askpass.sh" \
+            "${CI_LOG}"
+
+      - name: Finish Agent State run
+        if: ${{ always() && inputs.ci_run_id != '' }}
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: finish
+          ci_run_id: ${{ inputs.ci_run_id }}
+          status: >-
+            ${{ steps.compose.outcome == 'success'
+                && steps.publication.outcome == 'success'
+                && steps.consumer.outcome == 'success'
+                && steps.evidence.outcome == 'success'
+                && steps.scrub.outcome == 'success'
+                && steps.drive.outcome == 'success'
+                && steps.cleanup.outcome == 'success'
+                && 'succeeded' || 'failed' }}

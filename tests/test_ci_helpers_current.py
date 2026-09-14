@@ -27,7 +27,7 @@ class CiHelperTests(_prior.CiHelperTests):
         inventory = yaml.safe_load((_prior.ROOT / "INVENTORY.yaml").read_text())
         self.assertEqual(
             set(inventory["workflows"]),
-            {"apple", "apple_binary", "android", "python", "node", "flutter", "maven", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "source_snapshot_delete", "source_snapshot", "source_checkpoint_publish", "central_dispatch", "self_check", "runner_images"},
+            {"apple", "apple_binary", "apple_swiftpm", "android", "python", "node", "flutter", "maven", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "source_snapshot_delete", "source_snapshot", "source_checkpoint_publish", "central_dispatch", "self_check", "runner_images"},
         )
         self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git", "source_snapshot"})
         self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility", "source_snapshot_delete", "source_checkpoint_publish"})
@@ -39,7 +39,7 @@ class CiHelperTests(_prior.CiHelperTests):
 
     def test_workflows_use_no_reusable_prefix(self) -> None:
         names = {p.name for p in (_prior.ROOT / ".github/workflows").glob("*.yml")}
-        self.assertEqual(len(names), 17)
+        self.assertEqual(len(names), 18)
         self.assertNotIn("broker.yml", names)
         self.assertFalse(any(name.startswith("reusable-") for name in names))
         self.assertIn("source-snapshot-delete.yml", names)
@@ -47,6 +47,7 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertNotIn("source-bundle-publish.yml", names)
         self.assertIn("source-checkpoint-publish.yml", names)
         self.assertIn("apple-binary.yml", names)
+        self.assertIn("apple-swiftpm.yml", names)
         self.assertNotIn("streamscape-media-release.yml", names)
         self.assertNotIn("streamscape-media-apple-binary.yml", names)
 
@@ -59,6 +60,7 @@ class CiHelperTests(_prior.CiHelperTests):
             "flutter.yml": ("ci",),
             "maven.yml": ("publish",),
             "apple-binary.yml": ("publish",),
+            "apple-swiftpm.yml": ("publish",),
             "container-service.yml": ("conformance",),
             "oci-reproducibility.yml": ("prove",),
             "public-native-image-chart.yml": ("publish",),
@@ -141,6 +143,10 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertEqual(apple_binary["group"], "central-ci-apple-binary-${{ inputs.active_key }}")
         self.assertFalse(apple_binary["cancel-in-progress"])
 
+        apple_swiftpm = jobs["apple_swiftpm"]["concurrency"]
+        self.assertEqual(apple_swiftpm["group"], "central-ci-apple-swiftpm-${{ inputs.active_key }}")
+        self.assertFalse(apple_swiftpm["cancel-in-progress"])
+
         checkpoint_publish = jobs["source_checkpoint_publish"]["concurrency"]
         self.assertEqual(checkpoint_publish["group"], "central-ci-source-checkpoint-publish-${{ inputs.active_key }}")
         self.assertFalse(checkpoint_publish["cancel-in-progress"])
@@ -152,11 +158,11 @@ class CiHelperTests(_prior.CiHelperTests):
 
         settlement = jobs["settle_cancelled"]
         self.assertNotIn("concurrency", settlement)
-        expected = {"request", *execution_jobs, "apple_binary", "branch_delete", "source_checkpoint_publish", "source_snapshot"}
+        expected = {"request", *execution_jobs, "apple_binary", "apple_swiftpm", "branch_delete", "source_checkpoint_publish", "source_snapshot"}
         self.assertEqual(set(settlement["needs"]), expected)
         self.assertIn("always()", settlement["if"])
         self.assertIn("needs.request.result != 'success'", settlement["if"])
-        for name in (*execution_jobs, "apple_binary", "branch_delete", "source_checkpoint_publish", "source_snapshot"):
+        for name in (*execution_jobs, "apple_binary", "apple_swiftpm", "branch_delete", "source_checkpoint_publish", "source_snapshot"):
             self.assertIn(f"needs.{name}.result == 'cancelled'", settlement["if"])
         self.assertEqual(settlement["steps"][-1]["with"]["phase"], "cancel-if-active")
 
