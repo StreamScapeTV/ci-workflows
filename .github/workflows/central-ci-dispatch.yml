@@ -353,11 +353,11 @@ jobs:
               build_number = inputs["build_number"]
               if not isinstance(build_number, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}", build_number):
                   raise SystemExit("release.apple/testflight build_number must be one non-empty bounded release identifier")
-          elif profile == "binary-package":
+          elif profile in {"binary-package", "swiftpm-package"}:
               if inputs:
-                  raise SystemExit("release.apple/binary-package accepts no semantic inputs")
+                  raise SystemExit(f"release.apple/{profile} accepts no semantic inputs")
           else:
-              raise SystemExit("release.apple supports only testflight and binary-package profiles")
+              raise SystemExit("release.apple supports only testflight, binary-package and swiftpm-package profiles")
           PY_VALIDATE_APPLE_RELEASE
 
   apple:
@@ -412,6 +412,33 @@ jobs:
       AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
       GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
       GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+      GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+      GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+      PACKAGE_PUBLISH_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+      PACKAGE_PUBLISH_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
+      PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+
+  apple_swiftpm:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'release.apple' && needs.request.outputs.test_profile == 'swiftpm-package' }}
+    concurrency:
+      group: central-ci-apple-swiftpm-${{ inputs.active_key }}
+      cancel-in-progress: false
+    uses: ./.github/workflows/apple-swiftpm.yml
+    with:
+      repository: ${{ needs.request.outputs.repository }}
+      ref: ${{ needs.request.outputs.ref }}
+      source_is_tag: ${{ needs.request.outputs.is_tag == 'true' }}
+      ci_run_id: ${{ inputs.ci_run_id }}
+    secrets:
+      SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
+      SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+      AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+      AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
       GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
       GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
       GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
@@ -924,6 +951,7 @@ jobs:
       - flutter
       - maven
       - apple_binary
+      - apple_swiftpm
       - container_service
       - public_native_image_chart
       - oci_reproducibility
@@ -944,6 +972,7 @@ jobs:
           needs.flutter.result == 'cancelled' ||
           needs.maven.result == 'cancelled' ||
           needs.apple_binary.result == 'cancelled' ||
+          needs.apple_swiftpm.result == 'cancelled' ||
           needs.container_service.result == 'cancelled' ||
           needs.public_native_image_chart.result == 'cancelled' ||
           needs.oci_reproducibility.result == 'cancelled' ||

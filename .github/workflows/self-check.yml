@@ -45,6 +45,7 @@ jobs:
           tests.test_source_checkpoint_publish
           tests.test_maven_workflow
           tests.test_apple_binary_workflow
+          tests.test_apple_swiftpm_workflow
           tests.test_runner_images_workflow
           tests.test_release_observability
           tests.test_main_ref_release
