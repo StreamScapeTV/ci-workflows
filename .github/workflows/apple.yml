@@ -612,7 +612,6 @@ jobs:
           ${{ (inputs.repository || github.repository) == 'StreamScapeTV/iptv-apple'
               && inputs.test_profile != 'build'
               && inputs.test_profile != 'native-component'
-              && inputs.test_profile != 'screenshot-review'
               && inputs.test_profile != 'test'
               && inputs.test_profile != 'simulator'
               && inputs.test_profile != 'swift-package' }}

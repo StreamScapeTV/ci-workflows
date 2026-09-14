@@ -1,1 +1,3 @@
-# StreamScapeTV CI Workflows
+# StreamScapeTV CI workflows
+
+Shared reusable workflows.
