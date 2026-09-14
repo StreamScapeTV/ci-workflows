@@ -392,7 +392,10 @@ class NativeTargetedProfileTests(unittest.TestCase):
         )["run"]
         self.assertIn('targeted_test_args+=("-only-testing:${selector}")', command)
         self.assertIn("-destination 'platform=macOS'", command)
-        self.assertIn("-destination 'platform=iOS Simulator,name=iPhone 17'", command)
+        self.assertIn('-destination "platform=iOS Simulator,id=${ios_targeted_udid}"', command)
+        self.assertIn("-parallel-testing-enabled NO", command)
+        self.assertIn("-maximum-parallel-testing-workers 1", command)
+        self.assertNotIn("-destination 'platform=iOS Simulator,name=iPhone 17'", command)
         self.assertIn("-destination 'platform=tvOS Simulator,name=Apple TV'", command)
         self.assertNotIn("SelectedBackendStateSyncRoutingIntegrationTests", text)
 

@@ -895,6 +895,158 @@ jobs:
             swiftpm_xcode_args=(-clonedSourcePackagesDirPath "${SWIFTPM_CLONES_DIR}")
           fi
 
+          resolve_ios_targeted_simulator_profile() {
+            local runtime_json device_type_json
+            runtime_json="$(xcrun simctl list runtimes --json)"
+            device_type_json="$(xcrun simctl list devicetypes --json)"
+            IOS_TARGETED_RUNTIME_ID="$(SIMCTL_RUNTIMES_JSON="${runtime_json}" python3 - <<'PY_IOS_RUNTIME'
+          import json
+          import os
+          import re
+
+          data = json.loads(os.environ["SIMCTL_RUNTIMES_JSON"])
+          candidates = []
+          for runtime in data.get("runtimes", []):
+              identifier = runtime.get("identifier")
+              version = runtime.get("version", "")
+              if (
+                  isinstance(identifier, str)
+                  and ".iOS-" in identifier
+                  and runtime.get("isAvailable", True) is not False
+              ):
+                  parts = tuple(int(part) for part in re.findall(r"\d+", version))
+                  candidates.append((parts, identifier))
+          if not candidates:
+              raise SystemExit("No available iOS Simulator runtime found")
+          print(max(candidates)[1])
+          PY_IOS_RUNTIME
+            )"
+            IOS_TARGETED_DEVICE_TYPE_ID="$(SIMCTL_DEVICE_TYPES_JSON="${device_type_json}" python3 - <<'PY_IOS_DEVICE'
+          import json
+          import os
+
+          data = json.loads(os.environ["SIMCTL_DEVICE_TYPES_JSON"])
+          devices = [
+              item
+              for item in data.get("devicetypes", [])
+              if isinstance(item.get("name"), str)
+              and item["name"].startswith("iPhone ")
+              and isinstance(item.get("identifier"), str)
+          ]
+          preferred = next((item for item in devices if item["name"] == "iPhone 17"), None)
+          selected = preferred or (max(devices, key=lambda item: (item["name"], item["identifier"])) if devices else None)
+          if selected is None:
+              raise SystemExit("No available iPhone Simulator device type found")
+          print(selected["identifier"])
+          PY_IOS_DEVICE
+            )"
+            export IOS_TARGETED_RUNTIME_ID IOS_TARGETED_DEVICE_TYPE_ID
+            printf '\n===== ios-targeted-simulator-profile =====\n' >> "${CI_LOG}"
+            printf 'runtime_id=%s\n' "${IOS_TARGETED_RUNTIME_ID}" >> "${CI_LOG}"
+            printf 'device_type_id=%s\n' "${IOS_TARGETED_DEVICE_TYPE_ID}" >> "${CI_LOG}"
+          }
+
+          create_ios_targeted_simulator() {
+            local attempt="$1"
+            local name="central-ios-targeted-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-${attempt}"
+            local udid
+            udid="$(xcrun simctl create "${name}" "${IOS_TARGETED_DEVICE_TYPE_ID}" "${IOS_TARGETED_RUNTIME_ID}")"
+            [[ "${udid}" =~ ^[0-9A-Fa-f-]{36}$ ]] || {
+              printf 'simctl create returned an invalid simulator UDID\n' >&2
+              return 1
+            }
+            xcrun simctl boot "${udid}" >/dev/null 2>&1 || true
+            if ! xcrun simctl bootstatus "${udid}" -b >> "${CI_LOG}" 2>&1; then
+              printf 'Fresh iOS targeted-test simulator failed boot readiness: %s\n' "${udid}" >> "${CI_LOG}"
+              xcrun simctl shutdown "${udid}" >/dev/null 2>&1 || true
+              xcrun simctl delete "${udid}" >/dev/null 2>&1 || true
+              return 1
+            fi
+            printf '%s\n' "${udid}"
+          }
+
+          destroy_ios_targeted_simulator() {
+            local udid="$1"
+            test -n "${udid}" || return 0
+            xcrun simctl shutdown "${udid}" >/dev/null 2>&1 || true
+            xcrun simctl delete "${udid}" >/dev/null 2>&1 || true
+          }
+
+          append_ios_targeted_simulator_diagnostics() {
+            local attempt="$1"
+            local udid="$2"
+            {
+              printf '\n===== ios-targeted-simulator-diagnostics attempt=%s =====\n' "${attempt}"
+              xcodebuild -version || true
+              printf 'runtime_id=%s\n' "${IOS_TARGETED_RUNTIME_ID:-unknown}"
+              printf 'device_type_id=%s\n' "${IOS_TARGETED_DEVICE_TYPE_ID:-unknown}"
+              printf 'simulator_udid=%s\n' "${udid:-unknown}"
+              xcrun simctl list devices 2>&1 | tail -n 200 || true
+              if test -n "${udid}"; then
+                xcrun simctl spawn "${udid}" log show \
+                  --style compact \
+                  --last 2m \
+                  --predicate 'process == "SpringBoard" OR process == "launchd_sim" OR process CONTAINS[c] "xctrunner"' \
+                  2>&1 | tail -n 300 || true
+              fi
+            } >> "${CI_LOG}" 2>&1
+          }
+
+          is_ios_targeted_infrastructure_launch_failure() {
+            local attempt_log="$1"
+            grep -Eq 'Failed to launch app with identifier: .*\.xctrunner|NSMachErrorDomain Code=-308|\(ipc/mig\) server died|Failed to get background assertion for target app|DebuggerLLDB\.DebuggerVersionStore\.StoreError' "${attempt_log}"
+          }
+
+          run_ios_targeted_tests() {
+            resolve_ios_targeted_simulator_profile
+            local attempt=1
+            while test "${attempt}" -le 2; do
+              local ios_targeted_udid=""
+              local started_at="${SECONDS}"
+              local attempt_log="${RUNNER_TEMP}/ios-targeted-tests-attempt-${attempt}.log"
+              : > "${attempt_log}"
+              printf '\n===== ios-targeted-tests attempt=%s =====\n' "${attempt}" >> "${CI_LOG}"
+              ios_targeted_udid="$(create_ios_targeted_simulator "${attempt}")" || {
+                append_ios_targeted_simulator_diagnostics "${attempt}" "${ios_targeted_udid}"
+                printf 'ios-targeted-tests simulator provisioning failed; inspect the private Google Drive CI log.\n' >&2
+                return 1
+              }
+
+              set +e
+              xcodebuild test \
+                -workspace streamscapetv.xcworkspace \
+                -scheme streamscapetv \
+                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
+                -destination "platform=iOS Simulator,id=${ios_targeted_udid}" \
+                -parallel-testing-enabled NO \
+                -maximum-parallel-testing-workers 1 \
+                CODE_SIGNING_ALLOWED=NO \
+                "${targeted_test_args[@]}" >> "${attempt_log}" 2>&1
+              local status=$?
+              set -e
+
+              cat "${attempt_log}" >> "${CI_LOG}"
+              printf 'duration_seconds=%s\n' "$((SECONDS - started_at))" >> "${CI_LOG}"
+              append_ios_targeted_simulator_diagnostics "${attempt}" "${ios_targeted_udid}"
+              destroy_ios_targeted_simulator "${ios_targeted_udid}"
+
+              if test "${status}" -eq 0; then
+                rm -f -- "${attempt_log}"
+                return 0
+              fi
+              if test "${attempt}" -eq 1 && is_ios_targeted_infrastructure_launch_failure "${attempt_log}"; then
+                printf 'Known hosted iOS xctrunner/CoreSimulator launch failure detected; retrying unchanged selectors once on a fresh simulator.\n' >> "${CI_LOG}"
+                rm -f -- "${attempt_log}"
+                attempt=$((attempt + 1))
+                continue
+              fi
+              rm -f -- "${attempt_log}"
+              printf 'ios-targeted-tests failed; inspect the private Google Drive CI log.\n' >&2
+              return "${status}"
+            done
+            return 1
+          }
+
           targeted_test_args=()
           if test "${TEST_PROFILE}" = targeted-tests || test "${TEST_PROFILE}" = candidate; then
             test_selectors=()
@@ -949,13 +1101,7 @@ jobs:
                 "${targeted_test_args[@]}"
               ;;
             ios-targeted-tests)
-              run_logged ios-targeted-tests xcodebuild test \
-                -workspace streamscapetv.xcworkspace \
-                -scheme streamscapetv \
-                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
-                -destination 'platform=iOS Simulator,name=iPhone 17' \
-                CODE_SIGNING_ALLOWED=NO \
-                "${targeted_test_args[@]}"
+              run_ios_targeted_tests
               ;;
             tvos-targeted-tests)
               run_logged tvos-targeted-tests xcodebuild test \
