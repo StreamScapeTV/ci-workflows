@@ -1,6 +1,5 @@
 version: 1
 repository: StreamScapeTV/ci-workflows
-
 workflows:
   apple: .github/workflows/apple.yml
   android: .github/workflows/android.yml
@@ -20,17 +19,15 @@ workflows:
   central_dispatch: .github/workflows/central-ci-dispatch.yml
   self_check: .github/workflows/self-check.yml
   runner_images: .github/workflows/runner-images.yml
-
 actions:
   agent_state: actions/agent-state/action.yml
   google_drive: actions/google-drive/action.yml
   private_git: actions/private-git/action.yml
   source_snapshot: actions/source-snapshot/action.yml
-
 scripts:
   oci_reproducibility: scripts/ci/oci_reproducibility.py
   source_snapshot_delete: scripts/ci/source_snapshot_delete.py
   source_checkpoint_publish: scripts/ci/source_checkpoint_publish.py
-
+  swiftpm_binary: scripts/ci/swiftpm_binary.py
 services:
   runner_images: runner-images/

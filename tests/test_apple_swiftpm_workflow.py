@@ -10,10 +10,11 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/apple-swiftpm.yml"
 DISPATCH = ROOT / ".github/workflows/central-ci-dispatch.yml"
+HELPER = ROOT / "scripts/ci/swiftpm_binary.py"
 
 
 class AppleSwiftPMWorkflowTests(unittest.TestCase):
-    def test_workflow_is_fixed_owner_controlled_release_lane(self) -> None:
+    def test_workflow_is_reusable_github_tagged_binary_lane(self) -> None:
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         call = workflow["on"]["workflow_call"]
         self.assertEqual(
@@ -32,37 +33,63 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
         )
         job = workflow["jobs"]["publish"]
         self.assertEqual(job["runs-on"], ["macOS", "ARM64"])
-        env = job["env"]
-        self.assertEqual(env["CI_APPLE_SWIFTPM_VERSION"], "2.1.5")
-        self.assertEqual(env["CI_APPLE_SWIFTPM_SDK_SOURCE_SHA"], "7e0eeb834758cc87c061fcedcc7bf806a3183f15")
-        self.assertEqual(env["CI_APPLE_SWIFTPM_TOOLING_SHA"], "d828ba9e9ddd9237ea697ac88ba49549786001e0")
-        self.assertEqual(env["CI_APPLE_SWIFTPM_PACKAGE_URL"], "https://git.faruqi.dev/mimranfaruqi/streamscape-media.git")
-        self.assertEqual(env["CI_APPLE_SWIFTPM_ARTIFACT_BASE_URL"], "https://git.faruqi.dev/api/packages/mimranfaruqi/generic/streamscape-media-apple")
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertNotIn("command:", text)
-        self.assertFalse({"package_url", "artifact_base_url", "package_host", "runner"} & set(call["inputs"]))
+        self.assertIn("VERSION, Package.swift and fixed product wrapper", text)
+        self.assertIn("scripts/ci/run-swiftpm-binary.sh", text)
+        self.assertIn("CI_SWIFTPM_BINARY_PROFILE: prepare", text)
+        self.assertIn("CI_SWIFTPM_BINARY_PROFILE=consumer", text)
+        self.assertIn("https://github.com/%s.git", text)
+        self.assertIn("refs/tags/${{ steps.request.outputs.version }}", text)
+        self.assertIn("for attempt in 1 2", text)
+        self.assertNotIn("CI_APPLE_SWIFTPM_VERSION", text)
+        self.assertNotIn("CI_APPLE_SWIFTPM_SDK_SOURCE_SHA", text)
+        self.assertNotIn("CI_APPLE_SWIFTPM_TOOLING_SHA", text)
+        self.assertNotIn("streamscape-media-2.1.5-apple-binary.zip", text)
+        self.assertNotIn("https://git.faruqi.dev/mimranfaruqi/streamscape-media.git", text)
+        self.assertNotIn("Vendor/", text)
+        self.assertFalse({"package_url", "artifact_base_url", "package_host", "runner", "command"} & set(call["inputs"]))
 
-    def test_fixed_product_composer_transaction_and_consumer_are_invoked(self) -> None:
-        text = WORKFLOW.read_text(encoding="utf-8")
-        for fixed_path in (
-            "scripts/release/create-apple-swiftpm-distribution.py",
-            "scripts/release/apple_swiftpm_publication.py",
-            "scripts/ci/run-apple-swiftpm-consumer-validation.sh",
+    def test_gitea_is_registry_only_and_never_a_git_mutation_target(self) -> None:
+        workflow_text = WORKFLOW.read_text(encoding="utf-8")
+        helper_text = HELPER.read_text(encoding="utf-8")
+        combined = workflow_text + "\n" + helper_text
+        self.assertIn('REGISTRY_HOST = "git.faruqi.dev"', helper_text)
+        self.assertIn('REGISTRY_PREFIX = ("api", "packages", "mimranfaruqi", "generic")', helper_text)
+        self.assertIn('connection.putrequest("PUT", parsed.path)', helper_text)
+        for forbidden in (
+            "git push",
+            'self.run(["git", "tag"',
+            'self.run(["git", "commit"',
+            "ci@git.faruqi.dev",
+            "gitea-askpass",
+            "git.faruqi.dev/mimranfaruqi/streamscape-media.git",
         ):
-            self.assertIn(fixed_path, text)
-        self.assertIn("publication.publish(", text)
-        self.assertIn('for attempt in 1 2', text)
-        self.assertIn("xcodebuild", text)
-        self.assertIn("Unauthenticated private Git and binary HTTPS controls rejected as required.", text)
-        self.assertNotIn("Vendor/StreamscapeMediaApple", text)
+            self.assertNotIn(forbidden, combined)
+        self.assertNotIn("PublicationRepository", combined)
+        self.assertNotIn("PackageRepository", combined)
 
-    def test_existing_aggregate_is_reused_and_not_deleted(self) -> None:
+    def test_central_owns_artifact_transport_and_product_wrapper_gets_no_registry_secret(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("streamscape-media-${CI_APPLE_SWIFTPM_VERSION}-apple-binary.zip", text)
-        self.assertIn("f58c72bcf56dac6d1c2288369d89e01d988e0db085f2fdd5a46b9caf5b9ca6b6", text)
-        self.assertNotIn('curl -X DELETE', text)
-        self.assertNotIn('git push --force', text)
-        self.assertNotIn('git tag -f', text)
+        prepare = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["publish"]["steps"]
+        prepare_step = next(step for step in prepare if step.get("name") == "Prepare exact-source binary artifacts")
+        env = prepare_step["env"]
+        self.assertNotIn("PACKAGE_PUBLISH_TOKEN", env)
+        self.assertNotIn("PACKAGE_READ_TOKEN", env)
+        self.assertNotIn("CI_SWIFTPM_BINARY_PACKAGE_TOKEN", env)
+        self.assertIn("CI_SWIFTPM_BINARY_EVIDENCE_DIR", env)
+        self.assertIn("CI_SWIFTPM_BINARY_RESULT_FILE", env)
+        self.assertIn("swiftpm_binary.py publish", text)
+        self.assertIn("Publish and read back immutable binary cohort", text)
+
+    def test_private_controls_cover_github_git_and_generic_artifact_reads(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("Prove unauthenticated private GitHub and artifact reads fail", text)
+        self.assertIn("git -c credential.helper= ls-remote", text)
+        self.assertIn("Private GitHub Swift package is readable without authentication", text)
+        self.assertIn("Private Swift binary artifact is readable without authentication", text)
+        self.assertIn("machine github.com", text)
+        self.assertIn("machine git.faruqi.dev", text)
+        self.assertIn("x-access-token", text)
 
     def test_release_dispatch_accepts_only_empty_swiftpm_semantics(self) -> None:
         workflow = yaml.safe_load(DISPATCH.read_text(encoding="utf-8"))
@@ -91,10 +118,13 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
         self.assertEqual(job["secrets"]["PACKAGE_READ_TOKEN"], "${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}")
         self.assertFalse(job["concurrency"]["cancel-in-progress"])
 
-    def test_inventory_and_self_check_publish_the_supported_surface(self) -> None:
+    def test_inventory_and_self_check_publish_supported_surface(self) -> None:
         inventory = yaml.safe_load((ROOT / "INVENTORY.yaml").read_text(encoding="utf-8"))
         self.assertEqual(inventory["workflows"]["apple_swiftpm"], ".github/workflows/apple-swiftpm.yml")
-        self.assertIn("tests.test_apple_swiftpm_workflow", (ROOT / ".github/workflows/self-check.yml").read_text(encoding="utf-8"))
+        self.assertEqual(inventory["scripts"]["swiftpm_binary"], "scripts/ci/swiftpm_binary.py")
+        self_check = (ROOT / ".github/workflows/self-check.yml").read_text(encoding="utf-8")
+        self.assertIn("tests.test_apple_swiftpm_workflow", self_check)
+        self.assertIn("tests.test_swiftpm_binary", self_check)
 
 
 if __name__ == "__main__":
