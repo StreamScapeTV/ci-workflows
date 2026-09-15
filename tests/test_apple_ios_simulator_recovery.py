@@ -135,6 +135,19 @@ case \"${XCODEBUILD_SCENARIO:?}\" in
     printf '%s\\n' 'XCTAssertEqual failed: expected value differs'
     exit 1
     ;;
+  assertion_with_launch_warning)
+    printf '%s\n' 'DebuggerLLDB.DebuggerVersionStore.StoreError error 0'
+    printf '%s\n' "Test Case '-[CatalogToolbarSmokeTests testMovies]' started."
+    printf '%s\n' 'CatalogToolbarSmokeTests.swift:41: error: XCTAssertTrue failed - canonical shared catalog screen did not mount'
+    printf '%s\n' "Test Case '-[CatalogToolbarSmokeTests testMovies]' failed (58.2 seconds)."
+    exit 1
+    ;;
+  product_crash_with_launch_warning)
+    printf '%s\n' 'DebuggerLLDB.DebuggerVersionStore.StoreError error 0'
+    printf '%s\n' "Test Case '-[CatalogToolbarSmokeTests testMovies]' started."
+    printf '%s\n' 'Fatal error: unexpectedly found nil while unwrapping an Optional value'
+    exit 1
+    ;;
   build_failure)
     printf '%s\\n' 'error: package resolution failed before XCTest launch'
     exit 1
@@ -209,6 +222,20 @@ exit 0
         result, private_log, count, _ = self._run("assertion_failure")
         self.assertEqual(result.returncode, 1)
         self.assertEqual(count, 1)
+        self.assertNotIn("ios-targeted-tests attempt=2", private_log)
+
+    def test_assertion_with_incidental_launch_warning_is_never_retried(self) -> None:
+        result, private_log, count, _ = self._run("assertion_with_launch_warning")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(count, 1)
+        self.assertIn("Product XCTest failure evidence detected; simulator retry suppressed.", private_log)
+        self.assertNotIn("ios-targeted-tests attempt=2", private_log)
+
+    def test_product_crash_with_incidental_launch_warning_is_never_retried(self) -> None:
+        result, private_log, count, _ = self._run("product_crash_with_launch_warning")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(count, 1)
+        self.assertIn("Product XCTest failure evidence detected; simulator retry suppressed.", private_log)
         self.assertNotIn("ios-targeted-tests attempt=2", private_log)
 
     def test_unrelated_build_failure_is_never_retried(self) -> None:

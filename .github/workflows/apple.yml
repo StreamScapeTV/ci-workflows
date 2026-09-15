@@ -994,6 +994,10 @@ jobs:
 
           is_ios_targeted_infrastructure_launch_failure() {
             local attempt_log="$1"
+            if grep -Eq 'XCTAssert[A-Za-z0-9_]* failed|(^|[[:space:]])(fatal error:|Fatal error:)|Terminating app due to uncaught exception|EXC_(BAD_ACCESS|CRASH|BREAKPOINT)|signal SIG[A-Z]+|Test Case .+ crashed' "${attempt_log}"; then
+              printf 'Product XCTest failure evidence detected; simulator retry suppressed.\n' >> "${CI_LOG}"
+              return 1
+            fi
             grep -Eq 'Failed to launch app with identifier: .*\.xctrunner|NSMachErrorDomain Code=-308|\(ipc/mig\) server died|Failed to get background assertion for target app|DebuggerLLDB\.DebuggerVersionStore\.StoreError' "${attempt_log}"
           }
 
