@@ -30,7 +30,7 @@ class CiHelperTests(_prior.CiHelperTests):
             {"apple", "apple_binary", "apple_swiftpm", "android", "python", "node", "flutter", "maven", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "source_snapshot_delete", "source_snapshot", "source_checkpoint_publish", "central_dispatch", "self_check", "runner_images"},
         )
         self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git", "source_snapshot"})
-        self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility", "source_snapshot_delete", "source_checkpoint_publish", "swiftpm_binary"})
+        self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility", "ci_log_delete", "source_snapshot_delete", "source_checkpoint_publish", "swiftpm_binary"})
         self.assertEqual(set(inventory["services"]), {"runner_images"})
 
     def test_only_three_custom_actions_exist(self) -> None:

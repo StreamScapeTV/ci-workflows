@@ -219,6 +219,64 @@ jobs:
                   raise SystemExit(f"validation.container-service {key} is invalid")
           PY_VALIDATE
 
+      - name: Validate private CI-log deletion request
+        if: ${{ steps.claim.outputs.workflow_key == 'maintenance.ci-log-delete' }}
+        shell: bash
+        env:
+          TEST_PROFILE: ${{ steps.claim.outputs.test_profile }}
+          INPUTS_JSON: ${{ steps.claim.outputs.inputs_json }}
+        run: |
+          set -Eeuo pipefail
+          test "${TEST_PROFILE}" = delete || {
+            echo "maintenance.ci-log-delete supports only the delete profile" >&2
+            exit 2
+          }
+          python3 - <<'PY_VALIDATE_CI_LOG_DELETE'
+          import importlib.util
+          import json
+          import os
+          import re
+          import uuid
+
+          try:
+              inputs = json.loads(os.environ["INPUTS_JSON"])
+          except (KeyError, json.JSONDecodeError) as exc:
+              raise SystemExit("maintenance.ci-log-delete inputs must be one JSON object") from exc
+          required = {
+              "source_ci_run_id",
+              "source_workflow_key",
+              "source_test_profile",
+              "source_external_run_id",
+              "source_external_run_attempt",
+          }
+          if not isinstance(inputs, dict) or set(inputs) != required:
+              raise SystemExit("maintenance.ci-log-delete requires exactly the bounded source-run identity fields")
+          try:
+              uuid.UUID(inputs["source_ci_run_id"])
+          except (AttributeError, TypeError, ValueError) as exc:
+              raise SystemExit("source_ci_run_id must be one UUID") from exc
+          workflow = inputs["source_workflow_key"]
+          profile = inputs["source_test_profile"]
+          if not isinstance(workflow, str) or re.fullmatch(r"[a-z][a-z0-9.-]{0,127}", workflow) is None:
+              raise SystemExit("source_workflow_key is invalid")
+          if not isinstance(profile, str) or re.fullmatch(r"[a-z][a-z0-9-]{0,63}", profile) is None:
+              raise SystemExit("source_test_profile is invalid")
+          run_id = inputs["source_external_run_id"]
+          attempt = inputs["source_external_run_attempt"]
+          for name, value in (("source_external_run_id", run_id), ("source_external_run_attempt", attempt)):
+              if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 9223372036854775807:
+                  raise SystemExit(f"{name} must be one positive bounded integer")
+
+          spec = importlib.util.spec_from_file_location("ci_log_delete", "scripts/ci/ci_log_delete.py")
+          if spec is None or spec.loader is None:
+              raise SystemExit("unable to load fixed CI-log cleanup implementation")
+          module = importlib.util.module_from_spec(spec)
+          import sys
+          sys.modules[spec.name] = module
+          spec.loader.exec_module(module)
+          module.expected_log_filenames(workflow, profile, run_id, attempt)
+          PY_VALIDATE_CI_LOG_DELETE
+
       - name: Validate branch deletion request
         if: ${{ steps.claim.outputs.workflow_key == 'maintenance.branch-delete' }}
         shell: bash
@@ -606,6 +664,83 @@ jobs:
       build_context: ${{ fromJSON(needs.request.outputs.inputs_json).build_context }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
+
+  ci_log_delete:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'maintenance.ci-log-delete' && needs.request.outputs.test_profile == 'delete' }}
+    concurrency:
+      group: central-ci-maintenance-ci-log-delete-${{ inputs.active_key }}
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Mark Agent State cleanup run as running
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: start
+          ci_run_id: ${{ inputs.ci_run_id }}
+
+      - name: Check out exact cleanup implementation
+        uses: actions/checkout@v4
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.sha }}
+          path: .ciw
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact cleanup implementation
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git -C .ciw rev-parse HEAD)" = "${GITHUB_SHA}"
+          test -z "$(git -C .ciw status --porcelain=v1 --untracked-files=all)"
+
+      - id: delete
+        name: Delete exact expired private CI logs
+        continue-on-error: true
+        shell: bash
+        env:
+          REQUEST_REPOSITORY: ${{ needs.request.outputs.repository }}
+          REQUEST_REF: ${{ needs.request.outputs.ref }}
+          INPUTS_JSON: ${{ needs.request.outputs.inputs_json }}
+          GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          source_workflow_key="$(jq -er '.source_workflow_key' <<<"${INPUTS_JSON}")"
+          source_test_profile="$(jq -er '.source_test_profile' <<<"${INPUTS_JSON}")"
+          source_external_run_id="$(jq -er '.source_external_run_id' <<<"${INPUTS_JSON}")"
+          source_external_run_attempt="$(jq -er '.source_external_run_attempt' <<<"${INPUTS_JSON}")"
+          python3 .ciw/scripts/ci/ci_log_delete.py \
+            --repository "${REQUEST_REPOSITORY}" \
+            --ref "${REQUEST_REF}" \
+            --source-workflow-key "${source_workflow_key}" \
+            --source-test-profile "${source_test_profile}" \
+            --source-external-run-id "${source_external_run_id}" \
+            --source-external-run-attempt "${source_external_run_attempt}"
+
+      - name: Finish Agent State cleanup run
+        if: ${{ always() }}
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: finish
+          ci_run_id: ${{ inputs.ci_run_id }}
+          status: ${{ steps.delete.outcome == 'success' && 'succeeded' || 'failed' }}
+          error_summary: ${{ steps.delete.outcome == 'success' && '' || 'Private CI-log deletion failed; inspect the GitHub Actions job output.' }}
+
+      - name: Propagate cleanup failure
+        if: ${{ steps.delete.outcome != 'success' }}
+        shell: bash
+        run: exit 1
 
   branch_delete:
     needs: request
