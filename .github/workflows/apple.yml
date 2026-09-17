@@ -994,6 +994,15 @@ jobs:
 
           is_ios_targeted_infrastructure_launch_failure() {
             local attempt_log="$1"
+            local pre_xctest_bootstrap=false
+            if grep -Eqi 'Early unexpected exit, operation never finished bootstrapping|before establishing connection' "${attempt_log}" &&
+              ! grep -Eq 'Test Case .+ started|XCTAssert[A-Za-z0-9_]* failed|(^|[[:space:]])(fatal error:|Fatal error:)|Terminating app due to uncaught exception|EXC_(BAD_ACCESS|CRASH|BREAKPOINT)' "${attempt_log}"; then
+              pre_xctest_bootstrap=true
+            fi
+            if test "${pre_xctest_bootstrap}" = true; then
+              printf 'Pre-XCTest test-host bootstrap infrastructure failure detected.\n' >> "${CI_LOG}"
+              return 0
+            fi
             if grep -Eq 'XCTAssert[A-Za-z0-9_]* failed|(^|[[:space:]])(fatal error:|Fatal error:)|Terminating app due to uncaught exception|EXC_(BAD_ACCESS|CRASH|BREAKPOINT)|signal SIG[A-Z]+|Test Case .+ crashed' "${attempt_log}"; then
               printf 'Product XCTest failure evidence detected; simulator retry suppressed.\n' >> "${CI_LOG}"
               return 1
