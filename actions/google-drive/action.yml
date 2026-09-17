@@ -442,7 +442,7 @@ runs:
         PY_VIS
         )"
             test "${contains_created}" = true || continue
-            if test "${DRIVE_FRESH_OBJECT}" = true; then
+            if test "${DRIVE_FRESH_OBJECT:-false}" = true; then
               printf '%s' "${created_id}"
               return 0
             fi
