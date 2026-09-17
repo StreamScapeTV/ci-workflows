@@ -283,6 +283,45 @@ capture before {safe_expansion} after
         self.assertNotIn("archivePath", testflight_block)
         self.assertNotIn("exportArchive", testflight_block)
 
+    def test_tagged_testflight_release_uses_exact_tag_then_post_success_build_only_transport(self) -> None:
+        steps = self.workflow["jobs"]["execute"]["steps"]
+        by_name = {step.get("name"): step for step in steps if step.get("name")}
+        checkout = by_name["Check out source"]
+        self.assertEqual(
+            checkout["with"]["ref"],
+            "${{ inputs.test_profile == 'screenshot-review' && needs.plan.outputs.screenshot_source_sha || inputs.source_is_tag && format('refs/tags/{0}', inputs.ref) || inputs.ref || github.sha }}",
+        )
+        prepare = by_name["Prepare fixed TestFlight release context"]["run"]
+        self.assertIn("BUILD_NUMBER < 9999999999", prepare)
+
+        preflight = by_name["Preflight tag-driven Apple post-publication bump"]
+        self.assertEqual(preflight["if"], "${{ inputs.test_profile == 'testflight' && inputs.source_is_tag }}")
+        self.assertIn('wrapper="scripts/ci/advance-mobile-build.sh"', preflight["run"])
+        self.assertIn('git ls-files --error-unmatch -- "${wrapper}"', preflight["run"])
+        self.assertIn("default_branch", preflight["run"])
+
+        token = by_name["Create post-publication Apple build bump token"]
+        self.assertIn("steps.commands.outcome == 'success'", token["if"])
+        self.assertIn("steps.testflight_cleanup.outcome == 'success'", token["if"])
+        self.assertEqual(token["with"]["permission-contents"], "write")
+        bump_checkout = by_name["Check out current Apple development branch for post-publication bump"]
+        self.assertEqual(bump_checkout["with"]["ref"], "${{ steps.mobile_bump_contract.outputs.default_branch }}")
+        self.assertFalse(bump_checkout["with"]["persist-credentials"])
+        bump = by_name["Advance and publish next Apple build number"]["run"]
+        self.assertIn("CI_MOBILE_RELEASE_VERSION", bump)
+        self.assertIn("CI_MOBILE_RELEASE_BUILD_NUMBER", bump)
+        self.assertIn("CI_MOBILE_BUMP_WORKTREE", bump)
+        self.assertIn("already advanced after the accepted release", bump)
+        self.assertIn("changed more than one tracked product file", bump)
+        self.assertIn("development branch moved after TestFlight accepted the release", bump)
+        self.assertIn("push --porcelain", bump)
+        self.assertNotIn("--force", bump)
+        report = by_name["Report post-publication TestFlight bump failure"]
+        self.assertIn("steps.commands.outcome == 'success'", report["if"])
+        self.assertIn("without re-uploading it", report["run"])
+        scrub = by_name["Scrub configured CI secrets from private log"]
+        self.assertEqual(scrub["env"]["CI_SECRET_MOBILE_BUMP_TOKEN"], "${{ steps.mobile_bump_token.outputs.token }}")
+
     def test_testflight_wrapper_validation_executes_fail_closed(self) -> None:
         execute_steps = self.workflow["jobs"]["execute"]["steps"]
         command_script = next(

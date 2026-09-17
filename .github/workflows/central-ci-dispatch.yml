@@ -86,8 +86,8 @@ jobs:
                   raise SystemExit("release.android tag must match <marketing-version>_<positive-build> without a v prefix")
               release_version = match.group("version")
               build_number = match.group("build")
-              if int(build_number) > 2100000000:
-                  raise SystemExit("release.android tag build exceeds the maximum Android versionCode 2100000000")
+              if int(build_number) >= 2100000000:
+                  raise SystemExit("release.android tag build must be below 2100000000 so the post-publication next versionCode remains valid")
               normalized_inputs = {"build_number": build_number}
           elif workflow == "release.apple":
               if profile == "testflight":
@@ -95,7 +95,10 @@ jobs:
                   if match is None:
                       raise SystemExit("release.apple/testflight tag must match <marketing-version>_<positive-build> without a v prefix")
                   release_version = match.group("version")
-                  normalized_inputs = {"build_number": match.group("build")}
+                  build_number = match.group("build")
+                  if int(build_number) >= 9999999999:
+                      raise SystemExit("release.apple/testflight tag build must leave room for the next bounded build number")
+                  normalized_inputs = {"build_number": build_number}
               elif profile in {"binary-package", "swiftpm-package"}:
                   normalized_inputs = {}
               else:
@@ -625,6 +628,7 @@ jobs:
     with:
       repository: ${{ needs.request.outputs.repository }}
       ref: ${{ needs.request.outputs.ref }}
+      source_is_tag: ${{ needs.request.outputs.is_tag == 'true' }}
       build_number: ${{ fromJSON(needs.request.outputs.inputs_json).build_number }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets:

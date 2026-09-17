@@ -104,12 +104,21 @@ class TagDrivenReleaseTests(unittest.TestCase):
                     completed, _, _ = self.run_resolver(workflow_key, profile, tag)
                     self.assertNotEqual(completed.returncode, 0)
 
-    def test_android_tag_rejects_version_code_above_platform_max(self) -> None:
+    def test_android_tag_reserves_one_version_code_for_post_publication_bump(self) -> None:
+        for build in ("2100000000", "2100000001"):
+            with self.subTest(build=build):
+                completed, _, _ = self.run_resolver(
+                    "release.android", "play", f"1.0.0_{build}"
+                )
+                self.assertNotEqual(completed.returncode, 0)
+                self.assertIn("post-publication next versionCode", completed.stderr)
+
+    def test_apple_tag_reserves_one_bounded_build_for_post_publication_bump(self) -> None:
         completed, _, _ = self.run_resolver(
-            "release.android", "play", "1.0.0_2100000001"
+            "release.apple", "testflight", "1.0.0_9999999999"
         )
         self.assertNotEqual(completed.returncode, 0)
-        self.assertIn("maximum Android versionCode", completed.stderr)
+        self.assertIn("leave room for the next bounded build number", completed.stderr)
 
     def test_tag_release_rejects_legacy_tag_as_build_number_inputs(self) -> None:
         for workflow_key, profile, tag, raw in (

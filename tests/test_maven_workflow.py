@@ -26,7 +26,7 @@ class MavenWorkflowTests(unittest.TestCase):
         call = self.workflow["on"]["workflow_call"]
         self.assertEqual(
             set(call["inputs"]),
-            {"repository", "ref", "build_number", "ci_run_id", "upload_private_log"},
+            {"repository", "ref", "source_is_tag", "build_number", "ci_run_id", "upload_private_log"},
         )
         self.assertEqual(
             set(call["secrets"]),
@@ -72,7 +72,10 @@ class MavenWorkflowTests(unittest.TestCase):
     def test_source_admission_and_fixed_wrapper_contract(self) -> None:
         checkout = self.step("Check out source")
         self.assertEqual(checkout["with"]["repository"], "${{ inputs.repository || github.repository }}")
-        self.assertEqual(checkout["with"]["ref"], "${{ inputs.ref || github.sha }}")
+        self.assertEqual(
+            checkout["with"]["ref"],
+            "${{ inputs.source_is_tag && format('refs/tags/{0}', inputs.ref) || inputs.ref || github.sha }}",
+        )
         self.assertFalse(checkout["with"]["persist-credentials"])
 
         identity = self.step("Resolve observed source SHA")
@@ -187,9 +190,10 @@ class MavenWorkflowTests(unittest.TestCase):
             "${{ needs.request.outputs.workflow_key == 'release.maven' && needs.request.outputs.test_profile == 'publish' }}",
         )
         self.assertEqual(job["uses"], "./.github/workflows/maven.yml")
-        self.assertEqual(set(job["with"]), {"repository", "ref", "build_number", "ci_run_id"})
+        self.assertEqual(set(job["with"]), {"repository", "ref", "source_is_tag", "build_number", "ci_run_id"})
         self.assertEqual(job["with"]["repository"], "${{ needs.request.outputs.repository }}")
         self.assertEqual(job["with"]["ref"], "${{ needs.request.outputs.ref }}")
+        self.assertEqual(job["with"]["source_is_tag"], "${{ needs.request.outputs.is_tag == 'true' }}")
         self.assertEqual(
             job["with"]["build_number"],
             "${{ fromJSON(needs.request.outputs.inputs_json).build_number }}",
