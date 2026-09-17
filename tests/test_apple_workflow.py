@@ -1005,7 +1005,7 @@ CURRENT_PROJECT_VERSION = 1;
         checkout = by_name["Check out source"]
         self.assertEqual(
             checkout["with"]["ref"],
-            "${{ inputs.test_profile == 'screenshot-review' && needs.plan.outputs.screenshot_source_sha || inputs.ref || github.sha }}",
+            "${{ inputs.test_profile == 'screenshot-review' && needs.plan.outputs.screenshot_source_sha || inputs.source_is_tag && format('refs/tags/{0}', inputs.ref) || inputs.ref || github.sha }}",
         )
         observed = by_name["Resolve observed source SHA"]
         self.assertEqual(
