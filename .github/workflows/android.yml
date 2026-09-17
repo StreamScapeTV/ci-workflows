@@ -998,8 +998,7 @@ jobs:
         if: >-
           ${{ inputs.test_profile != 'smoke'
               && inputs.test_profile != 'build'
-              && inputs.test_profile != 'test'
-              && inputs.test_profile != 'emulator' }}
+              && inputs.test_profile != 'test' }}
         uses: StreamScapeTV/ci-workflows/actions/private-git@main
         env:
           TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
