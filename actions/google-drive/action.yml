@@ -387,7 +387,10 @@ runs:
         reconcile_duplicate_manifest_files() {
           response="$1"
           candidate_ids_json="$(printf '%s' "${response}" | python3 -c 'import json,sys; files=json.load(sys.stdin).get("files", []); print(json.dumps([v.get("id") for v in files], separators=(",", ":")))')"
-          mapfile -t candidate_rows < <(printf '%s' "${response}" | manifest_candidate_rows)
+          candidate_rows=()
+          while IFS= read -r candidate_row; do
+            candidate_rows+=("${candidate_row}")
+          done < <(printf '%s' "${response}" | manifest_candidate_rows)
           test "${#candidate_rows[@]}" -ge 2
           for row in "${candidate_rows[@]}"; do
             candidate_id="${row%%$'\t'*}"
@@ -594,6 +597,24 @@ runs:
         PY
         }
 
+        file_digest() {
+          python3 - "$1" "$2" <<'PY'
+        import hashlib
+        import sys
+
+        algorithm, path = sys.argv[1:3]
+        digest = hashlib.new(algorithm)
+        with open(path, "rb") as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(block)
+        print(digest.hexdigest())
+        PY
+        }
+
+        stdin_sha256() {
+          python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())'
+        }
+
         ensure_folder() {
           parent="$1"
           name="$2"
@@ -719,7 +740,10 @@ runs:
         fi
 
         if test "${DRIVE_OPERATION}" = upload-directory; then
-          mapfile -t screenshot_files < <(find "${DRIVE_FILE_PATH}" -mindepth 1 -maxdepth 1 -type f -print | LC_ALL=C sort)
+          screenshot_files=()
+          while IFS= read -r screenshot_file; do
+            screenshot_files+=("${screenshot_file}")
+          done < <(find "${DRIVE_FILE_PATH}" -mindepth 1 -maxdepth 1 -type f -print | LC_ALL=C sort)
           test "${#screenshot_files[@]}" -ge 1 || { echo "direct screenshot evidence directory is empty" >&2; exit 2; }
           test "${#screenshot_files[@]}" -le 40 || { echo "direct screenshot evidence directory exceeds the bounded 40-file limit" >&2; exit 2; }
           directory_digest_input="${RUNNER_TEMP}/drive-screenshot-directory-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.sha256"
@@ -785,13 +809,13 @@ runs:
               return 1
             }
             if test -n "${expected_md5}"; then
-              actual_md5="$(md5sum "${source_path}" | awk '{print $1}')"
+              actual_md5="$(file_digest md5 "${source_path}")"
               test "${actual_md5}" = "${expected_md5}" || {
                 echo "direct screenshot Drive content verification failed" >&2
                 return 1
               }
             fi
-            sha256sum "${source_path}" >> "${directory_digest_input}"
+            printf '%s  %s\n' "$(file_digest sha256 "${source_path}")" "${source_path}" >> "${directory_digest_input}"
           }
 
           test $(( ${#screenshot_files[@]} % 2 )) -eq 0 || { echo "direct screenshot evidence must contain PNG/JSON pairs" >&2; exit 2; }
@@ -826,7 +850,7 @@ runs:
             esac
             upload_direct_screenshot_file "${evidence_path}" "${evidence_name}" "${evidence_mime}"
           done
-          directory_sha256="$(LC_ALL=C sort "${directory_digest_input}" | sha256sum | awk '{print $1}')"
+          directory_sha256="$(LC_ALL=C sort "${directory_digest_input}" | stdin_sha256)"
           printf 'file_id=\n' >> "${GITHUB_OUTPUT}"
           printf 'folder_id=%s\n' "${target_folder_id}" >> "${GITHUB_OUTPUT}"
           printf 'file_sha256=%s\n' "${directory_sha256}" >> "${GITHUB_OUTPUT}"
@@ -885,11 +909,11 @@ runs:
           actual_size="$(python3 -c 'import os,sys; print(os.path.getsize(sys.argv[1]))' "${download_tmp}")"
           test "${actual_size}" = "${expected_size}" || { echo "fixed Android screenshot cache byte-size verification failed" >&2; rm -f -- "${download_tmp}"; exit 1; }
           if test -n "${expected_md5}"; then
-            actual_md5="$(md5sum "${download_tmp}" | awk '{print $1}')"
+            actual_md5="$(file_digest md5 "${download_tmp}")"
             test "${actual_md5}" = "${expected_md5}" || { echo "fixed Android screenshot cache MD5 verification failed" >&2; rm -f -- "${download_tmp}"; exit 1; }
           fi
           mv -f -- "${download_tmp}" "${DRIVE_FILE_PATH}"
-          file_sha256="$(sha256sum "${DRIVE_FILE_PATH}" | awk '{print $1}')"
+          file_sha256="$(file_digest sha256 "${DRIVE_FILE_PATH}")"
           printf 'file_id=%s\n' "${existing_id}" >> "${GITHUB_OUTPUT}"
           printf 'folder_id=%s\n' "${target_folder_id}" >> "${GITHUB_OUTPUT}"
           printf 'file_sha256=%s\n' "${file_sha256}" >> "${GITHUB_OUTPUT}"
@@ -1134,4 +1158,4 @@ runs:
         fi
         printf 'file_id=%s\n' "${file_id}" >> "${GITHUB_OUTPUT}"
         printf 'folder_id=%s\n' "${target_folder_id}" >> "${GITHUB_OUTPUT}"
-        printf 'file_sha256=%s\n' "$(sha256sum "${upload_path}" | awk '{print $1}')" >> "${GITHUB_OUTPUT}"
+        printf 'file_sha256=%s\n' "$(file_digest sha256 "${upload_path}")" >> "${GITHUB_OUTPUT}"
