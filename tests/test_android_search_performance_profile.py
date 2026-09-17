@@ -374,6 +374,10 @@ class AndroidPlayReleaseContractTest(unittest.TestCase):
 
     def test_play_release_has_one_explicit_build_number_and_one_private_credential(self) -> None:
         call = self.workflow["on"]["workflow_call"]
+        self.assertIn("source_is_tag", call["inputs"])
+        self.assertFalse(call["inputs"]["source_is_tag"]["default"])
+        self.assertIn("release_version", call["inputs"])
+        self.assertEqual(call["inputs"]["release_version"]["default"], "")
         self.assertIn("build_number", call["inputs"])
         self.assertEqual(call["inputs"]["build_number"]["default"], "")
         self.assertIn("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64", call["secrets"])
@@ -386,6 +390,8 @@ class AndroidPlayReleaseContractTest(unittest.TestCase):
             self.assertIn(secret, call["secrets"])
         prepare = self.by_name["Prepare fixed Google Play draft release context"]
         self.assertEqual(prepare["if"], "${{ inputs.test_profile == 'play' }}")
+        self.assertEqual(prepare["env"]["SOURCE_IS_TAG"], "${{ inputs.source_is_tag }}")
+        self.assertEqual(prepare["env"]["RELEASE_VERSION"], "${{ inputs.release_version }}")
         self.assertEqual(prepare["env"]["BUILD_NUMBER"], "${{ inputs.build_number }}")
         self.assertEqual(
             prepare["env"]["GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64"],
@@ -394,6 +400,10 @@ class AndroidPlayReleaseContractTest(unittest.TestCase):
         script = prepare["run"]
         self.assertIn('[[ "${BUILD_NUMBER}" =~ ^[1-9][0-9]{0,9}$ ]]', script)
         self.assertIn("BUILD_NUMBER <= 2100000000", script)
+        self.assertIn("Tag-driven Google Play release requires a bounded dotted release_version", script)
+        self.assertIn("Manual Google Play release does not accept release_version", script)
+        self.assertIn("CI_ANDROID_PLAY_SOURCE_IS_TAG", script)
+        self.assertIn("CI_ANDROID_PLAY_RELEASE_VERSION", script)
         self.assertIn("base64 --decode", script)
         self.assertIn('chmod 600 "${credential_path}" "${keystore_path}"', script)
         self.assertIn("ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64", script)
@@ -412,6 +422,7 @@ class AndroidPlayReleaseContractTest(unittest.TestCase):
         script = commands["run"]
         self.assertIn("play)", script)
         self.assertIn('wrapper="${repository_root}/scripts/ci/run-android-play-release.sh"', script)
+        self.assertIn('case "${CI_ANDROID_PLAY_SOURCE_IS_TAG:-}" in true|false)', script)
         self.assertIn('test "${CI_ANDROID_PLAY_TRACK:-}" = internal', script)
         self.assertIn('test "${CI_ANDROID_PLAY_RELEASE_STATUS:-}" = draft', script)
         self.assertIn('test -f "${CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PATH}"', script)

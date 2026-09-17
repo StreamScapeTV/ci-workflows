@@ -30,6 +30,10 @@ name: Apple CI
         type: string
         required: false
         default: ""
+      release_version:
+        type: string
+        required: false
+        default: ""
       build_number:
         type: string
         required: false
@@ -123,10 +127,34 @@ jobs:
           TEST_SELECTORS: ${{ inputs.test_selectors }}
           TEST_PLATFORM: ${{ inputs.test_platform }}
           NATIVE_COMPONENT: ${{ inputs.native_component }}
+          SOURCE_IS_TAG: ${{ inputs.source_is_tag }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
           BUILD_NUMBER: ${{ inputs.build_number }}
           SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
         run: |
           set -Eeuo pipefail
+          if test "${TEST_PROFILE}" = testflight; then
+            case "${SOURCE_IS_TAG:-false}" in
+              true)
+                [[ "${RELEASE_VERSION:-}" =~ ^[0-9]+(\.[0-9]+){1,3}$ ]] || {
+                  echo "Tag-driven TestFlight release requires a bounded dotted release_version" >&2
+                  exit 2
+                }
+                ;;
+              false)
+                test -z "${RELEASE_VERSION:-}" || {
+                  echo "Manual TestFlight release does not accept release_version" >&2
+                  exit 2
+                }
+                ;;
+              *) echo "TestFlight source_is_tag must be true or false" >&2; exit 2 ;;
+            esac
+          else
+            test -z "${RELEASE_VERSION:-}" || {
+              echo "release_version is accepted only by testflight" >&2
+              exit 2
+            }
+          fi
           case "${TEST_PROFILE}" in
             screenshot-review)
               test "${SOURCE_REPOSITORY}" = "StreamScapeTV/iptv-apple" || {
@@ -662,6 +690,8 @@ jobs:
         if: ${{ inputs.test_profile == 'testflight' }}
         shell: bash
         env:
+          SOURCE_IS_TAG: ${{ inputs.source_is_tag }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
           BUILD_NUMBER: ${{ inputs.build_number }}
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
@@ -675,6 +705,25 @@ jobs:
             printf 'TestFlight build_number must be a bounded scalar release identifier.\n' >&2
             exit 2
           fi
+          case "${SOURCE_IS_TAG}" in
+            true)
+              [[ "${RELEASE_VERSION}" =~ ^[0-9]+(\.[0-9]+){1,3}$ ]] || {
+                printf 'Tag-driven TestFlight release requires a bounded dotted release_version.\n' >&2
+                exit 2
+              }
+              [[ "${BUILD_NUMBER}" =~ ^[1-9][0-9]{0,9}$ ]] || {
+                printf 'Tag-driven TestFlight build_number must be a positive decimal build.\n' >&2
+                exit 2
+              }
+              ;;
+            false)
+              test -z "${RELEASE_VERSION}" || {
+                printf 'Manual TestFlight release does not accept release_version.\n' >&2
+                exit 2
+              }
+              ;;
+            *) printf 'TestFlight source_is_tag must be true or false.\n' >&2; exit 2 ;;
+          esac
           test -n "${APP_STORE_CONNECT_KEY_ID}"
           test -n "${APP_STORE_CONNECT_API_KEY_P8_BASE64}"
 
@@ -703,6 +752,8 @@ jobs:
 
           test "$(stat -f '%Lp' "${key_path}")" = 600
           {
+            printf 'CI_APPLE_TESTFLIGHT_SOURCE_IS_TAG=%s\n' "${SOURCE_IS_TAG}"
+            printf 'CI_APPLE_TESTFLIGHT_RELEASE_VERSION=%s\n' "${RELEASE_VERSION}"
             printf 'CI_APPLE_TESTFLIGHT_BUILD_NUMBER=%s\n' "${BUILD_NUMBER}"
             printf 'CI_APPLE_TESTFLIGHT_AUTH_KEY_PATH=%s\n' "${key_path}"
             printf 'CI_APPLE_TESTFLIGHT_TEMP_DIR=%s\n' "${release_root}"
@@ -727,6 +778,8 @@ jobs:
           XTREAM_URL: ${{ inputs.test_profile == 'screenshot-review' && secrets.XTREAM_URL || '' }}
           XTREAM_USERNAME: ${{ inputs.test_profile == 'screenshot-review' && secrets.XTREAM_USERNAME || '' }}
           XTREAM_PASSWORD: ${{ inputs.test_profile == 'screenshot-review' && secrets.XTREAM_PASSWORD || '' }}
+          CI_APPLE_TESTFLIGHT_SOURCE_IS_TAG: ${{ env.CI_APPLE_TESTFLIGHT_SOURCE_IS_TAG }}
+          CI_APPLE_TESTFLIGHT_RELEASE_VERSION: ${{ env.CI_APPLE_TESTFLIGHT_RELEASE_VERSION }}
           CI_APPLE_TESTFLIGHT_TEAM_ID: ${{ inputs.test_profile == 'testflight' && secrets.APPLE_TEAM_ID || '' }}
           CI_APPLE_TESTFLIGHT_KEY_ID: ${{ inputs.test_profile == 'testflight' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
           CI_APPLE_TESTFLIGHT_ISSUER_ID: ${{ inputs.test_profile == 'testflight' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
@@ -850,6 +903,12 @@ jobs:
                 printf 'Apple TestFlight wrapper must be tracked source: %s\n' "${wrapper}" >&2
                 exit 2
               }
+              case "${CI_APPLE_TESTFLIGHT_SOURCE_IS_TAG:-}" in true|false) ;; *) echo "TestFlight source identity mode is unavailable" >&2; exit 2 ;; esac
+              if test "${CI_APPLE_TESTFLIGHT_SOURCE_IS_TAG}" = true; then
+                test -n "${CI_APPLE_TESTFLIGHT_RELEASE_VERSION:-}"
+              else
+                test -z "${CI_APPLE_TESTFLIGHT_RELEASE_VERSION:-}"
+              fi
               test -n "${CI_APPLE_TESTFLIGHT_BUILD_NUMBER:-}"
               test -n "${CI_APPLE_TESTFLIGHT_AUTH_KEY_PATH:-}"
               test -f "${CI_APPLE_TESTFLIGHT_AUTH_KEY_PATH}"

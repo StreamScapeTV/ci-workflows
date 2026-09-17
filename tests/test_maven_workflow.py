@@ -201,8 +201,11 @@ class MavenWorkflowTests(unittest.TestCase):
         self.assertEqual(job["secrets"]["MAVEN_PUBLISH_USERNAME"], "${{ secrets.FORGEJO_REGISTRY_USERNAME }}")
         self.assertEqual(job["secrets"]["MAVEN_PUBLISH_TOKEN"], "${{ secrets.FORGEJO_REGISTRY_TOKEN }}")
         self.assertEqual(job["secrets"]["MAVEN_READ_TOKEN"], "${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}")
-        self.assertEqual(job["concurrency"]["group"], "central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}")
-        self.assertTrue(job["concurrency"]["cancel-in-progress"])
+        self.assertEqual(
+            job["concurrency"]["group"],
+            "central-release-${{ needs.request.outputs.repository }}-${{ needs.request.outputs.workflow_key }}-${{ needs.request.outputs.test_profile }}",
+        )
+        self.assertFalse(job["concurrency"]["cancel-in-progress"])
 
         settlement = jobs["settle_cancelled"]
         self.assertIn("maven", settlement["needs"])

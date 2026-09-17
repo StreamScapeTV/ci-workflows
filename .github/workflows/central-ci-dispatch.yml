@@ -469,14 +469,15 @@ jobs:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'release.apple' && needs.request.outputs.test_profile == 'testflight' }}
     concurrency:
-      group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
-      cancel-in-progress: true
+      group: central-release-${{ needs.request.outputs.repository }}-${{ needs.request.outputs.workflow_key }}-${{ needs.request.outputs.test_profile }}
+      cancel-in-progress: false
     uses: ./.github/workflows/apple.yml
     with:
       repository: ${{ needs.request.outputs.repository }}
       ref: ${{ needs.request.outputs.ref }}
       source_is_tag: ${{ needs.request.outputs.is_tag == 'true' }}
       test_profile: testflight
+      release_version: ${{ needs.request.outputs.release_version }}
       build_number: ${{ fromJSON(needs.request.outputs.inputs_json).build_number }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
@@ -485,7 +486,7 @@ jobs:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'release.apple' && needs.request.outputs.test_profile == 'binary-package' }}
     concurrency:
-      group: central-ci-apple-binary-${{ inputs.active_key }}
+      group: central-release-${{ needs.request.outputs.repository }}-${{ needs.request.outputs.workflow_key }}-${{ needs.request.outputs.test_profile }}
       cancel-in-progress: false
     uses: ./.github/workflows/apple-binary.yml
     with:
@@ -512,7 +513,7 @@ jobs:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'release.apple' && needs.request.outputs.test_profile == 'swiftpm-package' }}
     concurrency:
-      group: central-ci-apple-swiftpm-${{ inputs.active_key }}
+      group: central-release-${{ needs.request.outputs.repository }}-${{ needs.request.outputs.workflow_key }}-${{ needs.request.outputs.test_profile }}
       cancel-in-progress: false
     uses: ./.github/workflows/apple-swiftpm.yml
     with:
@@ -558,13 +559,15 @@ jobs:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'release.android' && needs.request.outputs.test_profile == 'play' }}
     concurrency:
-      group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
-      cancel-in-progress: true
+      group: central-release-${{ needs.request.outputs.repository }}-${{ needs.request.outputs.workflow_key }}-${{ needs.request.outputs.test_profile }}
+      cancel-in-progress: false
     uses: ./.github/workflows/android.yml
     with:
       repository: ${{ needs.request.outputs.repository }}
       ref: ${{ needs.request.outputs.ref }}
+      source_is_tag: ${{ needs.request.outputs.is_tag == 'true' }}
       test_profile: play
+      release_version: ${{ needs.request.outputs.release_version }}
       build_number: ${{ fromJSON(needs.request.outputs.inputs_json).build_number }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
@@ -616,8 +619,8 @@ jobs:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'release.maven' && needs.request.outputs.test_profile == 'publish' }}
     concurrency:
-      group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
-      cancel-in-progress: true
+      group: central-release-${{ needs.request.outputs.repository }}-${{ needs.request.outputs.workflow_key }}-${{ needs.request.outputs.test_profile }}
+      cancel-in-progress: false
     uses: ./.github/workflows/maven.yml
     with:
       repository: ${{ needs.request.outputs.repository }}
