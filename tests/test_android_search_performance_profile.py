@@ -321,13 +321,25 @@ class AndroidGenericHostedProfileContractTest(unittest.TestCase):
         self.assertLess(script.index('build|test|emulator)'), script.index('test -x gradlew'))
         self.assertNotIn("streamscape-media", script.lower())
 
-    def test_generic_profiles_do_not_enter_iptv_private_git_or_cache_paths(self) -> None:
-        private_git = self.by_name["Connect to private Git service"]["if"]
+    def test_generic_hosted_profiles_keep_cache_scope_bounded_and_emulator_gets_private_maven_network(self) -> None:
+        private_git = self.by_name["Connect to private Git service"]
+        private_git_condition = private_git["if"]
         default_scope = self.by_name["Resolve IPTV Android default-branch cache scope"]["if"]
         branch_scope = self.by_name["Resolve IPTV Android non-default cache reader scope"]["if"]
+
+        for profile in ("build", "test"):
+            self.assertIn(f"inputs.test_profile != '{profile}'", private_git_condition)
+
+        self.assertNotIn("inputs.test_profile != 'emulator'", private_git_condition)
+        self.assertEqual(
+            private_git["uses"],
+            "StreamScapeTV/ci-workflows/actions/private-git@main",
+        )
+        self.assertEqual(private_git["env"]["TS_OAUTH_CLIENT_ID"], "${{ secrets.TS_OAUTH_CLIENT_ID }}")
+        self.assertEqual(private_git["env"]["TS_OAUTH_SECRET"], "${{ secrets.TS_OAUTH_SECRET }}")
+
         for profile in ("build", "test", "emulator"):
             token = f"inputs.test_profile != '{profile}'"
-            self.assertIn(token, private_git)
             self.assertIn(token, default_scope)
             self.assertIn(token, branch_scope)
 
