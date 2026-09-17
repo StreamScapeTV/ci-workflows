@@ -34,6 +34,14 @@ class GoogleDriveScreenshotFileTests(unittest.TestCase):
         self.assertIn("direct screenshot metadata is missing adjacent PNG", self.text)
         self.assertIn("screen id is not valid for the repository/review variant", self.text)
 
+    def test_directory_enumeration_is_macos_bash_32_compatible(self) -> None:
+        self.assertNotIn("mapfile -t screenshot_files", self.text)
+        self.assertNotIn("readarray", self.text)
+        self.assertIn("screenshot_files=()", self.text)
+        self.assertIn("while IFS= read -r screenshot_file; do", self.text)
+        self.assertIn('screenshot_files+=("${screenshot_file}")', self.text)
+        self.assertIn('LC_ALL=C sort', self.text)
+
     def test_legacy_zip_mode_remains_compatible_but_separate(self) -> None:
         for name in ("ios.zip", "tvos.zip", "phone-portrait.zip", "tv.zip"):
             self.assertIn(name, self.text)
