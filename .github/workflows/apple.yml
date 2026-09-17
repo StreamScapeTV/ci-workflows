@@ -1093,6 +1093,8 @@ jobs:
                 -scheme streamscapetv \
                 "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
                 -destination 'platform=macOS' \
+                -parallel-testing-enabled NO \
+                -skip-testing:streamscapetvUITests \
                 CODE_SIGNING_ALLOWED=NO
               ;;
             macos-targeted-tests)

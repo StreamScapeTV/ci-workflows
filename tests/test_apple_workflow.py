@@ -131,6 +131,8 @@ class AppleWorkflowTests(unittest.TestCase):
         self.assertNotIn("SelectedBackendStateSyncRoutingIntegrationTests", script)
         macos_full = script[script.index("macos-test)"):script.index("macos-targeted-tests)")]
         self.assertNotIn("-only-testing:", macos_full)
+        self.assertIn("-parallel-testing-enabled NO", macos_full)
+        self.assertIn("-skip-testing:streamscapetvUITests", macos_full)
 
     def test_optional_swiftpm_xcode_args_are_strict_bash_safe(self) -> None:
         execute = self.workflow["jobs"]["execute"]
