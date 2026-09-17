@@ -97,16 +97,25 @@ class ReleaseTagContractTests(unittest.TestCase):
             {"mode": "passthrough", "version": "", "build_number": ""},
         )
 
-    def test_tag_driven_mobile_release_requires_zero_semantic_inputs(self) -> None:
-        value = self.resolve(
-            "release.android",
-            "play",
-            is_tag=True,
-            ref="1.0.0_257",
-            inputs={"build_number": "257"},
-        )
-        self.assertEqual(value["mode"], "explicit")
-        self.assertEqual(value["build_number"], "257")
+    def test_tag_driven_mobile_release_rejects_legacy_build_number_input(self) -> None:
+        with self.assertRaises(release_tag_contract.ContractError):
+            self.resolve(
+                "release.android",
+                "play",
+                is_tag=True,
+                ref="1.0.0_257",
+                inputs={"build_number": "257"},
+            )
+
+    def test_tag_driven_maven_release_rejects_legacy_build_number_input(self) -> None:
+        with self.assertRaises(release_tag_contract.ContractError):
+            self.resolve(
+                "release.maven",
+                "publish",
+                is_tag=True,
+                ref="2.4.1",
+                inputs={"build_number": "2.4.1"},
+            )
 
     def test_cli_emits_bounded_json_identity(self) -> None:
         completed = subprocess.run(
