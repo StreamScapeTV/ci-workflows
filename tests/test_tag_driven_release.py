@@ -140,6 +140,93 @@ class TagDrivenReleaseTests(unittest.TestCase):
         self.assertEqual(values["release_version"], "2.4.1")
         self.assertEqual(normalized, '{"build_number":"2.4.1"}\n')
 
+    def test_store_bump_transport_rejects_wrapper_staged_change(self) -> None:
+        cases = (
+            (
+                ROOT / ".github/workflows/android.yml",
+                "Advance and publish next Android build number",
+                "Android mobile build bump wrapper must not stage product files",
+            ),
+            (
+                ROOT / ".github/workflows/apple.yml",
+                "Advance and publish next Apple build number",
+                "Apple mobile build bump wrapper must not stage product files",
+            ),
+        )
+        for workflow_path, step_name, expected_error in cases:
+            with self.subTest(workflow=workflow_path.name):
+                workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+                command = next(
+                    step["run"]
+                    for job in workflow["jobs"].values()
+                    for step in job.get("steps", [])
+                    if step.get("name") == step_name
+                )
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    root = Path(temp_dir)
+                    target = root / "central-mobile-build-bump"
+                    target.mkdir()
+                    subprocess.run(["git", "init", "-q", str(target)], check=True)
+                    subprocess.run(
+                        ["git", "-C", str(target), "config", "user.name", "CI Test"],
+                        check=True,
+                    )
+                    subprocess.run(
+                        ["git", "-C", str(target), "config", "user.email", "ci-test@example.invalid"],
+                        check=True,
+                    )
+                    version_file = target / "version.txt"
+                    version_file.write_text("1\n", encoding="utf-8")
+                    subprocess.run(["git", "-C", str(target), "add", "version.txt"], check=True)
+                    subprocess.run(
+                        ["git", "-C", str(target), "commit", "-q", "-m", "baseline"],
+                        check=True,
+                    )
+
+                    wrapper = root / "scripts/ci/advance-mobile-build.sh"
+                    wrapper.parent.mkdir(parents=True)
+                    wrapper.write_text(
+                        """#!/usr/bin/env bash
+set -Eeuo pipefail
+printf '2\\n' > \"${CI_MOBILE_BUMP_WORKTREE}/version.txt\"
+git -C \"${CI_MOBILE_BUMP_WORKTREE}\" add -- version.txt
+""",
+                        encoding="utf-8",
+                    )
+                    wrapper.chmod(0o755)
+                    ci_log = root / "ci.log"
+                    ci_log.write_text("", encoding="utf-8")
+
+                    completed = subprocess.run(
+                        ["bash", "-c", command],
+                        cwd=root,
+                        env={
+                            **os.environ,
+                            "GITHUB_WORKSPACE": str(root),
+                            "CI_LOG": str(ci_log),
+                            "TARGET_TOKEN": "not-used-before-staged-guard",
+                            "TARGET_BRANCH": "develop",
+                            "RELEASE_VERSION": "1.0.0",
+                            "RELEASE_BUILD_NUMBER": "1",
+                        },
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    self.assertNotEqual(completed.returncode, 0)
+                    self.assertIn(expected_error, completed.stderr)
+                    self.assertNotIn(
+                        "already advanced after the accepted release",
+                        ci_log.read_text(encoding="utf-8"),
+                    )
+                    staged = subprocess.run(
+                        ["git", "-C", str(target), "diff", "--cached", "--name-only"],
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                    ).stdout.strip()
+                    self.assertEqual(staged, "version.txt")
+
     def test_non_store_apple_package_profiles_keep_plain_tag_semantics(self) -> None:
         for profile in ("binary-package", "swiftpm-package"):
             with self.subTest(profile=profile):

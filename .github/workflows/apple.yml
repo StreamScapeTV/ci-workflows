@@ -1452,6 +1452,11 @@ jobs:
             echo "TestFlight publication succeeded, but the next development build-number update failed; rerun the same tag to repair without republishing" >&2
             exit 1
           fi
+          staged_paths="$(git -C "${target}" diff --cached --name-only)"
+          test -z "${staged_paths}" || {
+            echo "Apple mobile build bump wrapper must not stage product files; Central owns staging, commit, and push" >&2
+            exit 1
+          }
           test -z "$(git -C "${target}" ls-files --others --exclude-standard)" || {
             echo "Apple mobile build bump created unexpected untracked product files" >&2
             exit 1
