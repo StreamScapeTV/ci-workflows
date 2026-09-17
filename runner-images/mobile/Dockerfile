@@ -70,7 +70,7 @@ RUN set -eux; \
 
 FROM docker.io/library/eclipse-temurin:25-jdk-noble@sha256:3eb81ed94d8c1a34422f19f8188548bdf02cae69c91d0328afdbb7abed90f617 AS java-runtime
 
-FROM docker.io/library/node:26.8.1-trixie-slim@sha256:c0753125a3789977aefe869cbebccf70e3cfd7ea84ca48547458f02e4f1d7146 AS node-runtime
+FROM docker.io/library/node:26.9.0-trixie-slim@sha256:eb37f58646a901dc7727cf448cae36daaefaba79de33b5058dab79aa4c04aefb AS node-runtime
 RUN set -eux; \
     mkdir -p /node-root/usr; \
     cp -a /usr/local /node-root/usr/; \
