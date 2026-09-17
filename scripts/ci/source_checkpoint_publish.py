@@ -95,15 +95,18 @@ class DriveClient:
     api_root: str = "https://www.googleapis.com/drive/v3"
     max_pages: int = 10
 
-    def _request(self, path: str) -> bytes:
+    def _request(self, path: str, *, method: str = "GET") -> bytes:
         request = urllib.request.Request(
             self.api_root.rstrip("/") + path,
+            method=method,
             headers={"Authorization": f"Bearer {self.access_token}", "Accept": "application/json"},
         )
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
                 return response.read()
         except urllib.error.HTTPError as exc:
+            if method == "DELETE" and exc.code == 404:
+                return b""
             raise CheckpointPublishError(f"Google Drive checkpoint request was refused with HTTP {exc.code}") from None
         except urllib.error.URLError:
             raise CheckpointPublishError("Google Drive checkpoint request failed") from None
@@ -156,6 +159,11 @@ class DriveClient:
         if not DRIVE_FILE_ID.fullmatch(file_id or ""):
             raise CheckpointPublishError("Google Drive checkpoint file ID is invalid")
         return self._request(f"/files/{urllib.parse.quote(file_id, safe='')}?alt=media")
+
+    def delete(self, file_id: str) -> None:
+        if not DRIVE_FILE_ID.fullmatch(file_id or ""):
+            raise CheckpointPublishError("Google Drive checkpoint delete file ID is invalid")
+        self._request(f"/files/{urllib.parse.quote(file_id, safe='')}", method="DELETE")
 
 
 @dataclass(frozen=True)
@@ -279,6 +287,66 @@ def select_latest_checkpoint_file(
         raise CheckpointPublishError("Google Drive checkpoint folder contains duplicate checkpoint sequence")
     sequence = max(by_sequence)
     return sequence, by_sequence[sequence][0]
+
+
+def consumed_checkpoint_files(
+    children: list[dict[str, Any]], *, repository: str, branch: str, through_sequence: int
+) -> list[tuple[int, dict[str, Any]]]:
+    if not 1 <= through_sequence <= 999999:
+        raise CheckpointPublishError("checkpoint cleanup sequence is outside six-digit positive range")
+    prefix = checkpoint_prefix(repository, branch)
+    pattern = re.compile(re.escape(prefix) + r"([0-9]{6})\.zip\Z")
+    consumed: list[tuple[int, dict[str, Any]]] = []
+    for child in children:
+        name = child.get("name")
+        if not isinstance(name, str) or not name.startswith(prefix):
+            continue
+        match = pattern.fullmatch(name)
+        if match is None:
+            raise CheckpointPublishError("Google Drive checkpoint folder contains malformed matching checkpoint filename")
+        sequence = int(match.group(1))
+        if sequence < 1:
+            raise CheckpointPublishError("Google Drive checkpoint sequence must be positive")
+        if child.get("mimeType") == FOLDER_MIME:
+            raise CheckpointPublishError("Google Drive checkpoint sequence resolves to a folder")
+        file_id = child.get("id")
+        if not isinstance(file_id, str) or not DRIVE_FILE_ID.fullmatch(file_id):
+            raise CheckpointPublishError("Google Drive checkpoint cleanup found invalid file identity")
+        if sequence <= through_sequence:
+            consumed.append((sequence, child))
+    return sorted(consumed, key=lambda item: (item[0], item[1]["name"], item[1]["id"]))
+
+
+def cleanup_consumed_checkpoints(
+    client: DriveClient,
+    *,
+    root_folder_id: str,
+    repository: str,
+    branch: str,
+    through_sequence: int,
+) -> int:
+    if not DRIVE_FILE_ID.fullmatch(root_folder_id or ""):
+        raise CheckpointPublishError("Google Drive repositories root folder ID is invalid")
+    repository_name = repository.rsplit("/", 1)[1]
+    repository_folder = _unique(client.exact_folders(root_folder_id, repository_name), "repository folder")
+    ref_folder = _unique(client.exact_folders(repository_folder["id"], branch), "ref folder")
+    consumed = consumed_checkpoint_files(
+        client.children(ref_folder["id"]),
+        repository=repository,
+        branch=branch,
+        through_sequence=through_sequence,
+    )
+    for _, value in consumed:
+        client.delete(value["id"])
+    remaining = consumed_checkpoint_files(
+        client.children(ref_folder["id"]),
+        repository=repository,
+        branch=branch,
+        through_sequence=through_sequence,
+    )
+    if remaining:
+        raise CheckpointPublishError("consumed Google Drive checkpoints remain after bounded cleanup")
+    return len(consumed)
 
 
 def load_latest_checkpoint(
@@ -491,6 +559,12 @@ def main() -> int:
     materialize.add_argument("--expected-head", required=True)
     materialize.add_argument("--expected-tree", required=True)
 
+    cleanup = sub.add_parser("cleanup-consumed")
+    cleanup.add_argument("--repository", required=True)
+    cleanup.add_argument("--branch", required=True)
+    cleanup.add_argument("--through-sequence", required=True, type=_positive_int)
+    cleanup.add_argument("--api-root", default="https://www.googleapis.com/drive/v3")
+
     args = parser.parse_args()
     try:
         if args.command == "validate":
@@ -536,6 +610,20 @@ def main() -> int:
             materialize_checkpoint(Path(args.archive), Path(args.worktree))
             tree = stage_and_verify_tree(Path(args.worktree), expected_head=args.expected_head, expected_tree=args.expected_tree)
             print(tree)
+            return 0
+        if args.command == "cleanup-consumed":
+            token = os.environ.get("GOOGLE_DRIVE_ACCESS_TOKEN", "")
+            root = os.environ.get("GOOGLE_DRIVE_ROOT_FOLDER_ID", "")
+            if not token:
+                raise CheckpointPublishError("GOOGLE_DRIVE_ACCESS_TOKEN is required")
+            deleted = cleanup_consumed_checkpoints(
+                DriveClient(token, args.api_root),
+                root_folder_id=root,
+                repository=args.repository,
+                branch=args.branch,
+                through_sequence=args.through_sequence,
+            )
+            print(json.dumps({"deleted_checkpoints": deleted}, sort_keys=True, separators=(",", ":")))
             return 0
         raise AssertionError(args.command)
     except CheckpointPublishError as exc:

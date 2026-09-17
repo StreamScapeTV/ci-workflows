@@ -270,6 +270,27 @@ jobs:
           test "${remote_tree}" = "${EXPECTED_TREE}" || { echo 'GitHub remote tree does not equal checkpoint tree' >&2; exit 5; }
           printf 'commit_sha=%s\nremote_tree=%s\n' "${published_head}" "${remote_tree}" >> "${GITHUB_OUTPUT}"
 
+      - id: checkpoint_cleanup
+        name: Delete consumed numbered Drive checkpoints
+        shell: bash
+        env:
+          GOOGLE_DRIVE_ACCESS_TOKEN: ${{ steps.drive.outputs.access_token }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+          TARGET_REPOSITORY: ${{ inputs.repository }}
+          TARGET_BRANCH: ${{ inputs.branch }}
+          CHECKPOINT_SEQUENCE: ${{ steps.checkpoint.outputs.checkpoint_sequence }}
+        run: |
+          set -Eeuo pipefail
+          result="$(python3 scripts/ci/source_checkpoint_publish.py cleanup-consumed \
+            --repository "${TARGET_REPOSITORY}" \
+            --branch "${TARGET_BRANCH}" \
+            --through-sequence "${CHECKPOINT_SEQUENCE}")"
+          python3 - "${result}" <<'PY' >> "${GITHUB_OUTPUT}"
+          import json,sys
+          value=json.loads(sys.argv[1])
+          print("deleted_checkpoints=" + str(value["deleted_checkpoints"]))
+          PY
+
       - id: record_source
         name: Record published source SHA
         uses: ./actions/agent-state
@@ -293,6 +314,7 @@ jobs:
           CHECKPOINT_SEQUENCE: ${{ steps.checkpoint.outputs.checkpoint_sequence }}
           CHECKPOINT_FILENAME: ${{ steps.checkpoint.outputs.checkpoint_filename }}
           PUBLICATION_ACTION: ${{ steps.remote.outputs.action }}
+          DELETED_CHECKPOINTS: ${{ steps.checkpoint_cleanup.outputs.deleted_checkpoints }}
         run: |
           {
             printf 'Published latest numbered Drive full-tree checkpoint.\n'
@@ -303,6 +325,7 @@ jobs:
             printf -- '- published commit: `%s`\n' "${PUBLISHED_COMMIT}"
             printf -- '- published tree: `%s`\n' "${PUBLISHED_TREE}"
             printf -- '- Drive archive SHA-256: `%s`\n' "${ARCHIVE_SHA256}"
+            printf -- '- consumed Drive checkpoints deleted: `%s`\n' "${DELETED_CHECKPOINTS}"
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - id: cleanup

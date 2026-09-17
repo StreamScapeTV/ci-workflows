@@ -14,6 +14,8 @@ from scripts.ci.source_checkpoint_publish import (
     CheckpointPublishError,
     GitHubClient,
     checkpoint_filename,
+    cleanup_consumed_checkpoints,
+    consumed_checkpoint_files,
     load_latest_checkpoint,
     materialize_checkpoint,
     select_latest_checkpoint_file,
@@ -63,6 +65,7 @@ class FakeDrive:
     def __init__(self, archive: bytes, *, children=None):
         self.archive = archive
         self._children = children
+        self.deleted = []
 
     def exact_folders(self, parent: str, name: str):
         if parent == "root_folder_12345" and name == "example":
@@ -75,7 +78,7 @@ class FakeDrive:
         if parent != "ref_folder_12345":
             raise AssertionError(parent)
         if self._children is not None:
-            return self._children
+            return [value for value in self._children if value["id"] not in self.deleted]
         return [
             {"id": "manifest_file_12345", "name": "manifest.json", "mimeType": "application/json"},
             {"id": "base_archive_12345", "name": "example-feature%2Fcheckpoint.zip", "mimeType": "application/zip"},
@@ -88,6 +91,9 @@ class FakeDrive:
         if file_id.startswith("checkpoint_"):
             return self.archive
         raise AssertionError(file_id)
+
+    def delete(self, file_id: str):
+        self.deleted.append(file_id)
 
 
 class StubGitHubClient(GitHubClient):
@@ -177,6 +183,60 @@ class SourceCheckpointPublishTests(unittest.TestCase):
                     repository="StreamScapeTV/example", branch="feature/checkpoint",
                     expected_sha256="0"*64, expected_size_bytes=len(archive),
                 )
+
+    def test_consumed_checkpoint_cleanup_deletes_through_selected_and_preserves_newer(self) -> None:
+        prefix = "example-feature%2Fcheckpoint-checkpoint-"
+        children = [
+            {"id": "a"*10, "name": prefix + "000001.zip", "mimeType": "application/zip"},
+            {"id": "b"*10, "name": prefix + "000001.zip", "mimeType": "application/zip"},
+            {"id": "c"*10, "name": prefix + "000002.zip", "mimeType": "application/zip"},
+            {"id": "d"*10, "name": prefix + "000003.zip", "mimeType": "application/zip"},
+            {"id": "e"*10, "name": "manifest.json", "mimeType": "application/json"},
+        ]
+        drive = FakeDrive(b"unused", children=children)
+        deleted = cleanup_consumed_checkpoints(
+            drive, root_folder_id="root_folder_12345", repository="StreamScapeTV/example",
+            branch="feature/checkpoint", through_sequence=2,
+        )
+        self.assertEqual(deleted, 3)
+        self.assertEqual(drive.deleted, ["a"*10, "b"*10, "c"*10])
+        self.assertEqual(
+            [value["id"] for value in drive.children("ref_folder_12345") if value["name"].startswith(prefix)],
+            ["d"*10],
+        )
+        self.assertEqual(
+            cleanup_consumed_checkpoints(
+                drive, root_folder_id="root_folder_12345", repository="StreamScapeTV/example",
+                branch="feature/checkpoint", through_sequence=2,
+            ),
+            0,
+        )
+
+    def test_consumed_checkpoint_cleanup_fails_closed_on_malformed_matching_name(self) -> None:
+        prefix = "example-feature%2Fcheckpoint-checkpoint-"
+        children = [
+            {"id": "a"*10, "name": prefix + "000001.zip", "mimeType": "application/zip"},
+            {"id": "b"*10, "name": prefix + "2.zip", "mimeType": "application/zip"},
+        ]
+        drive = FakeDrive(b"unused", children=children)
+        with self.assertRaisesRegex(CheckpointPublishError, "malformed"):
+            cleanup_consumed_checkpoints(
+                drive, root_folder_id="root_folder_12345", repository="StreamScapeTV/example",
+                branch="feature/checkpoint", through_sequence=1,
+            )
+        self.assertEqual(drive.deleted, [])
+
+    def test_cleanup_selection_accepts_duplicate_consumed_sequences_but_not_newer(self) -> None:
+        prefix = "example-feature%2Fcheckpoint-checkpoint-"
+        values = consumed_checkpoint_files(
+            [
+                {"id": "a"*10, "name": prefix + "000002.zip", "mimeType": "application/zip"},
+                {"id": "b"*10, "name": prefix + "000002.zip", "mimeType": "application/zip"},
+                {"id": "c"*10, "name": prefix + "000003.zip", "mimeType": "application/zip"},
+            ],
+            repository="StreamScapeTV/example", branch="feature/checkpoint", through_sequence=2,
+        )
+        self.assertEqual([item[1]["id"] for item in values], ["a"*10, "b"*10])
 
     def test_remote_classification_publish_and_idempotent_repeat(self) -> None:
         expected_head = "a" * 40
@@ -290,6 +350,19 @@ class SourceCheckpointPublishTests(unittest.TestCase):
         for retired in (".patch", "patch-transport", "patch chain", "apply patch"):
             self.assertNotIn(retired, combined)
 
+
+    def test_workflow_deletes_consumed_checkpoints_only_after_exact_github_readback(self) -> None:
+        workflow = yaml.safe_load(WORKFLOW.read_text())
+        steps = workflow["jobs"]["publish"]["steps"]
+        names = [step.get("name") for step in steps]
+        verify_index = names.index("Verify exact GitHub head and remote tree readback")
+        cleanup_index = names.index("Delete consumed numbered Drive checkpoints")
+        self.assertLess(verify_index, cleanup_index)
+        cleanup = steps[cleanup_index]
+        self.assertNotIn("if", cleanup)
+        self.assertIn("cleanup-consumed", cleanup["run"])
+        self.assertIn("steps.checkpoint.outputs.checkpoint_sequence", str(cleanup["env"]["CHECKPOINT_SEQUENCE"]))
+        self.assertNotIn("always()", str(cleanup))
 
 if __name__ == "__main__":
     unittest.main()

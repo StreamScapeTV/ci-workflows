@@ -44,6 +44,8 @@ jobs:
           tests.test_google_drive_retry_policy
           tests.test_source_snapshot_delete
           tests.test_source_snapshot_delete_namespace
+          tests.test_source_snapshot_lifecycle
+          tests.test_source_snapshot_fresh_object_contract
           tests.test_source_checkpoint_publish
           tests.test_maven_workflow
           tests.test_apple_binary_workflow
