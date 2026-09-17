@@ -76,6 +76,11 @@ def parse_plain_version_tag(tag: str) -> ReleaseIdentity:
     return ReleaseIdentity(mode="version_tag", version=tag, build_number=tag)
 
 
+def _require_zero_tag_inputs(inputs: dict[str, Any]) -> None:
+    if inputs:
+        raise ContractError("tag-driven release accepts no semantic inputs; release identity comes only from the tag")
+
+
 def resolve_release_identity(
     *,
     workflow_key: str,
@@ -87,7 +92,8 @@ def resolve_release_identity(
     if workflow_key == "release.android":
         if profile != "play":
             raise ContractError("release.android supports only the play profile")
-        if is_tag and not inputs:
+        if is_tag:
+            _require_zero_tag_inputs(inputs)
             return parse_mobile_tag(ref, android=True)
         return ReleaseIdentity(
             mode="explicit",
@@ -97,7 +103,8 @@ def resolve_release_identity(
 
     if workflow_key == "release.apple":
         if profile == "testflight":
-            if is_tag and not inputs:
+            if is_tag:
+                _require_zero_tag_inputs(inputs)
                 return parse_mobile_tag(ref, android=False)
             return ReleaseIdentity(
                 mode="explicit",
@@ -113,7 +120,8 @@ def resolve_release_identity(
     if workflow_key == "release.maven":
         if profile != "publish":
             raise ContractError("release.maven supports only the publish profile")
-        if is_tag and not inputs:
+        if is_tag:
+            _require_zero_tag_inputs(inputs)
             return parse_plain_version_tag(ref)
         return ReleaseIdentity(
             mode="explicit",
