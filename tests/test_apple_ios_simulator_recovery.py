@@ -130,6 +130,32 @@ case \"${XCODEBUILD_SCENARIO:?}\" in
     printf '%s\\n' 'Error Domain=NSMachErrorDomain Code=-308 \"(ipc/mig) server died\"'
     exit 1
     ;;
+  pre_xctest_bootstrap_then_success)
+    if [[ "${count}" -eq 1 ]]; then
+      printf '%s\\n' 'Early unexpected exit, operation never finished bootstrapping'
+      printf '%s\\n' 'Test crashed with signal abrt before establishing connection'
+      exit 1
+    fi
+    ;;
+  pre_xctest_bootstrap_twice)
+    printf '%s\\n' 'Early unexpected exit, operation never finished bootstrapping'
+    printf '%s\\n' 'Test crashed with signal abrt before establishing connection'
+    exit 1
+    ;;
+  generic_sigabrt)
+    printf '%s\\n' 'Test crashed with signal SIGABRT'
+    exit 1
+    ;;
+  post_connection_crash)
+    printf '%s\\n' "Test Case '-[CatalogToolbarSmokeTests testMovies]' started."
+    printf '%s\\n' "Test Case '-[CatalogToolbarSmokeTests testMovies]' crashed with signal SIGABRT"
+    exit 1
+    ;;
+  bootstrap_text_with_crashed_case_no_started)
+    printf '%s\\n' 'Early unexpected exit, operation never finished bootstrapping'
+    printf '%s\\n' "Test Case '-[CatalogToolbarSmokeTests testMovies]' crashed with signal SIGABRT"
+    exit 1
+    ;;
   assertion_failure)
     printf '%s\\n' \"Test Case '-[CatalogToolbarSmokeTests testMovies]' failed (0.1 seconds)\"
     printf '%s\\n' 'XCTAssertEqual failed: expected value differs'
@@ -217,6 +243,42 @@ exit 0
         self.assertEqual(count, 2)
         self.assertEqual(private_log.count("===== ios-targeted-tests attempt="), 2)
         self.assertEqual(private_log.count("===== ios-targeted-simulator-diagnostics attempt="), 2)
+
+    def test_pre_xctest_bootstrap_abort_retries_once_and_can_recover(self) -> None:
+        result, private_log, count, _ = self._run("pre_xctest_bootstrap_then_success")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(count, 2)
+        self.assertIn("Pre-XCTest test-host bootstrap infrastructure failure detected.", private_log)
+        self.assertIn("ios-targeted-tests attempt=2", private_log)
+
+    def test_two_pre_xctest_bootstrap_aborts_stop_after_second_attempt(self) -> None:
+        result, private_log, count, _ = self._run("pre_xctest_bootstrap_twice")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(count, 2)
+        self.assertEqual(private_log.count("===== ios-targeted-tests attempt="), 2)
+        self.assertEqual(private_log.count("===== ios-targeted-simulator-diagnostics attempt="), 2)
+
+    def test_generic_sigabrt_without_bootstrap_evidence_is_never_retried(self) -> None:
+        result, private_log, count, _ = self._run("generic_sigabrt")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(count, 1)
+        self.assertIn("Product XCTest failure evidence detected; simulator retry suppressed.", private_log)
+        self.assertNotIn("ios-targeted-tests attempt=2", private_log)
+
+    def test_post_connection_crash_is_never_retried(self) -> None:
+        result, private_log, count, _ = self._run("post_connection_crash")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(count, 1)
+        self.assertIn("Product XCTest failure evidence detected; simulator retry suppressed.", private_log)
+        self.assertNotIn("ios-targeted-tests attempt=2", private_log)
+
+    def test_bootstrap_text_with_executed_crash_but_no_started_line_is_never_retried(self) -> None:
+        result, private_log, count, _ = self._run("bootstrap_text_with_crashed_case_no_started")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(count, 1)
+        self.assertIn("Product XCTest failure evidence detected; simulator retry suppressed.", private_log)
+        self.assertNotIn("Pre-XCTest test-host bootstrap infrastructure failure detected.", private_log)
+        self.assertNotIn("ios-targeted-tests attempt=2", private_log)
 
     def test_assertion_failure_is_never_retried(self) -> None:
         result, private_log, count, _ = self._run("assertion_failure")
