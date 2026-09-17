@@ -156,6 +156,11 @@ case \"${XCODEBUILD_SCENARIO:?}\" in
     printf '%s\\n' "Test Case '-[CatalogToolbarSmokeTests testMovies]' crashed with signal SIGABRT"
     exit 1
     ;;
+  bootstrap_text_with_other_exc_failure)
+    printf '%s\\n' 'Early unexpected exit, operation never finished bootstrapping'
+    printf '%s\\n' 'EXC_BAD_INSTRUCTION (code=EXC_I386_INVOP, subcode=0x0)'
+    exit 1
+    ;;
   assertion_failure)
     printf '%s\\n' \"Test Case '-[CatalogToolbarSmokeTests testMovies]' failed (0.1 seconds)\"
     printf '%s\\n' 'XCTAssertEqual failed: expected value differs'
@@ -274,6 +279,14 @@ exit 0
 
     def test_bootstrap_text_with_executed_crash_but_no_started_line_is_never_retried(self) -> None:
         result, private_log, count, _ = self._run("bootstrap_text_with_crashed_case_no_started")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(count, 1)
+        self.assertIn("Product XCTest failure evidence detected; simulator retry suppressed.", private_log)
+        self.assertNotIn("Pre-XCTest test-host bootstrap infrastructure failure detected.", private_log)
+        self.assertNotIn("ios-targeted-tests attempt=2", private_log)
+
+    def test_bootstrap_text_with_other_exc_failure_is_never_retried(self) -> None:
+        result, private_log, count, _ = self._run("bootstrap_text_with_other_exc_failure")
         self.assertEqual(result.returncode, 1)
         self.assertEqual(count, 1)
         self.assertIn("Product XCTest failure evidence detected; simulator retry suppressed.", private_log)
