@@ -22,7 +22,8 @@ jobs:
       is_tag: ${{ steps.claim.outputs.is_tag }}
       workflow_key: ${{ steps.claim.outputs.workflow_key }}
       test_profile: ${{ steps.claim.outputs.test_profile }}
-      inputs_json: ${{ steps.claim.outputs.inputs_json }}
+      inputs_json: ${{ steps.tag_release.outputs.inputs_json || steps.claim.outputs.inputs_json }}
+      release_version: ${{ steps.tag_release.outputs.release_version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -35,6 +36,86 @@ jobs:
         with:
           phase: claim
           ci_run_id: ${{ inputs.ci_run_id }}
+
+      - name: Resolve tag-driven release identity
+        id: tag_release
+        if: >-
+          ${{
+            steps.claim.outputs.is_tag == 'true' &&
+            (
+              steps.claim.outputs.workflow_key == 'release.android' ||
+              steps.claim.outputs.workflow_key == 'release.apple' ||
+              steps.claim.outputs.workflow_key == 'release.maven'
+            )
+          }}
+        shell: bash
+        env:
+          WORKFLOW_KEY: ${{ steps.claim.outputs.workflow_key }}
+          TEST_PROFILE: ${{ steps.claim.outputs.test_profile }}
+          REQUEST_REF: ${{ steps.claim.outputs.ref }}
+          INPUTS_JSON: ${{ steps.claim.outputs.inputs_json }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY_TAG_RELEASE'
+          from pathlib import Path
+          import json
+          import os
+          import re
+
+          workflow = os.environ.get("WORKFLOW_KEY", "")
+          profile = os.environ.get("TEST_PROFILE", "")
+          ref = os.environ.get("REQUEST_REF", "")
+          try:
+              raw_inputs = json.loads(os.environ.get("INPUTS_JSON", "{}"))
+          except json.JSONDecodeError as exc:
+              raise SystemExit("tag-driven release inputs must be one JSON object") from exc
+          if not isinstance(raw_inputs, dict):
+              raise SystemExit("tag-driven release inputs must be one JSON object")
+          if raw_inputs:
+              raise SystemExit("tag-driven release accepts no semantic inputs; release identity comes only from the tag")
+
+          normalized_inputs: dict[str, str] = {}
+          release_version = ""
+          mobile_pattern = re.compile(r"(?P<version>[0-9]+(?:\.[0-9]+){1,3})_(?P<build>[1-9][0-9]{0,9})")
+
+          if workflow == "release.android":
+              if profile != "play":
+                  raise SystemExit("release.android supports only the play profile")
+              match = mobile_pattern.fullmatch(ref)
+              if match is None:
+                  raise SystemExit("release.android tag must match <marketing-version>_<positive-build> without a v prefix")
+              release_version = match.group("version")
+              build_number = match.group("build")
+              if int(build_number) > 2100000000:
+                  raise SystemExit("release.android tag build exceeds the maximum Android versionCode 2100000000")
+              normalized_inputs = {"build_number": build_number}
+          elif workflow == "release.apple":
+              if profile == "testflight":
+                  match = mobile_pattern.fullmatch(ref)
+                  if match is None:
+                      raise SystemExit("release.apple/testflight tag must match <marketing-version>_<positive-build> without a v prefix")
+                  release_version = match.group("version")
+                  normalized_inputs = {"build_number": match.group("build")}
+              elif profile in {"binary-package", "swiftpm-package"}:
+                  normalized_inputs = {}
+              else:
+                  raise SystemExit("release.apple supports only testflight, binary-package and swiftpm-package profiles")
+          elif workflow == "release.maven":
+              if profile != "publish":
+                  raise SystemExit("release.maven supports only the publish profile")
+              if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}", ref) is None:
+                  raise SystemExit("release.maven tag must be one non-empty bounded release version")
+              release_version = ref
+              normalized_inputs = {"build_number": ref}
+          else:
+              raise SystemExit("unsupported tag-driven release workflow")
+
+          normalized_json = json.dumps(normalized_inputs, sort_keys=True, separators=(",", ":"))
+          Path(".central-tag-release-inputs.json").write_text(normalized_json + "\n", encoding="utf-8")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"inputs_json={normalized_json}", file=output)
+              print(f"release_version={release_version}", file=output)
+          PY_TAG_RELEASE
 
       - name: Validate native targeted test request
         if: ${{ steps.claim.outputs.workflow_key == 'validation.android' || steps.claim.outputs.workflow_key == 'validation.apple' }}
@@ -170,12 +251,14 @@ jobs:
             exit 2
           }
           python3 - <<'PY'
+          from pathlib import Path
           import json
           import os
           import re
 
+          raw_inputs = Path(".central-tag-release-inputs.json").read_text(encoding="utf-8") if Path(".central-tag-release-inputs.json").is_file() else os.environ["INPUTS_JSON"]
           try:
-              inputs = json.loads(os.environ["INPUTS_JSON"])
+              inputs = json.loads(raw_inputs)
           except (KeyError, json.JSONDecodeError) as exc:
               raise SystemExit("release.maven inputs must be one JSON object") from exc
           if not isinstance(inputs, dict) or set(inputs) != {"build_number"}:
@@ -310,12 +393,14 @@ jobs:
             exit 2
           }
           python3 - <<'PY_VALIDATE_ANDROID_RELEASE'
+          from pathlib import Path
           import json
           import os
           import re
 
+          raw_inputs = Path(".central-tag-release-inputs.json").read_text(encoding="utf-8") if Path(".central-tag-release-inputs.json").is_file() else os.environ["INPUTS_JSON"]
           try:
-              inputs = json.loads(os.environ["INPUTS_JSON"])
+              inputs = json.loads(raw_inputs)
           except (KeyError, json.JSONDecodeError) as exc:
               raise SystemExit("release.android inputs must be one JSON object") from exc
           if not isinstance(inputs, dict) or set(inputs) != {"build_number"}:
@@ -336,13 +421,15 @@ jobs:
         run: |
           set -Eeuo pipefail
           python3 - <<'PY_VALIDATE_APPLE_RELEASE'
+          from pathlib import Path
           import json
           import os
           import re
 
           profile = os.environ.get("TEST_PROFILE", "")
+          raw_inputs = Path(".central-tag-release-inputs.json").read_text(encoding="utf-8") if Path(".central-tag-release-inputs.json").is_file() else os.environ["INPUTS_JSON"]
           try:
-              inputs = json.loads(os.environ["INPUTS_JSON"])
+              inputs = json.loads(raw_inputs)
           except (KeyError, json.JSONDecodeError) as exc:
               raise SystemExit("release.apple inputs must be one JSON object") from exc
           if not isinstance(inputs, dict):
@@ -787,7 +874,7 @@ jobs:
               raise SystemExit("snapshot repository/ref must be non-empty")
           print(repository_name, f"{repository_name}-{ref_slug}.zip", sep="\t")
           PY_NAME
-          )
+          )"
           archive="${RUNNER_TEMP}/repository-snapshot.zip"
           manifest="${RUNNER_TEMP}/manifest.json"
           git -C source archive --format=zip --output="${archive}" HEAD
