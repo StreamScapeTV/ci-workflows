@@ -31,5 +31,6 @@ scripts:
   source_snapshot_delete: scripts/ci/source_snapshot_delete.py
   source_checkpoint_publish: scripts/ci/source_checkpoint_publish.py
   swiftpm_binary: scripts/ci/swiftpm_binary.py
+  release_tag_contract: scripts/ci/release_tag_contract.py
 services:
   runner_images: runner-images/
