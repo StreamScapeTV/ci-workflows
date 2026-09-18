@@ -205,11 +205,35 @@ jobs:
           permission-contents: read
           permission-metadata: read
 
+      - name: Resolve exact repository source ref
+        id: source_ref
+        shell: bash
+        env:
+          REQUESTED_REF: ${{ inputs.ref }}
+          REQUESTED_IS_TAG: ${{ inputs.source_is_tag }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${REQUESTED_REF}" || {
+            echo "repository-owned CI requires one non-empty branch or tag name" >&2
+            exit 2
+          }
+          case "${REQUESTED_IS_TAG}" in
+            false) namespace=refs/heads ;;
+            true) namespace=refs/tags ;;
+            *) echo "repository-owned CI source_is_tag must be true or false" >&2; exit 2 ;;
+          esac
+          full_ref="${namespace}/${REQUESTED_REF}"
+          git check-ref-format "${full_ref}" >/dev/null || {
+            echo "repository-owned CI requested branch/tag name is not a valid Git ref" >&2
+            exit 2
+          }
+          printf 'full_ref=%s\n' "${full_ref}" >> "${GITHUB_OUTPUT}"
+
       - name: Check out exact repository source
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.repository }}
-          ref: ${{ inputs.source_is_tag && format('refs/tags/{0}', inputs.ref) || inputs.ref }}
+          ref: ${{ steps.source_ref.outputs.full_ref }}
           token: ${{ steps.source.outputs.token }}
           path: source
           fetch-depth: 1

@@ -101,6 +101,51 @@ class RepositoryWorkflowTests(unittest.TestCase):
         ):
             self.assertNotIn(product_command, execute)
 
+    def test_source_ref_namespace_is_exact_for_same_named_branch_and_tag(self) -> None:
+        by_name = {
+            step.get("name"): step
+            for step in self.workflow["jobs"]["execute"]["steps"]
+            if step.get("name")
+        }
+        resolver = by_name["Resolve exact repository source ref"]
+        checkout = by_name["Check out exact repository source"]
+        self.assertEqual(checkout["with"]["ref"], "${{ steps.source_ref.outputs.full_ref }}")
+        script = resolver["run"]
+        self.assertIn("false) namespace=refs/heads", script)
+        self.assertIn("true) namespace=refs/tags", script)
+        self.assertIn('git check-ref-format "${full_ref}"', script)
+
+        def resolve(is_tag: str, ref: str) -> tuple[subprocess.CompletedProcess[str], str]:
+            with tempfile.TemporaryDirectory() as td:
+                output = Path(td) / "github-output"
+                output.write_text("", encoding="utf-8")
+                result = subprocess.run(
+                    ["bash", "-c", script],
+                    cwd=ROOT,
+                    env={
+                        **os.environ,
+                        "REQUESTED_REF": ref,
+                        "REQUESTED_IS_TAG": is_tag,
+                        "GITHUB_OUTPUT": str(output),
+                    },
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                return result, output.read_text(encoding="utf-8")
+
+        branch, branch_output = resolve("false", "same-name")
+        tag, tag_output = resolve("true", "same-name")
+        self.assertEqual(branch.returncode, 0, branch.stderr)
+        self.assertEqual(tag.returncode, 0, tag.stderr)
+        self.assertEqual(branch_output, "full_ref=refs/heads/same-name\n")
+        self.assertEqual(tag_output, "full_ref=refs/tags/same-name\n")
+        self.assertNotEqual(branch_output, tag_output)
+
+        invalid, _ = resolve("false", "bad..ref")
+        self.assertNotEqual(invalid.returncode, 0)
+        self.assertIn("not a valid Git ref", invalid.stderr)
+
     def test_entrypoint_is_tracked_regular_executable_and_cannot_escape_checkout(self) -> None:
         step = next(
             step
