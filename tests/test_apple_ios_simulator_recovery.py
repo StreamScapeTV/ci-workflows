@@ -39,6 +39,8 @@ class AppleIosSimulatorRecoveryTests(unittest.TestCase):
             "\\(ipc/mig\\) server died",
             "Failed to get background assertion for target app",
             "DebuggerLLDB\\.DebuggerVersionStore\\.StoreError",
+            "dyld(\\[[0-9]+\\])?: Library not loaded:",
+            "Deterministic product dependency loader failure evidence detected; simulator retry suppressed.",
             "===== ios-targeted-tests attempt=%s =====",
             "===== ios-targeted-simulator-diagnostics attempt=%s =====",
         ):
@@ -159,6 +161,22 @@ case \"${XCODEBUILD_SCENARIO:?}\" in
   bootstrap_text_with_other_exc_failure)
     printf '%s\\n' 'Early unexpected exit, operation never finished bootstrapping'
     printf '%s\\n' 'EXC_BAD_INSTRUCTION (code=EXC_I386_INVOP, subcode=0x0)'
+    exit 1
+    ;;
+  bootstrap_text_with_dyld_missing_dependency)
+    printf '%s\\n' 'Early unexpected exit, operation never finished bootstrapping'
+    printf '%s\\n' 'dyld[4242]: Library not loaded: @rpath/libexample_engine.dylib'
+    printf '%s\\n' '  Reason: tried: /tmp/libexample_engine.dylib (no such file)'
+    printf '%s\\n' 'Test crashed with signal abrt before establishing connection'
+    exit 1
+    ;;
+  dyld_missing_dependency)
+    printf '%s\\n' 'dyld: Library not loaded: @rpath/libexample_engine.dylib'
+    printf '%s\\n' '  Reason: tried: /tmp/libexample_engine.dylib (no such file)'
+    exit 1
+    ;;
+  generic_library_not_loaded_text)
+    printf '%s\\n' 'launcher error: library not loaded: @rpath/libexample_engine.dylib'
     exit 1
     ;;
   assertion_failure)
@@ -291,6 +309,34 @@ exit 0
         self.assertEqual(count, 1)
         self.assertIn("Product XCTest failure evidence detected; simulator retry suppressed.", private_log)
         self.assertNotIn("Pre-XCTest test-host bootstrap infrastructure failure detected.", private_log)
+        self.assertNotIn("ios-targeted-tests attempt=2", private_log)
+
+    def test_bootstrap_dyld_missing_dependency_is_never_retried(self) -> None:
+        result, private_log, count, _ = self._run("bootstrap_text_with_dyld_missing_dependency")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(count, 1)
+        self.assertIn(
+            "Deterministic product dependency loader failure evidence detected; simulator retry suppressed.",
+            private_log,
+        )
+        self.assertNotIn("Pre-XCTest test-host bootstrap infrastructure failure detected.", private_log)
+        self.assertNotIn("ios-targeted-tests attempt=2", private_log)
+
+    def test_dyld_missing_dependency_without_bootstrap_is_never_retried(self) -> None:
+        result, private_log, count, _ = self._run("dyld_missing_dependency")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(count, 1)
+        self.assertIn(
+            "Deterministic product dependency loader failure evidence detected; simulator retry suppressed.",
+            private_log,
+        )
+        self.assertNotIn("ios-targeted-tests attempt=2", private_log)
+
+    def test_generic_library_not_loaded_text_does_not_match_dyld_classification(self) -> None:
+        result, private_log, count, _ = self._run("generic_library_not_loaded_text")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(count, 1)
+        self.assertNotIn("Deterministic product dependency loader failure evidence detected", private_log)
         self.assertNotIn("ios-targeted-tests attempt=2", private_log)
 
     def test_assertion_failure_is_never_retried(self) -> None:

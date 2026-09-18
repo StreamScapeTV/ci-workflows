@@ -994,6 +994,10 @@ jobs:
 
           is_ios_targeted_infrastructure_launch_failure() {
             local attempt_log="$1"
+            if grep -Eq '(^|[[:space:]])dyld(\[[0-9]+\])?: Library not loaded:[[:space:]]+[^[:space:]]+' "${attempt_log}"; then
+              printf 'Deterministic product dependency loader failure evidence detected; simulator retry suppressed.\n' >> "${CI_LOG}"
+              return 1
+            fi
             local pre_xctest_bootstrap=false
             if grep -Eqi 'Early unexpected exit, operation never finished bootstrapping|before establishing connection' "${attempt_log}" &&
               ! grep -Eq 'Test Case .+ (started|passed|failed|crashed)|XCTAssert[A-Za-z0-9_]* failed|(^|[[:space:]])(fatal error:|Fatal error:)|Terminating app due to uncaught exception|EXC_[A-Z0-9_]+' "${attempt_log}"; then
