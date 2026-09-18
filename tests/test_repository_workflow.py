@@ -75,6 +75,9 @@ class RepositoryWorkflowTests(unittest.TestCase):
             "entrypoint=.ci/release.sh",
         ):
             self.assertIn(mapping, request)
+        self.assertIn("repository release requires a reviewed StreamScapeTV/ci-workflows main caller", request)
+        self.assertIn('test "${CALLER_REPOSITORY}" = StreamScapeTV/ci-workflows', request)
+        self.assertIn('test "${CALLER_REF}" = refs/heads/main', request)
         self.assertIn("repository release requires a separately authorized Central caller", request)
         self.assertIn("repository release requires an admitted immutable tag source", request)
         self.assertIn("repository release supports only the prepare semantic kind", request)
@@ -132,6 +135,9 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertIn('dirname "${BASH_SOURCE[0]}"', auth)
         self.assertNotIn("CENTRAL_REGISTRY_AUTH_ROOT:?", auth)
         self.assertIn("CIW_MAVEN_PACKAGE_READ_TOKEN", auth)
+        execute_env = by_name["Execute fixed repository-owned entrypoint"]["env"]
+        self.assertNotIn("AUTH_ROOT", execute_env)
+        self.assertNotIn("CENTRAL_REGISTRY_AUTH_ROOT", str(execute_env))
         self.assertNotIn("inputs.registry", self.workflow_text)
         self.assertNotIn("inputs.secret", self.workflow_text)
         self.assertNotIn("inputs.host", self.workflow_text)
@@ -150,6 +156,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertNotIn("GOOGLE_DRIVE_REFRESH_TOKEN", execute_env)
         scrub = by_name["Scrub configured CI secrets from private text evidence"]
         self.assertEqual(scrub["if"], "${{ always() }}")
+        self.assertIn('("CI_LOG_DIR", "CI_ARTIFACT_DIR")', scrub["run"])
         package = by_name["Package bounded repository CI evidence"]
         self.assertIn("evidence exceeds 256 files", package["run"])
         self.assertIn("evidence exceeds 64 MiB", package["run"])
