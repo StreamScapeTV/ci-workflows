@@ -129,6 +129,8 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertIn("github.com)", auth)
         self.assertIn("git.faruqi.dev)", auth)
         self.assertIn("credential.helper", auth)
+        self.assertIn('dirname "${BASH_SOURCE[0]}"', auth)
+        self.assertNotIn("CENTRAL_REGISTRY_AUTH_ROOT:?", auth)
         self.assertIn("CIW_MAVEN_PACKAGE_READ_TOKEN", auth)
         self.assertNotIn("inputs.registry", self.workflow_text)
         self.assertNotIn("inputs.secret", self.workflow_text)
@@ -148,9 +150,16 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertNotIn("GOOGLE_DRIVE_REFRESH_TOKEN", execute_env)
         scrub = by_name["Scrub configured CI secrets from private text evidence"]
         self.assertEqual(scrub["if"], "${{ always() }}")
+        package = by_name["Package bounded repository CI evidence"]
+        self.assertIn("evidence exceeds 256 files", package["run"])
+        self.assertIn("evidence exceeds 64 MiB", package["run"])
+        self.assertIn("must not contain symlinks", package["run"])
         upload = by_name["Upload private repository CI log to Google Drive"]
         self.assertEqual(upload["uses"], "StreamScapeTV/ci-workflows/actions/google-drive@main")
         self.assertEqual(upload["with"]["mime_type"], "text/plain")
+        evidence_upload = by_name["Upload bounded repository CI evidence to Google Drive"]
+        self.assertEqual(evidence_upload["uses"], "StreamScapeTV/ci-workflows/actions/google-drive@main")
+        self.assertEqual(evidence_upload["with"]["mime_type"], "application/zip")
         cleanup = by_name["Cleanup ephemeral registry and repository evidence"]
         self.assertEqual(cleanup["if"], "${{ always() }}")
         self.assertIn("central-registry-auth", cleanup["run"])
