@@ -229,6 +229,11 @@ jobs:
                       raise SystemExit(f"Apple {profile} contains an invalid selector")
               else:
                   raise SystemExit("unsupported native targeted workflow")
+          elif workflow == "validation.android" and profile == "physical-performance":
+              if repository != "StreamScapeTV/iptv-android":
+                  raise SystemExit("Android physical-performance is bounded to StreamScapeTV/iptv-android")
+              if inputs:
+                  raise SystemExit("Android physical-performance accepts no semantic inputs")
           elif workflow == "validation.android" and profile == "targeted-unit":
               if selector_payload not in (None, "[]") or platform not in (None, ""):
                   raise SystemExit("legacy targeted-unit does not accept new targeted-tests inputs")
@@ -544,7 +549,7 @@ jobs:
     if: ${{ needs.request.outputs.workflow_key == 'validation.android' }}
     concurrency:
       group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
-      cancel-in-progress: true
+      cancel-in-progress: ${{ needs.request.outputs.test_profile != 'physical-performance' }}
     uses: ./.github/workflows/android.yml
     with:
       repository: ${{ needs.request.outputs.repository }}
