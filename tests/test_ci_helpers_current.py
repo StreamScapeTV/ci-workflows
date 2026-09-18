@@ -27,7 +27,7 @@ class CiHelperTests(_prior.CiHelperTests):
         inventory = yaml.safe_load((_prior.ROOT / "INVENTORY.yaml").read_text())
         self.assertEqual(
             set(inventory["workflows"]),
-            {"apple", "apple_binary", "apple_swiftpm", "android", "python", "node", "flutter", "maven", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "source_snapshot_delete", "source_snapshot", "source_checkpoint_publish", "central_dispatch", "ci_log_retention", "self_check", "runner_images"},
+            {"apple", "repository", "apple_binary", "apple_swiftpm", "android", "python", "node", "flutter", "maven", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "source_snapshot_delete", "source_snapshot", "source_checkpoint_publish", "central_dispatch", "ci_log_retention", "self_check", "runner_images"},
         )
         self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git", "source_snapshot"})
         self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility", "ci_log_reconcile", "source_snapshot_delete", "source_snapshot_lifecycle", "source_checkpoint_publish", "swiftpm_binary"})
@@ -39,7 +39,7 @@ class CiHelperTests(_prior.CiHelperTests):
 
     def test_workflows_use_no_reusable_prefix(self) -> None:
         names = {p.name for p in (_prior.ROOT / ".github/workflows").glob("*.yml")}
-        self.assertEqual(len(names), 19)
+        self.assertEqual(len(names), 20)
         self.assertNotIn("broker.yml", names)
         self.assertFalse(any(name.startswith("reusable-") for name in names))
         self.assertIn("source-snapshot-delete.yml", names)
@@ -55,6 +55,7 @@ class CiHelperTests(_prior.CiHelperTests):
     def test_long_running_execution_jobs_have_five_hour_ceiling(self) -> None:
         expected = {
             "apple.yml": ("execute",),
+            "repository.yml": ("execute",),
             "android.yml": ("ci",),
             "python.yml": ("ci",),
             "node.yml": ("ci",),
@@ -104,6 +105,7 @@ class CiHelperTests(_prior.CiHelperTests):
         workflow = yaml.safe_load((_prior.ROOT / ".github/workflows/central-ci-dispatch.yml").read_text())
         jobs = workflow["jobs"]
         validation_jobs = (
+            "repository",
             "apple",
             "android",
             "python",
