@@ -10,8 +10,17 @@ name: Repository-owned CI
 # - Central owns exact-source checkout, runner choice, approved private-network and
 #   package-registry capability setup, private log transport and Agent State lifecycle;
 # - repository scripts own all toolchain/project/task/test/package behavior;
+# - build/test receive only --platform for non-Linux platforms; ui-test additionally
+#   receives an optional --suite; full receives no arguments. Product-specific selectors
+#   stay repository-owned until a reviewed shared semantic is added here;
+# - Central provides only CI_LOG_DIR, CI_ARTIFACT_DIR and CI_PROGRESS_FILE as callback
+#   paths. Repository scripts never upload evidence or receive Drive credentials;
+# - this generic lane intentionally has no persistent dependency cache. Cache keys and
+#   restore/save policy remain Central capabilities and are added only as reviewed,
+#   repository-independent classes rather than caller inputs;
 # - release.sh is structurally supported only for separately authorized Central callers
-#   and is not reachable from validation.repository.
+#   from reviewed ci-workflows main, an admitted tag, and bounded release semantics;
+#   it is not reachable from validation.repository.
 
 "on":
   workflow_call:
