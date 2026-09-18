@@ -1,0 +1,483 @@
+name: Repository-owned CI
+
+# Adoption contract (source of truth):
+# - repositories expose fixed tracked executable paths .ci/build.sh, .ci/test.sh,
+#   .ci/test-full.sh, .ci/test-ui.sh and .ci/release.sh;
+# - unsupported operations fail closed in the repository-owned script;
+# - validation.repository selects only build/test/full/ui-test plus bounded platform
+#   and UI-suite semantics; no command, executable path, runner label, timeout,
+#   environment map, secret name, or tool-specific arguments are caller-controlled;
+# - Central owns exact-source checkout, runner choice, approved private-network and
+#   package-registry capability setup, private log transport and Agent State lifecycle;
+# - repository scripts own all toolchain/project/task/test/package behavior;
+# - release.sh is structurally supported only for separately authorized Central callers
+#   and is not reachable from validation.repository.
+
+"on":
+  workflow_call:
+    inputs:
+      repository:
+        type: string
+        required: true
+      ref:
+        type: string
+        required: true
+      source_is_tag:
+        type: boolean
+        required: false
+        default: false
+      operation:
+        type: string
+        required: true
+      platform:
+        type: string
+        required: true
+      ui_suite:
+        type: string
+        required: false
+        default: ""
+      build_number:
+        type: string
+        required: false
+        default: ""
+      release_kind:
+        type: string
+        required: false
+        default: ""
+      release_authorized:
+        type: boolean
+        required: false
+        default: false
+      ci_run_id:
+        type: string
+        required: false
+        default: ""
+      upload_private_log:
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      SOURCE_APP_ID:
+        required: true
+      SOURCE_APP_PRIVATE_KEY:
+        required: true
+      AGENT_STATE_SUPABASE_URL:
+        required: false
+      AGENT_STATE_SUPABASE_SECRET_KEY:
+        required: false
+      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID:
+        required: false
+      GOOGLE_DRIVE_CLIENT_ID:
+        required: false
+      GOOGLE_DRIVE_CLIENT_SECRET:
+        required: false
+      GOOGLE_DRIVE_REFRESH_TOKEN:
+        required: false
+      TS_OAUTH_CLIENT_ID:
+        required: false
+      TS_OAUTH_SECRET:
+        required: false
+      REGISTRY_USERNAME:
+        required: false
+      REGISTRY_READ_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  execute:
+    runs-on: ${{ inputs.platform == 'linux' && 'ubuntu-24.04' || 'macos-latest' }}
+    timeout-minutes: 300
+    steps:
+      - name: Initialize private execution paths
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          log="${RUNNER_TEMP}/central-repository-ci.log"
+          log_dir="${RUNNER_TEMP}/repository-ci-logs"
+          artifact_dir="${RUNNER_TEMP}/repository-ci-artifacts"
+          progress="${RUNNER_TEMP}/repository-ci-progress.txt"
+          mkdir -p "${log_dir}" "${artifact_dir}"
+          : > "${log}"
+          : > "${progress}"
+          chmod 600 "${log}" "${progress}"
+          chmod 700 "${log_dir}" "${artifact_dir}"
+          {
+            printf 'CI_LOG=%s\n' "${log}"
+            printf 'CI_LOG_DIR=%s\n' "${log_dir}"
+            printf 'CI_ARTIFACT_DIR=%s\n' "${artifact_dir}"
+            printf 'CI_PROGRESS_FILE=%s\n' "${progress}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Mark Agent State run as running
+        if: ${{ inputs.ci_run_id != '' }}
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: start
+          ci_run_id: ${{ inputs.ci_run_id }}
+
+      - name: Validate bounded repository operation
+        id: request
+        shell: bash
+        env:
+          OPERATION: ${{ inputs.operation }}
+          PLATFORM: ${{ inputs.platform }}
+          UI_SUITE: ${{ inputs.ui_suite }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+          RELEASE_KIND: ${{ inputs.release_kind }}
+          RELEASE_AUTHORIZED: ${{ inputs.release_authorized }}
+          SOURCE_IS_TAG: ${{ inputs.source_is_tag }}
+        run: |
+          set -Eeuo pipefail
+          case "${PLATFORM}" in
+            linux|macos|ios|tvos) ;;
+            *) echo "repository operation platform must be linux, macos, ios, or tvos" >&2; exit 2 ;;
+          esac
+          case "${OPERATION}" in
+            build) entrypoint=.ci/build.sh ;;
+            test) entrypoint=.ci/test.sh ;;
+            full) entrypoint=.ci/test-full.sh ;;
+            ui-test) entrypoint=.ci/test-ui.sh ;;
+            release)
+              entrypoint=.ci/release.sh
+              test "${RELEASE_AUTHORIZED}" = true || {
+                echo "repository release requires a separately authorized Central caller" >&2
+                exit 2
+              }
+              test "${SOURCE_IS_TAG}" = true || {
+                echo "repository release requires an admitted immutable tag source" >&2
+                exit 2
+              }
+              [[ "${BUILD_NUMBER}" =~ ^[1-9][0-9]{0,9}$ ]] || {
+                echo "repository release build_number must be one bounded positive decimal" >&2
+                exit 2
+              }
+              case "${RELEASE_KIND}" in
+                prepare) ;;
+                *) echo "repository release supports only the prepare semantic kind" >&2; exit 2 ;;
+              esac
+              ;;
+            *) echo "unsupported repository semantic operation" >&2; exit 2 ;;
+          esac
+          if test "${OPERATION}" != ui-test && test -n "${UI_SUITE}"; then
+            echo "ui_suite is accepted only by ui-test" >&2
+            exit 2
+          fi
+          if test "${OPERATION}" = ui-test; then
+            case "${UI_SUITE}" in
+              ""|smoke|full-ordinary) ;;
+              *) echo "repository ui-test supports only smoke or full-ordinary" >&2; exit 2 ;;
+            esac
+          fi
+          if test "${OPERATION}" != release && { test -n "${BUILD_NUMBER}" || test -n "${RELEASE_KIND}" || test "${RELEASE_AUTHORIZED}" = true; }; then
+            echo "release semantics are accepted only by the separately authorized release operation" >&2
+            exit 2
+          fi
+          printf 'entrypoint=%s\n' "${entrypoint}" >> "${GITHUB_OUTPUT}"
+
+      - name: Prepare source token
+        id: source
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.SOURCE_APP_ID }}
+          private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          owner: StreamScapeTV
+          permission-contents: read
+          permission-metadata: read
+
+      - name: Check out exact repository source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.source_is_tag && format('refs/tags/{0}', inputs.ref) || inputs.ref }}
+          token: ${{ steps.source.outputs.token }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact source and fixed tracked entrypoint
+        id: source_identity
+        shell: bash
+        env:
+          ENTRYPOINT: ${{ steps.request.outputs.entrypoint }}
+        run: |
+          set -Eeuo pipefail
+          source_sha="$(git -C source rev-parse HEAD)"
+          [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          test -z "$(git -C source status --porcelain --untracked-files=all)" || {
+            echo "repository source checkout is not clean" >&2
+            exit 2
+          }
+          git -C source ls-files --error-unmatch -- "${ENTRYPOINT}" >/dev/null || {
+            echo "requested fixed repository entrypoint is not tracked" >&2
+            exit 2
+          }
+          mode="$(git -C source ls-files -s -- "${ENTRYPOINT}" | awk 'NR==1 {print $1}')"
+          test "${mode}" = 100755 || {
+            echo "requested fixed repository entrypoint must be tracked executable mode 100755" >&2
+            exit 2
+          }
+          path="source/${ENTRYPOINT}"
+          test -f "${path}" && test ! -L "${path}" && test -x "${path}" || {
+            echo "requested fixed repository entrypoint must be a regular executable file" >&2
+            exit 2
+          }
+          python3 - "${path}" "${GITHUB_WORKSPACE}/source" <<'PY_ENTRYPOINT'
+          from pathlib import Path
+          import os
+          import sys
+          path = Path(sys.argv[1]).resolve(strict=True)
+          root = Path(sys.argv[2]).resolve(strict=True)
+          if os.path.commonpath((str(path), str(root))) != str(root):
+              raise SystemExit("fixed repository entrypoint escapes the exact checkout")
+          PY_ENTRYPOINT
+          printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Record observed source SHA
+        if: ${{ inputs.ci_run_id != '' }}
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: observe-source
+          ci_run_id: ${{ inputs.ci_run_id }}
+          observed_source_sha: ${{ steps.source_identity.outputs.source_sha }}
+
+      - name: Resolve reviewed registry capability class
+        id: registry
+        shell: bash
+        env:
+          SOURCE_REPOSITORY: ${{ inputs.repository }}
+        run: |
+          set -Eeuo pipefail
+          case "${SOURCE_REPOSITORY}" in
+            StreamScapeTV/iptv-apple) capability=private-swiftpm ;;
+            StreamScapeTV/iptv-android) capability=private-maven ;;
+            *) capability=none ;;
+          esac
+          printf 'capability=%s\n' "${capability}" >> "${GITHUB_OUTPUT}"
+
+      - name: Connect approved private registry network
+        if: ${{ steps.registry.outputs.capability != 'none' }}
+        uses: StreamScapeTV/ci-workflows/actions/private-git@main
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+
+      - name: Configure ephemeral approved registry authentication
+        id: registry_auth
+        if: ${{ steps.registry.outputs.capability != 'none' }}
+        shell: bash
+        env:
+          CAPABILITY: ${{ steps.registry.outputs.capability }}
+          GITHUB_SOURCE_TOKEN: ${{ steps.source.outputs.token }}
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          case "${CAPABILITY}" in
+            private-swiftpm|private-maven) ;;
+            *) echo "unsupported Central registry capability class" >&2; exit 2 ;;
+          esac
+          test -n "${REGISTRY_USERNAME}" && test -n "${REGISTRY_READ_TOKEN}" || {
+            echo "approved private registry capability is missing its fixed read credential" >&2
+            exit 1
+          }
+          auth_root="${RUNNER_TEMP}/central-registry-auth"
+          auth_home="${auth_root}/home"
+          git_config="${auth_root}/gitconfig"
+          helper="${auth_root}/git-credential-central"
+          rm -rf -- "${auth_root}"
+          mkdir -p "${auth_home}"
+          chmod 700 "${auth_root}" "${auth_home}"
+          printf '%s' "${GITHUB_SOURCE_TOKEN}" > "${auth_root}/github-token"
+          printf '%s' "${REGISTRY_USERNAME}" > "${auth_root}/registry-user"
+          printf '%s' "${REGISTRY_READ_TOKEN}" > "${auth_root}/registry-token"
+          chmod 600 "${auth_root}/github-token" "${auth_root}/registry-user" "${auth_root}/registry-token"
+          cat > "${helper}" <<'SH_CREDENTIAL_HELPER'
+          #!/usr/bin/env bash
+          set -Eeuo pipefail
+          protocol=""
+          host=""
+          while IFS='=' read -r key value; do
+            case "${key}" in
+              protocol) protocol="${value}" ;;
+              host) host="${value}" ;;
+            esac
+          done
+          test "${protocol}" = https || exit 0
+          root="${CENTRAL_REGISTRY_AUTH_ROOT:?}"
+          case "${host}" in
+            github.com)
+              printf 'username=x-access-token\npassword=%s\n' "$(cat "${root}/github-token")"
+              ;;
+            git.faruqi.dev)
+              printf 'username=%s\npassword=%s\n' "$(cat "${root}/registry-user")" "$(cat "${root}/registry-token")"
+              ;;
+          esac
+          SH_CREDENTIAL_HELPER
+          chmod 700 "${helper}"
+          git config --file "${git_config}" credential.helper "${helper}"
+          git config --file "${git_config}" credential.useHttpPath false
+          cat > "${auth_home}/.netrc" <<EOF_NETRC
+          machine github.com
+            login x-access-token
+            password ${GITHUB_SOURCE_TOKEN}
+          machine git.faruqi.dev
+            login ${REGISTRY_USERNAME}
+            password ${REGISTRY_READ_TOKEN}
+          EOF_NETRC
+          chmod 600 "${auth_home}/.netrc"
+          {
+            printf 'auth_root=%s\n' "${auth_root}"
+            printf 'auth_home=%s\n' "${auth_home}"
+            printf 'git_config=%s\n' "${git_config}"
+          } >> "${GITHUB_OUTPUT}"
+          if test "${CAPABILITY}" = private-maven; then
+            printf 'CIW_MAVEN_PACKAGE_READ_TOKEN=%s\n' "${REGISTRY_READ_TOKEN}" >> "${GITHUB_ENV}"
+          fi
+
+      - name: Execute fixed repository-owned entrypoint
+        id: execute_contract
+        shell: bash
+        env:
+          ENTRYPOINT: ${{ steps.request.outputs.entrypoint }}
+          OPERATION: ${{ inputs.operation }}
+          PLATFORM: ${{ inputs.platform }}
+          UI_SUITE: ${{ inputs.ui_suite }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+          CAPABILITY: ${{ steps.registry.outputs.capability }}
+          AUTH_ROOT: ${{ steps.registry_auth.outputs.auth_root }}
+          AUTH_HOME: ${{ steps.registry_auth.outputs.auth_home }}
+          AUTH_GIT_CONFIG: ${{ steps.registry_auth.outputs.git_config }}
+        run: |
+          set -Eeuo pipefail
+          args=()
+          case "${OPERATION}" in
+            build|test|ui-test)
+              if test "${PLATFORM}" != linux; then
+                args+=(--platform "${PLATFORM}")
+              fi
+              if test "${OPERATION}" = ui-test && test -n "${UI_SUITE}"; then
+                args+=(--suite "${UI_SUITE}")
+              fi
+              ;;
+            full) ;;
+            release)
+              if test "${PLATFORM}" != linux; then
+                args+=(--platform "${PLATFORM}")
+              fi
+              args+=(--build-number "${BUILD_NUMBER}")
+              ;;
+          esac
+          if test "${CAPABILITY}" != none; then
+            export CENTRAL_REGISTRY_AUTH_ROOT="${AUTH_ROOT}"
+            export HOME="${AUTH_HOME}"
+            export GIT_CONFIG_GLOBAL="${AUTH_GIT_CONFIG}"
+            export GIT_TERMINAL_PROMPT=0
+          fi
+          set +e
+          (
+            cd source
+            "./${ENTRYPOINT}" "${args[@]}"
+          ) >> "${CI_LOG}" 2>&1
+          status=$?
+          set -e
+          printf 'exit_code=%s\n' "${status}" >> "${GITHUB_OUTPUT}"
+          if test "${status}" -ne 0; then
+            echo "repository-owned ${OPERATION} operation failed; inspect the private CI log" >&2
+            exit "${status}"
+          fi
+
+      - name: Scrub configured CI secrets from private text evidence
+        id: scrub
+        if: ${{ always() }}
+        shell: bash
+        env:
+          CI_SECRET_SOURCE_TOKEN: ${{ steps.source.outputs.token }}
+          CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          CI_SECRET_AGENT_STATE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          CI_SECRET_AGENT_STATE_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          CI_SECRET_DRIVE_FOLDER: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+          CI_SECRET_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          CI_SECRET_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          CI_SECRET_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          CI_SECRET_TAILSCALE_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          CI_SECRET_TAILSCALE_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          CI_SECRET_REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          CI_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY_REDACT'
+          import os
+          from pathlib import Path
+
+          paths = [Path(os.environ["CI_LOG"]), Path(os.environ["CI_PROGRESS_FILE"])]
+          log_dir = Path(os.environ["CI_LOG_DIR"])
+          if log_dir.is_dir():
+              paths.extend(path for path in log_dir.rglob("*") if path.is_file() and not path.is_symlink())
+          secrets = [value.encode() for name, value in os.environ.items() if name.startswith("CI_SECRET_") and value]
+          for path in paths:
+              if path.is_symlink() or not path.is_file() or path.stat().st_size > 16 * 1024 * 1024:
+                  continue
+              data = path.read_bytes()
+              for raw in secrets:
+                  data = data.replace(raw, b"[REDACTED]")
+                  escaped = raw.replace(b"\n", b"\\n")
+                  if escaped != raw:
+                      data = data.replace(escaped, b"[REDACTED]")
+              path.write_bytes(data)
+          PY_REDACT
+
+      - name: Upload private repository CI log to Google Drive
+        id: drive
+        if: ${{ always() && steps.scrub.outcome == 'success' && (inputs.ci_run_id != '' || inputs.upload_private_log) }}
+        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          file_path: ${{ runner.temp }}/central-repository-ci.log
+          file_name: ${{ github.run_id }}-${{ github.run_attempt }}-repository-${{ inputs.operation }}.txt
+          mime_type: text/plain
+
+      - name: Cleanup ephemeral registry and repository evidence
+        id: cleanup
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf -- \
+            "${RUNNER_TEMP}/central-registry-auth" \
+            "${RUNNER_TEMP}/repository-ci-logs" \
+            "${RUNNER_TEMP}/repository-ci-artifacts"
+          rm -f -- \
+            "${RUNNER_TEMP}/repository-ci-progress.txt" \
+            "${RUNNER_TEMP}/central-repository-ci.log"
+
+      - name: Finish Agent State run
+        if: ${{ always() && inputs.ci_run_id != '' }}
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: finish
+          ci_run_id: ${{ inputs.ci_run_id }}
+          status: >-
+            ${{ steps.request.outcome == 'success'
+                && steps.source_identity.outcome == 'success'
+                && steps.execute_contract.outcome == 'success'
+                && steps.scrub.outcome == 'success'
+                && steps.drive.outcome == 'success'
+                && steps.cleanup.outcome == 'success'
+                && 'succeeded' || 'failed' }}
