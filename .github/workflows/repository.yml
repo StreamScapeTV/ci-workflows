@@ -311,7 +311,7 @@ jobs:
             esac
           done
           test "${protocol}" = https || exit 0
-          root="${CENTRAL_REGISTRY_AUTH_ROOT:?}"
+          root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
           case "${host}" in
             github.com)
               printf 'username=x-access-token\npassword=%s\n' "$(cat "${root}/github-token")"
@@ -376,7 +376,6 @@ jobs:
               ;;
           esac
           if test "${CAPABILITY}" != none; then
-            export CENTRAL_REGISTRY_AUTH_ROOT="${AUTH_ROOT}"
             export HOME="${AUTH_HOME}"
             export GIT_CONFIG_GLOBAL="${AUTH_GIT_CONFIG}"
             export GIT_TERMINAL_PROMPT=0
@@ -434,6 +433,61 @@ jobs:
               path.write_bytes(data)
           PY_REDACT
 
+
+      - name: Package bounded repository CI evidence
+        id: evidence
+        if: ${{ always() && steps.scrub.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          archive="${RUNNER_TEMP}/central-repository-ci-evidence.zip"
+          rm -f -- "${archive}"
+          python3 - "${archive}" <<'PY_EVIDENCE'
+          from pathlib import Path
+          import os
+          import sys
+          import zipfile
+
+          archive = Path(sys.argv[1])
+          roots = (
+              ("logs", Path(os.environ["CI_LOG_DIR"])),
+              ("artifacts", Path(os.environ["CI_ARTIFACT_DIR"])),
+          )
+          files: list[tuple[str, Path]] = []
+          total = 0
+          for prefix, root in roots:
+              if root.is_symlink() or not root.is_dir():
+                  raise SystemExit(f"repository CI {prefix} root must remain one real directory")
+              resolved_root = root.resolve(strict=True)
+              for path in sorted(root.rglob("*")):
+                  if path.is_symlink():
+                      raise SystemExit(f"repository CI {prefix} evidence must not contain symlinks")
+                  if not path.is_file():
+                      continue
+                  resolved = path.resolve(strict=True)
+                  if os.path.commonpath((str(resolved), str(resolved_root))) != str(resolved_root):
+                      raise SystemExit(f"repository CI {prefix} evidence escapes its Central-owned root")
+                  size = path.stat().st_size
+                  if size > 16 * 1024 * 1024:
+                      raise SystemExit(f"repository CI {prefix} evidence file exceeds 16 MiB")
+                  total += size
+                  files.append((f"{prefix}/{path.relative_to(root).as_posix()}", path))
+          progress = Path(os.environ["CI_PROGRESS_FILE"])
+          if progress.is_symlink() or not progress.is_file():
+              raise SystemExit("repository CI progress evidence must remain one regular file")
+          total += progress.stat().st_size
+          files.append(("progress.txt", progress))
+          if len(files) > 256:
+              raise SystemExit("repository CI evidence exceeds 256 files")
+          if total > 64 * 1024 * 1024:
+              raise SystemExit("repository CI evidence exceeds 64 MiB")
+          with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as output:
+              for name, path in files:
+                  output.write(path, arcname=name)
+          PY_EVIDENCE
+          test -f "${archive}"
+          printf 'archive=%s\\n' "${archive}" >> "${GITHUB_OUTPUT}"
+
       - name: Upload private repository CI log to Google Drive
         id: drive
         if: ${{ always() && steps.scrub.outcome == 'success' && (inputs.ci_run_id != '' || inputs.upload_private_log) }}
@@ -450,6 +504,23 @@ jobs:
           file_name: ${{ github.run_id }}-${{ github.run_attempt }}-repository-${{ inputs.operation }}.txt
           mime_type: text/plain
 
+
+      - name: Upload bounded repository CI evidence to Google Drive
+        id: evidence_drive
+        if: ${{ always() && steps.evidence.outcome == 'success' && (inputs.ci_run_id != '' || inputs.upload_private_log) }}
+        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          file_path: ${{ steps.evidence.outputs.archive }}
+          file_name: ${{ github.run_id }}-${{ github.run_attempt }}-repository-${{ inputs.operation }}-evidence.zip
+          mime_type: application/zip
+
       - name: Cleanup ephemeral registry and repository evidence
         id: cleanup
         if: ${{ always() }}
@@ -462,7 +533,8 @@ jobs:
             "${RUNNER_TEMP}/repository-ci-artifacts"
           rm -f -- \
             "${RUNNER_TEMP}/repository-ci-progress.txt" \
-            "${RUNNER_TEMP}/central-repository-ci.log"
+            "${RUNNER_TEMP}/central-repository-ci.log" \
+            "${RUNNER_TEMP}/central-repository-ci-evidence.zip"
 
       - name: Finish Agent State run
         if: ${{ always() && inputs.ci_run_id != '' }}
@@ -478,6 +550,8 @@ jobs:
                 && steps.source_identity.outcome == 'success'
                 && steps.execute_contract.outcome == 'success'
                 && steps.scrub.outcome == 'success'
+                && steps.evidence.outcome == 'success'
                 && steps.drive.outcome == 'success'
+                && steps.evidence_drive.outcome == 'success'
                 && steps.cleanup.outcome == 'success'
                 && 'succeeded' || 'failed' }}
