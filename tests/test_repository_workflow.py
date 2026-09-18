@@ -116,6 +116,47 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertIn("fixed repository entrypoint escapes the exact checkout", script)
         self.assertIn('test -z "$(git -C source status --porcelain --untracked-files=all)"', script)
 
+    def test_android_runner_capability_is_fixed_central_provisioning(self) -> None:
+        by_name = {
+            step.get("name"): step
+            for step in self.workflow["jobs"]["execute"]["steps"]
+            if step.get("name")
+        }
+        capability = by_name["Resolve reviewed runner capability class"]["run"]
+        self.assertIn("StreamScapeTV/iptv-android)", capability)
+        self.assertIn("ui-test) capability=android-api37-ui-api36", capability)
+        self.assertIn("build|test|full|release) capability=android-api37", capability)
+        self.assertIn("requires the reviewed Linux runner capability", capability)
+
+        java = by_name["Set up JDK 25 for reviewed Android capability"]
+        self.assertEqual(java["uses"], "actions/setup-java@v5")
+        self.assertEqual(java["with"]["distribution"], "temurin")
+        self.assertEqual(java["with"]["java-version"], "25")
+        self.assertIn("runner_capability.outputs.capability", java["if"])
+
+        sdk = by_name["Provision fixed Android SDK capability"]
+        script = sdk["run"]
+        self.assertIn('"platforms;android-37"', script)
+        self.assertIn('"build-tools;37.0.0"', script)
+        self.assertIn('"system-images;android-36;google_apis;x86_64"', script)
+        self.assertIn("platform-tools", script)
+        self.assertIn("avdmanager", script)
+        self.assertIn("emulator", script)
+        self.assertIn("Android runner capability requires JDK 25", script)
+        for product_detail in (
+            "gradlew",
+            "assemble",
+            "testDebug",
+            "lint",
+            "connectedAndroidTest",
+            "app:",
+        ):
+            self.assertNotIn(product_detail, script)
+
+        inputs = self.workflow["on"]["workflow_call"]["inputs"]
+        for forbidden in ("java_version", "android_api", "sdk_package", "system_image", "avd", "emulator_image"):
+            self.assertNotIn(forbidden, inputs)
+
     def test_registry_auth_is_a_central_fixed_capability_not_caller_configuration(self) -> None:
         by_name = {
             step.get("name"): step
