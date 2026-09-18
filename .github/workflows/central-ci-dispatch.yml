@@ -241,7 +241,6 @@ jobs:
                   raise SystemExit("test_filter is accepted only by legacy Android targeted-unit")
           PY_VALIDATE_NATIVE_TARGETED
 
-
       - name: Validate generic repository-owned CI request
         if: ${{ steps.claim.outputs.workflow_key == 'validation.repository' }}
         shell: bash
@@ -484,7 +483,6 @@ jobs:
           else:
               raise SystemExit("release.apple supports only testflight, binary-package and swiftpm-package profiles")
           PY_VALIDATE_APPLE_RELEASE
-
 
   repository:
     needs: request
