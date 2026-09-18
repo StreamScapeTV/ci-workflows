@@ -7,8 +7,9 @@ name: Repository-owned CI
 # - validation.repository selects only build/test/full/ui-test plus bounded platform
 #   and UI-suite semantics; no command, executable path, runner label, timeout,
 #   environment map, secret name, or tool-specific arguments are caller-controlled;
-# - Central owns exact-source checkout, runner choice, approved private-network and
-#   package-registry capability setup, private log transport and Agent State lifecycle;
+# - Central owns exact-source checkout, runner choice/toolchain capability provisioning,
+#   approved private-network and package-registry capability setup, private log transport
+#   and Agent State lifecycle;
 # - repository scripts own all toolchain/project/task/test/package behavior;
 # - build/test receive only --platform for non-Linux platforms; ui-test additionally
 #   receives an optional --suite; full receives no arguments. Product-specific selectors
@@ -262,6 +263,97 @@ jobs:
           phase: observe-source
           ci_run_id: ${{ inputs.ci_run_id }}
           observed_source_sha: ${{ steps.source_identity.outputs.source_sha }}
+
+      - name: Resolve reviewed runner capability class
+        id: runner_capability
+        shell: bash
+        env:
+          SOURCE_REPOSITORY: ${{ inputs.repository }}
+          OPERATION: ${{ inputs.operation }}
+          PLATFORM: ${{ inputs.platform }}
+        run: |
+          set -Eeuo pipefail
+          capability=none
+          case "${SOURCE_REPOSITORY}" in
+            StreamScapeTV/iptv-android)
+              test "${PLATFORM}" = linux || {
+                echo "Android repository-owned CI requires the reviewed Linux runner capability" >&2
+                exit 2
+              }
+              case "${OPERATION}" in
+                ui-test) capability=android-api37-ui-api36 ;;
+                build|test|full|release) capability=android-api37 ;;
+                *) echo "unsupported Android repository operation" >&2; exit 2 ;;
+              esac
+              ;;
+          esac
+          printf 'capability=%s\n' "${capability}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up JDK 25 for reviewed Android capability
+        if: ${{ startsWith(steps.runner_capability.outputs.capability, 'android-') }}
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Provision fixed Android SDK capability
+        if: ${{ startsWith(steps.runner_capability.outputs.capability, 'android-') }}
+        shell: bash
+        env:
+          RUNNER_CAPABILITY: ${{ steps.runner_capability.outputs.capability }}
+        run: |
+          set -Eeuo pipefail
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          test -n "${sdk_root}" || {
+            echo "reviewed Android runner capability requires an Android SDK root" >&2
+            exit 1
+          }
+          sdkmanager="$(command -v sdkmanager || true)"
+          avdmanager="$(command -v avdmanager || true)"
+          test -n "${sdkmanager}" || sdkmanager="${sdk_root}/cmdline-tools/latest/bin/sdkmanager"
+          test -x "${sdkmanager}" || {
+            echo "reviewed Android runner capability requires sdkmanager" >&2
+            exit 1
+          }
+          packages=(platform-tools "platforms;android-37" "build-tools;37.0.0")
+          if test "${RUNNER_CAPABILITY}" = android-api37-ui-api36; then
+            packages+=(emulator "system-images;android-36;google_apis;x86_64")
+          elif test "${RUNNER_CAPABILITY}" != android-api37; then
+            echo "unsupported reviewed Android runner capability" >&2
+            exit 2
+          fi
+          "${sdkmanager}" --install "${packages[@]}" >> "${CI_LOG}" 2>&1
+          test -d "${sdk_root}/platforms/android-37" || {
+            echo "Android API 37 platform was not provisioned" >&2
+            exit 1
+          }
+          test -x "${sdk_root}/platform-tools/adb" || {
+            echo "Android platform-tools were not provisioned" >&2
+            exit 1
+          }
+          if test "${RUNNER_CAPABILITY}" = android-api37-ui-api36; then
+            test -n "${avdmanager}" || avdmanager="${sdk_root}/cmdline-tools/latest/bin/avdmanager"
+            emulator="$(command -v emulator || true)"
+            test -n "${emulator}" || emulator="${sdk_root}/emulator/emulator"
+            test -x "${avdmanager}" && test -x "${emulator}" || {
+              echo "Android UI runner capability requires avdmanager and emulator" >&2
+              exit 1
+            }
+            test -d "${sdk_root}/system-images/android-36/google_apis/x86_64" || {
+              echo "Android API 36 Google APIs x86_64 system image was not provisioned" >&2
+              exit 1
+            }
+          fi
+          java_version="$("${JAVA_HOME}/bin/java" -version 2>&1 | head -n 1)"
+          [[ "${java_version}" == *'"25'* ]] || {
+            echo "Android runner capability requires JDK 25" >&2
+            exit 1
+          }
+          {
+            printf 'ANDROID_SDK_ROOT=%s\n' "${sdk_root}"
+            printf 'ANDROID_HOME=%s\n' "${sdk_root}"
+          } >> "${GITHUB_ENV}"
+          printf '%s\n' "${sdk_root}/platform-tools" "${sdk_root}/emulator" >> "${GITHUB_PATH}"
 
       - name: Resolve reviewed registry capability class
         id: registry
