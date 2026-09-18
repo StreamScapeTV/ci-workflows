@@ -29,6 +29,7 @@ MAX_UNCOMPRESSED_BYTES = 512 * 1024 * 1024
 MAX_MEMBERS = 20_000
 MAX_PATH_BYTES = 1024
 MAX_COMMIT_MESSAGE_BYTES = 16 * 1024
+MAX_CLEANUP_DIGEST_CANDIDATES = 20
 ALLOWED_COMPRESSION = {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}
 
 
@@ -43,7 +44,6 @@ def validate_request(
     expected_tree: str,
     archive_sha256: str,
     archive_size_bytes: int,
-    checkpoint_sequence: int,
     commit_message: str,
 ) -> None:
     if not REPOSITORY.fullmatch(repository):
@@ -65,8 +65,6 @@ def validate_request(
         raise CheckpointPublishError("checkpoint archive SHA-256 must be one lowercase 64-character digest")
     if isinstance(archive_size_bytes, bool) or not isinstance(archive_size_bytes, int) or not 1 <= archive_size_bytes <= MAX_BUNDLE_BYTES:
         raise CheckpointPublishError("checkpoint archive size is outside the bounded limit")
-    if isinstance(checkpoint_sequence, bool) or not isinstance(checkpoint_sequence, int) or not 1 <= checkpoint_sequence <= 999999:
-        raise CheckpointPublishError("checkpoint sequence is outside six-digit positive range")
     if not isinstance(commit_message, str) or not commit_message.strip() or "\x00" in commit_message:
         raise CheckpointPublishError("checkpoint commit message is invalid")
     if len(commit_message.encode("utf-8")) > MAX_COMMIT_MESSAGE_BYTES:
@@ -320,6 +318,70 @@ def consumed_checkpoint_files(
     return sorted(consumed, key=lambda item: (item[0], item[1]["name"], item[1]["id"]))
 
 
+@dataclass(frozen=True)
+class CleanupBoundary:
+    sequence: int
+    filename: str
+    already_consumed: bool
+
+
+def _checkpoint_ref_folder(
+    client: DriveClient, *, root_folder_id: str, repository: str, branch: str
+) -> dict[str, Any]:
+    if not DRIVE_FILE_ID.fullmatch(root_folder_id or ""):
+        raise CheckpointPublishError("Google Drive repositories root folder ID is invalid")
+    repository_name = repository.rsplit("/", 1)[1]
+    repository_folder = _unique(client.exact_folders(root_folder_id, repository_name), "repository folder")
+    return _unique(client.exact_folders(repository_folder["id"], branch), "ref folder")
+
+
+def resolve_cleanup_boundary(
+    client: DriveClient,
+    *,
+    root_folder_id: str,
+    repository: str,
+    branch: str,
+    expected_sha256: str,
+    expected_size_bytes: int,
+) -> CleanupBoundary:
+    ref_folder = _checkpoint_ref_folder(
+        client, root_folder_id=root_folder_id, repository=repository, branch=branch
+    )
+    candidates = consumed_checkpoint_files(
+        client.children(ref_folder["id"]),
+        repository=repository,
+        branch=branch,
+        through_sequence=999999,
+    )
+    digest_candidates: list[tuple[int, dict[str, Any]]] = []
+    for sequence, value in candidates:
+        raw_size = value.get("size")
+        if raw_size is not None:
+            try:
+                metadata_size = int(raw_size)
+            except (TypeError, ValueError):
+                raise CheckpointPublishError("Google Drive checkpoint size metadata is invalid") from None
+            if metadata_size != expected_size_bytes:
+                continue
+        digest_candidates.append((sequence, value))
+    if len(digest_candidates) > MAX_CLEANUP_DIGEST_CANDIDATES:
+        raise CheckpointPublishError("Google Drive cleanup boundary digest candidate count exceeds bounded limit")
+
+    matches: list[tuple[int, dict[str, Any]]] = []
+    for sequence, value in digest_candidates:
+        archive_bytes = client.media(value["id"])
+        if len(archive_bytes) != expected_size_bytes:
+            continue
+        if _sha256(archive_bytes) == expected_sha256:
+            matches.append((sequence, value))
+    if len(matches) > 1:
+        raise CheckpointPublishError("Google Drive cleanup boundary matches more than one numbered checkpoint")
+    if not matches:
+        return CleanupBoundary(0, "already-consumed", True)
+    sequence, value = matches[0]
+    return CleanupBoundary(sequence, str(value["name"]), False)
+
+
 def cleanup_consumed_checkpoints(
     client: DriveClient,
     *,
@@ -328,18 +390,35 @@ def cleanup_consumed_checkpoints(
     branch: str,
     through_sequence: int,
 ) -> int:
-    if not DRIVE_FILE_ID.fullmatch(root_folder_id or ""):
-        raise CheckpointPublishError("Google Drive repositories root folder ID is invalid")
-    repository_name = repository.rsplit("/", 1)[1]
-    repository_folder = _unique(client.exact_folders(root_folder_id, repository_name), "repository folder")
-    ref_folder = _unique(client.exact_folders(repository_folder["id"], branch), "ref folder")
+    ref_folder = _checkpoint_ref_folder(
+        client, root_folder_id=root_folder_id, repository=repository, branch=branch
+    )
     consumed = consumed_checkpoint_files(
         client.children(ref_folder["id"]),
         repository=repository,
         branch=branch,
         through_sequence=through_sequence,
     )
-    for _, value in consumed:
+    if not consumed:
+        return 0
+    older = [(sequence, value) for sequence, value in consumed if sequence < through_sequence]
+    boundary = [(sequence, value) for sequence, value in consumed if sequence == through_sequence]
+    if not boundary:
+        raise CheckpointPublishError("checkpoint cleanup boundary is missing while older consumed checkpoints remain")
+
+    for _, value in older:
+        client.delete(value["id"])
+    if through_sequence > 1:
+        remaining_older = consumed_checkpoint_files(
+            client.children(ref_folder["id"]),
+            repository=repository,
+            branch=branch,
+            through_sequence=through_sequence - 1,
+        )
+        if remaining_older:
+            raise CheckpointPublishError("older consumed checkpoints remain before cleanup boundary deletion")
+
+    for _, value in boundary:
         client.delete(value["id"])
     remaining = consumed_checkpoint_files(
         client.children(ref_folder["id"]),
@@ -360,17 +439,12 @@ def load_latest_checkpoint(
     branch: str,
     expected_sha256: str,
     expected_size_bytes: int,
-    expected_sequence: int,
 ) -> LatestCheckpoint:
-    if not DRIVE_FILE_ID.fullmatch(root_folder_id or ""):
-        raise CheckpointPublishError("Google Drive repositories root folder ID is invalid")
-    repository_name = repository.rsplit("/", 1)[1]
-    repository_folder = _unique(client.exact_folders(root_folder_id, repository_name), "repository folder")
-    ref_folder = _unique(client.exact_folders(repository_folder["id"], branch), "ref folder")
+    ref_folder = _checkpoint_ref_folder(
+        client, root_folder_id=root_folder_id, repository=repository, branch=branch
+    )
     children = client.children(ref_folder["id"])
     sequence, checkpoint_file = select_latest_checkpoint_file(children, repository=repository, branch=branch)
-    if sequence != expected_sequence:
-        raise CheckpointPublishError("latest Google Drive checkpoint sequence does not match request")
     filename = checkpoint_filename(repository, branch, sequence)
     if checkpoint_file.get("name") != filename:
         raise CheckpointPublishError("Google Drive checkpoint latest filename mismatch")
@@ -541,7 +615,6 @@ def main() -> int:
         command.add_argument("--expected-tree", required=True)
         command.add_argument("--archive-sha256", required=True)
         command.add_argument("--archive-size-bytes", required=True, type=_positive_int)
-        command.add_argument("--checkpoint-sequence", required=True, type=_positive_int)
         command.add_argument("--commit-message", required=True)
 
     remote = sub.add_parser("classify-remote")
@@ -557,9 +630,16 @@ def main() -> int:
     download.add_argument("--branch", required=True)
     download.add_argument("--archive-sha256", required=True)
     download.add_argument("--archive-size-bytes", required=True, type=_positive_int)
-    download.add_argument("--checkpoint-sequence", required=True, type=_positive_int)
     download.add_argument("--archive", required=True)
     download.add_argument("--api-root", default="https://www.googleapis.com/drive/v3")
+
+
+    resolve_cleanup = sub.add_parser("resolve-cleanup")
+    resolve_cleanup.add_argument("--repository", required=True)
+    resolve_cleanup.add_argument("--branch", required=True)
+    resolve_cleanup.add_argument("--archive-sha256", required=True)
+    resolve_cleanup.add_argument("--archive-size-bytes", required=True, type=_positive_int)
+    resolve_cleanup.add_argument("--api-root", default="https://www.googleapis.com/drive/v3")
 
     materialize = sub.add_parser("materialize")
     materialize.add_argument("--archive", required=True)
@@ -578,7 +658,7 @@ def main() -> int:
         if args.command == "validate":
             validate_request(
                 args.repository, args.branch, args.expected_head, args.expected_tree,
-                args.archive_sha256, args.archive_size_bytes, args.checkpoint_sequence, args.commit_message,
+                args.archive_sha256, args.archive_size_bytes, args.commit_message,
             )
             return 0
         if args.command == "classify-remote":
@@ -605,7 +685,6 @@ def main() -> int:
                 branch=args.branch,
                 expected_sha256=args.archive_sha256,
                 expected_size_bytes=args.archive_size_bytes,
-                expected_sequence=args.checkpoint_sequence,
             )
             Path(args.archive).write_bytes(checkpoint.archive_bytes)
             print(json.dumps({
@@ -613,6 +692,25 @@ def main() -> int:
                 "checkpoint_filename": checkpoint.filename,
                 "archive_sha256": args.archive_sha256,
                 "archive_size_bytes": args.archive_size_bytes,
+            }, sort_keys=True, separators=(",", ":")))
+            return 0
+        if args.command == "resolve-cleanup":
+            token = os.environ.get("GOOGLE_DRIVE_ACCESS_TOKEN", "")
+            root = os.environ.get("GOOGLE_DRIVE_ROOT_FOLDER_ID", "")
+            if not token:
+                raise CheckpointPublishError("GOOGLE_DRIVE_ACCESS_TOKEN is required")
+            boundary = resolve_cleanup_boundary(
+                DriveClient(token, args.api_root),
+                root_folder_id=root,
+                repository=args.repository,
+                branch=args.branch,
+                expected_sha256=args.archive_sha256,
+                expected_size_bytes=args.archive_size_bytes,
+            )
+            print(json.dumps({
+                "checkpoint_sequence": boundary.sequence,
+                "checkpoint_filename": boundary.filename,
+                "already_consumed": boundary.already_consumed,
             }, sort_keys=True, separators=(",", ":")))
             return 0
         if args.command == "materialize":

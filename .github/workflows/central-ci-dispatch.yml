@@ -281,9 +281,9 @@ jobs:
               inputs = json.loads(os.environ["INPUTS_JSON"])
           except (KeyError, json.JSONDecodeError) as exc:
               raise SystemExit("source.checkpoint-publish inputs must be one JSON object") from exc
-          required = {"expected_head", "expected_tree", "archive_sha256", "archive_size_bytes", "checkpoint_sequence", "commit_message"}
+          required = {"expected_head", "expected_tree", "archive_sha256", "archive_size_bytes", "commit_message"}
           if not isinstance(inputs, dict) or set(inputs) != required:
-              raise SystemExit("source.checkpoint-publish requires exactly expected_head/expected_tree/archive_sha256/archive_size_bytes/checkpoint_sequence/commit_message")
+              raise SystemExit("source.checkpoint-publish requires exactly expected_head/expected_tree/archive_sha256/archive_size_bytes/commit_message")
           for key in ("expected_head", "expected_tree"):
               if not isinstance(inputs[key], str) or not re.fullmatch(r"[0-9a-f]{40}", inputs[key]):
                   raise SystemExit(f"source.checkpoint-publish {key} must be one lowercase 40-character Git SHA")
@@ -292,9 +292,6 @@ jobs:
           size = inputs["archive_size_bytes"]
           if isinstance(size, bool) or not isinstance(size, int) or not 1 <= size <= 536870912:
               raise SystemExit("source.checkpoint-publish archive_size_bytes is outside the bounded limit")
-          sequence = inputs["checkpoint_sequence"]
-          if isinstance(sequence, bool) or not isinstance(sequence, int) or not 1 <= sequence <= 999999:
-              raise SystemExit("source.checkpoint-publish checkpoint_sequence must be one six-digit-range positive integer")
           message = inputs["commit_message"]
           if not isinstance(message, str) or not message.strip() or "\x00" in message or len(message.encode("utf-8")) > 16384:
               raise SystemExit("source.checkpoint-publish commit_message is invalid")
@@ -638,7 +635,6 @@ jobs:
       expected_tree: ${{ fromJSON(needs.request.outputs.inputs_json).expected_tree }}
       archive_sha256: ${{ fromJSON(needs.request.outputs.inputs_json).archive_sha256 }}
       archive_size_bytes: ${{ fromJSON(needs.request.outputs.inputs_json).archive_size_bytes }}
-      checkpoint_sequence: ${{ fromJSON(needs.request.outputs.inputs_json).checkpoint_sequence }}
       commit_message: ${{ fromJSON(needs.request.outputs.inputs_json).commit_message }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
