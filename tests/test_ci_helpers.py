@@ -693,6 +693,8 @@ class CiHelperTests(unittest.TestCase):
         self.assertNotIn("github.sha", record["with"]["observed_source_sha"])
         self.assertEqual(snapshot["env"]["OBSERVED_SOURCE_SHA"], "${{ steps.source_identity.outputs.source_sha }}")
         self.assertIn('source_sha="${OBSERVED_SOURCE_SHA}"', snapshot["run"])
+        syntax = subprocess.run(["bash", "-n", "-c", snapshot["run"]], text=True, capture_output=True)
+        self.assertEqual(syntax.returncode, 0, syntax.stderr)
         self.assertLess(names.index("Check out requested source"), names.index("Resolve observed source SHA"))
         self.assertLess(names.index("Resolve observed source SHA"), names.index("Record observed source SHA"))
         self.assertLess(names.index("Record observed source SHA"), names.index("Create exact tracked-source snapshot"))

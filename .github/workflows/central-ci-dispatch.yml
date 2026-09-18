@@ -881,7 +881,7 @@ jobs:
               raise SystemExit("snapshot repository/ref must be non-empty")
           print(repository_name, f"{repository_name}-{ref_slug}.zip", sep="\t")
           PY_NAME
-          )"
+          )
           archive="${RUNNER_TEMP}/repository-snapshot.zip"
           manifest="${RUNNER_TEMP}/manifest.json"
           git -C source archive --format=zip --output="${archive}" HEAD
