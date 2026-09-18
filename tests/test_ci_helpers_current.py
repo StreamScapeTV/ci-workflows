@@ -321,6 +321,19 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertIn("cmp -s", action_text)
         self.assertNotIn("AGENT_STATE_SUPABASE", action_text)
 
+    def test_source_snapshot_step_is_valid_bash(self) -> None:
+        workflow = yaml.safe_load((_prior.ROOT / ".github/workflows/central-ci-dispatch.yml").read_text())
+        steps = workflow["jobs"]["source_snapshot"]["steps"]
+        snapshot = next(step for step in steps if step.get("name") == "Create exact tracked-source snapshot")
+        result = subprocess.run(
+            ["bash", "-n"],
+            input=snapshot["run"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_source_snapshot_reuses_drive_helper_and_updates_manifest_in_place(self) -> None:
         dispatch = (_prior.ROOT / ".github/workflows/central-ci-dispatch.yml").read_text()
         agents = (_prior.ROOT / "AGENTS.md").read_text()
