@@ -43,6 +43,7 @@ def validate_request(
     expected_tree: str,
     archive_sha256: str,
     archive_size_bytes: int,
+    checkpoint_sequence: int,
     commit_message: str,
 ) -> None:
     if not REPOSITORY.fullmatch(repository):
@@ -64,6 +65,8 @@ def validate_request(
         raise CheckpointPublishError("checkpoint archive SHA-256 must be one lowercase 64-character digest")
     if isinstance(archive_size_bytes, bool) or not isinstance(archive_size_bytes, int) or not 1 <= archive_size_bytes <= MAX_BUNDLE_BYTES:
         raise CheckpointPublishError("checkpoint archive size is outside the bounded limit")
+    if isinstance(checkpoint_sequence, bool) or not isinstance(checkpoint_sequence, int) or not 1 <= checkpoint_sequence <= 999999:
+        raise CheckpointPublishError("checkpoint sequence is outside six-digit positive range")
     if not isinstance(commit_message, str) or not commit_message.strip() or "\x00" in commit_message:
         raise CheckpointPublishError("checkpoint commit message is invalid")
     if len(commit_message.encode("utf-8")) > MAX_COMMIT_MESSAGE_BYTES:
@@ -357,6 +360,7 @@ def load_latest_checkpoint(
     branch: str,
     expected_sha256: str,
     expected_size_bytes: int,
+    expected_sequence: int,
 ) -> LatestCheckpoint:
     if not DRIVE_FILE_ID.fullmatch(root_folder_id or ""):
         raise CheckpointPublishError("Google Drive repositories root folder ID is invalid")
@@ -365,6 +369,8 @@ def load_latest_checkpoint(
     ref_folder = _unique(client.exact_folders(repository_folder["id"], branch), "ref folder")
     children = client.children(ref_folder["id"])
     sequence, checkpoint_file = select_latest_checkpoint_file(children, repository=repository, branch=branch)
+    if sequence != expected_sequence:
+        raise CheckpointPublishError("latest Google Drive checkpoint sequence does not match request")
     filename = checkpoint_filename(repository, branch, sequence)
     if checkpoint_file.get("name") != filename:
         raise CheckpointPublishError("Google Drive checkpoint latest filename mismatch")
@@ -535,6 +541,7 @@ def main() -> int:
         command.add_argument("--expected-tree", required=True)
         command.add_argument("--archive-sha256", required=True)
         command.add_argument("--archive-size-bytes", required=True, type=_positive_int)
+        command.add_argument("--checkpoint-sequence", required=True, type=_positive_int)
         command.add_argument("--commit-message", required=True)
 
     remote = sub.add_parser("classify-remote")
@@ -550,6 +557,7 @@ def main() -> int:
     download.add_argument("--branch", required=True)
     download.add_argument("--archive-sha256", required=True)
     download.add_argument("--archive-size-bytes", required=True, type=_positive_int)
+    download.add_argument("--checkpoint-sequence", required=True, type=_positive_int)
     download.add_argument("--archive", required=True)
     download.add_argument("--api-root", default="https://www.googleapis.com/drive/v3")
 
@@ -570,7 +578,7 @@ def main() -> int:
         if args.command == "validate":
             validate_request(
                 args.repository, args.branch, args.expected_head, args.expected_tree,
-                args.archive_sha256, args.archive_size_bytes, args.commit_message,
+                args.archive_sha256, args.archive_size_bytes, args.checkpoint_sequence, args.commit_message,
             )
             return 0
         if args.command == "classify-remote":
@@ -597,6 +605,7 @@ def main() -> int:
                 branch=args.branch,
                 expected_sha256=args.archive_sha256,
                 expected_size_bytes=args.archive_size_bytes,
+                expected_sequence=args.checkpoint_sequence,
             )
             Path(args.archive).write_bytes(checkpoint.archive_bytes)
             print(json.dumps({

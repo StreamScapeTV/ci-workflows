@@ -9,6 +9,7 @@ name: Publish latest numbered Drive source checkpoint
       expected_tree: {type: string, required: true}
       archive_sha256: {type: string, required: true}
       archive_size_bytes: {type: number, required: true}
+      checkpoint_sequence: {type: number, required: true}
       commit_message: {type: string, required: true}
       ci_run_id: {type: string, required: true}
     secrets:
@@ -49,6 +50,7 @@ jobs:
           EXPECTED_TREE: ${{ inputs.expected_tree }}
           ARCHIVE_SHA256: ${{ inputs.archive_sha256 }}
           ARCHIVE_SIZE_BYTES: ${{ inputs.archive_size_bytes }}
+          CHECKPOINT_SEQUENCE: ${{ inputs.checkpoint_sequence }}
           COMMIT_MESSAGE: ${{ inputs.commit_message }}
         run: |
           set -Eeuo pipefail
@@ -59,14 +61,20 @@ jobs:
             --expected-tree "${EXPECTED_TREE}" \
             --archive-sha256 "${ARCHIVE_SHA256}" \
             --archive-size-bytes "${ARCHIVE_SIZE_BYTES}" \
+            --checkpoint-sequence "${CHECKPOINT_SEQUENCE}" \
             --commit-message "${COMMIT_MESSAGE}"
           git check-ref-format --branch "${TARGET_BRANCH}" >/dev/null 2>&1 || {
             echo "source checkpoint branch is not a valid Git branch" >&2
             exit 2
           }
-          python3 - "${TARGET_REPOSITORY}" <<'PY' >> "${GITHUB_OUTPUT}"
+          python3 - "${TARGET_REPOSITORY}" "${TARGET_BRANCH}" "${CHECKPOINT_SEQUENCE}" <<'PY' >> "${GITHUB_OUTPUT}"
           import sys
-          print("repository_name=" + sys.argv[1].split("/", 1)[1])
+          import urllib.parse
+          repository, branch, raw_sequence = sys.argv[1:]
+          name = repository.split("/", 1)[1]
+          sequence = int(raw_sequence)
+          print("repository_name=" + name)
+          print(f"checkpoint_filename={name}-{urllib.parse.quote(branch, safe='')}-checkpoint-{sequence:06d}.zip")
           PY
 
       - name: Create exact target repository token
@@ -124,6 +132,7 @@ jobs:
 
       - id: checkpoint
         name: Select and download unique latest numbered Drive checkpoint
+        if: ${{ steps.remote.outputs.action == 'publish' }}
         shell: bash
         env:
           GOOGLE_DRIVE_ACCESS_TOKEN: ${{ steps.drive.outputs.access_token }}
@@ -132,13 +141,14 @@ jobs:
           TARGET_BRANCH: ${{ inputs.branch }}
           ARCHIVE_SHA256: ${{ inputs.archive_sha256 }}
           ARCHIVE_SIZE_BYTES: ${{ inputs.archive_size_bytes }}
+          CHECKPOINT_SEQUENCE: ${{ inputs.checkpoint_sequence }}
         run: |
           set -Eeuo pipefail
           archive="${RUNNER_TEMP}/source-checkpoint.zip"
           result="$(python3 scripts/ci/source_checkpoint_publish.py download-latest \
             --repository "${TARGET_REPOSITORY}" --branch "${TARGET_BRANCH}" \
             --archive-sha256 "${ARCHIVE_SHA256}" --archive-size-bytes "${ARCHIVE_SIZE_BYTES}" \
-            --archive "${archive}")"
+            --checkpoint-sequence "${CHECKPOINT_SEQUENCE}" --archive "${archive}")"
           python3 - "${result}" <<'PY' >> "${GITHUB_OUTPUT}"
           import json,sys
           value=json.loads(sys.argv[1])
@@ -158,6 +168,7 @@ jobs:
           persist-credentials: false
 
       - name: Materialize latest full-tree checkpoint and verify exact tree
+        if: ${{ steps.remote.outputs.action == 'publish' }}
         shell: bash
         env:
           EXPECTED_HEAD: ${{ inputs.expected_head }}
@@ -172,6 +183,7 @@ jobs:
 
       - id: workflow_scope
         name: Detect workflow-file checkpoint changes
+        if: ${{ steps.remote.outputs.action == 'publish' }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -278,7 +290,7 @@ jobs:
           GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
           TARGET_REPOSITORY: ${{ inputs.repository }}
           TARGET_BRANCH: ${{ inputs.branch }}
-          CHECKPOINT_SEQUENCE: ${{ steps.checkpoint.outputs.checkpoint_sequence }}
+          CHECKPOINT_SEQUENCE: ${{ inputs.checkpoint_sequence }}
         run: |
           set -Eeuo pipefail
           result="$(python3 scripts/ci/source_checkpoint_publish.py cleanup-consumed \
@@ -311,8 +323,8 @@ jobs:
           PUBLISHED_COMMIT: ${{ steps.published.outputs.commit_sha }}
           PUBLISHED_TREE: ${{ steps.published.outputs.remote_tree }}
           ARCHIVE_SHA256: ${{ inputs.archive_sha256 }}
-          CHECKPOINT_SEQUENCE: ${{ steps.checkpoint.outputs.checkpoint_sequence }}
-          CHECKPOINT_FILENAME: ${{ steps.checkpoint.outputs.checkpoint_filename }}
+          CHECKPOINT_SEQUENCE: ${{ inputs.checkpoint_sequence }}
+          CHECKPOINT_FILENAME: ${{ steps.request.outputs.checkpoint_filename }}
           PUBLICATION_ACTION: ${{ steps.remote.outputs.action }}
           DELETED_CHECKPOINTS: ${{ steps.checkpoint_cleanup.outputs.deleted_checkpoints }}
         run: |
