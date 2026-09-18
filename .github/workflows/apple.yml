@@ -1448,10 +1448,15 @@ jobs:
           export CI_MOBILE_RELEASE_BUILD_NUMBER="${RELEASE_BUILD_NUMBER}"
           export CI_MOBILE_BUMP_WORKTREE="${target}"
           printf '\n===== apple-mobile-build-bump =====\n' >> "${CI_LOG}"
-          if ! bash "${wrapper}" >> "${CI_LOG}" 2>&1; then
+          if ! env -u TARGET_TOKEN bash "${wrapper}" >> "${CI_LOG}" 2>&1; then
             echo "TestFlight publication succeeded, but the next development build-number update failed; rerun the same tag to repair without republishing" >&2
             exit 1
           fi
+          actual_head="$(git -C "${target}" rev-parse HEAD)"
+          test "${actual_head}" = "${expected_head}" || {
+            echo "Apple mobile build bump wrapper must not move local HEAD; Central owns commit and push" >&2
+            exit 1
+          }
           staged_paths="$(git -C "${target}" diff --cached --name-only)"
           test -z "${staged_paths}" || {
             echo "Apple mobile build bump wrapper must not stage product files; Central owns staging, commit, and push" >&2
