@@ -30,7 +30,7 @@ class CiHelperTests(_prior.CiHelperTests):
             {"apple", "apple_binary", "apple_swiftpm", "android", "python", "node", "flutter", "maven", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "source_snapshot_delete", "source_snapshot", "source_checkpoint_publish", "central_dispatch", "ci_log_retention", "self_check", "runner_images"},
         )
         self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git", "source_snapshot"})
-        self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility", "ci_log_reconcile", "source_snapshot_delete", "source_checkpoint_publish", "swiftpm_binary"})
+        self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility", "ci_log_reconcile", "source_snapshot_delete", "source_snapshot_lifecycle", "source_checkpoint_publish", "swiftpm_binary"})
         self.assertEqual(set(inventory["services"]), {"runner_images"})
 
     def test_only_three_custom_actions_exist(self) -> None:
@@ -353,7 +353,9 @@ class CiHelperTests(_prior.CiHelperTests):
             '"folder_id"',
         ):
             self.assertIn(key, dispatch)
-        self.assertIn('test "${CREATED_ID}" = "${UPDATED_ID}"', dispatch)
+        self.assertIn('test "${CREATED_MANIFEST_ID}" = "${MANIFEST_FILE_ID}"', dispatch)
+        self.assertIn("snapshot-readback.zip", dispatch)
+        self.assertIn("source_snapshot_lifecycle.py", dispatch)
         self.assertIn("Clean snapshot workspace", dispatch)
 
         workflow = yaml.safe_load(dispatch)
@@ -365,7 +367,10 @@ class CiHelperTests(_prior.CiHelperTests):
         identity = by_name["Resolve observed source SHA"]
         record = by_name["Record observed source SHA"]
         snapshot = by_name["Create exact tracked-source snapshot"]
+        lifecycle = by_name["Validate existing canonical source archive state"]
         upload = by_name["Upload repository snapshot archive"]
+        readback = by_name["Verify stable identity and raw Drive readback"]
+        prune = by_name["Delete superseded canonical source archive objects"]
         finish = by_name["Finish Agent State run"]
         self.assertEqual(requested_ref["env"]["REQUESTED_REF"], "${{ needs.request.outputs.ref }}")
         self.assertEqual(requested_ref["env"]["REQUESTED_IS_TAG"], "${{ needs.request.outputs.is_tag }}")
@@ -389,10 +394,18 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertIn('archive_filename=%s\\n', snapshot["run"])
         self.assertEqual(upload["with"]["file_name"], "${{ steps.snapshot.outputs.archive_filename }}")
         self.assertEqual(upload["with"]["previous_file_name"], "source.zip")
+        self.assertTrue(upload["with"]["fresh_object"])
+        self.assertEqual(lifecycle["env"]["TARGET_IS_TAG"], "${{ needs.request.outputs.is_tag }}")
+        self.assertIn("source_snapshot_lifecycle.py preflight", lifecycle["run"])
+        self.assertIn("snapshot-readback.zip", readback["run"])
+        self.assertIn("source_snapshot_lifecycle.py prune", prune["run"])
         self.assertLess(names.index("Resolve requested human Git ref"), names.index("Check out requested source"))
         self.assertLess(names.index("Check out requested source"), names.index("Resolve observed source SHA"))
         self.assertLess(names.index("Resolve observed source SHA"), names.index("Record observed source SHA"))
         self.assertLess(names.index("Record observed source SHA"), names.index("Create exact tracked-source snapshot"))
+        self.assertLess(names.index("Create exact tracked-source snapshot"), names.index("Validate existing canonical source archive state"))
+        self.assertLess(names.index("Validate existing canonical source archive state"), names.index("Upload repository snapshot archive"))
+        self.assertLess(names.index("Verify stable identity and raw Drive readback"), names.index("Delete superseded canonical source archive objects"))
         self.assertEqual(finish["if"], "${{ always() }}")
 
     def test_snapshot_archive_migration_reuses_legacy_file_and_refuses_ambiguous_siblings(self) -> None:

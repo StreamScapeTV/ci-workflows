@@ -13,9 +13,13 @@ import yaml
 from scripts.ci.source_checkpoint_publish import (
     CheckpointPublishError,
     GitHubClient,
+    checkpoint_commit_message,
     checkpoint_filename,
+    cleanup_consumed_checkpoints,
+    consumed_checkpoint_files,
     load_latest_checkpoint,
     materialize_checkpoint,
+    resolve_cleanup_boundary,
     select_latest_checkpoint_file,
     stage_and_verify_tree,
     validate_request,
@@ -63,6 +67,7 @@ class FakeDrive:
     def __init__(self, archive: bytes, *, children=None):
         self.archive = archive
         self._children = children
+        self.deleted = []
 
     def exact_folders(self, parent: str, name: str):
         if parent == "root_folder_12345" and name == "example":
@@ -75,7 +80,7 @@ class FakeDrive:
         if parent != "ref_folder_12345":
             raise AssertionError(parent)
         if self._children is not None:
-            return self._children
+            return [value for value in self._children if value["id"] not in self.deleted]
         return [
             {"id": "manifest_file_12345", "name": "manifest.json", "mimeType": "application/json"},
             {"id": "base_archive_12345", "name": "example-feature%2Fcheckpoint.zip", "mimeType": "application/zip"},
@@ -88,6 +93,9 @@ class FakeDrive:
         if file_id.startswith("checkpoint_"):
             return self.archive
         raise AssertionError(file_id)
+
+    def delete(self, file_id: str):
+        self.deleted.append(file_id)
 
 
 class StubGitHubClient(GitHubClient):
@@ -178,19 +186,83 @@ class SourceCheckpointPublishTests(unittest.TestCase):
                     expected_sha256="0"*64, expected_size_bytes=len(archive),
                 )
 
+    def test_consumed_checkpoint_cleanup_deletes_through_selected_and_preserves_newer(self) -> None:
+        prefix = "example-feature%2Fcheckpoint-checkpoint-"
+        children = [
+            {"id": "a"*10, "name": prefix + "000001.zip", "mimeType": "application/zip"},
+            {"id": "b"*10, "name": prefix + "000001.zip", "mimeType": "application/zip"},
+            {"id": "c"*10, "name": prefix + "000002.zip", "mimeType": "application/zip"},
+            {"id": "d"*10, "name": prefix + "000003.zip", "mimeType": "application/zip"},
+            {"id": "e"*10, "name": "manifest.json", "mimeType": "application/json"},
+        ]
+        drive = FakeDrive(b"unused", children=children)
+        deleted = cleanup_consumed_checkpoints(
+            drive, root_folder_id="root_folder_12345", repository="StreamScapeTV/example",
+            branch="feature/checkpoint", through_sequence=2,
+        )
+        self.assertEqual(deleted, 3)
+        self.assertEqual(drive.deleted, ["a"*10, "b"*10, "c"*10])
+        self.assertEqual(
+            [value["id"] for value in drive.children("ref_folder_12345") if value["name"].startswith(prefix)],
+            ["d"*10],
+        )
+        self.assertEqual(
+            cleanup_consumed_checkpoints(
+                drive, root_folder_id="root_folder_12345", repository="StreamScapeTV/example",
+                branch="feature/checkpoint", through_sequence=2,
+            ),
+            0,
+        )
+
+    def test_consumed_checkpoint_cleanup_fails_closed_on_malformed_matching_name(self) -> None:
+        prefix = "example-feature%2Fcheckpoint-checkpoint-"
+        children = [
+            {"id": "a"*10, "name": prefix + "000001.zip", "mimeType": "application/zip"},
+            {"id": "b"*10, "name": prefix + "2.zip", "mimeType": "application/zip"},
+        ]
+        drive = FakeDrive(b"unused", children=children)
+        with self.assertRaisesRegex(CheckpointPublishError, "malformed"):
+            cleanup_consumed_checkpoints(
+                drive, root_folder_id="root_folder_12345", repository="StreamScapeTV/example",
+                branch="feature/checkpoint", through_sequence=1,
+            )
+        self.assertEqual(drive.deleted, [])
+
+    def test_cleanup_selection_accepts_duplicate_consumed_sequences_but_not_newer(self) -> None:
+        prefix = "example-feature%2Fcheckpoint-checkpoint-"
+        values = consumed_checkpoint_files(
+            [
+                {"id": "a"*10, "name": prefix + "000002.zip", "mimeType": "application/zip"},
+                {"id": "b"*10, "name": prefix + "000002.zip", "mimeType": "application/zip"},
+                {"id": "c"*10, "name": prefix + "000003.zip", "mimeType": "application/zip"},
+            ],
+            repository="StreamScapeTV/example", branch="feature/checkpoint", through_sequence=2,
+        )
+        self.assertEqual([item[1]["id"] for item in values], ["a"*10, "b"*10])
+
     def test_remote_classification_publish_and_idempotent_repeat(self) -> None:
         expected_head = "a" * 40
         expected_tree = "b" * 40
+        archive_sha256 = "c" * 64
+        archive_size_bytes = 1234
         message = "Publish checkpoint"
+        kwargs = dict(
+            branch="feature/checkpoint",
+            expected_head=expected_head,
+            expected_tree=expected_tree,
+            archive_sha256=archive_sha256,
+            archive_size_bytes=archive_size_bytes,
+            commit_message=message,
+        )
         publish = StubGitHubClient([
             {"full_name": "StreamScapeTV/example", "default_branch": "main"},
             {"name": "feature/checkpoint", "protected": False, "commit": {"sha": expected_head}},
         ])
-        state = publish.classify_branch(branch="feature/checkpoint", expected_head=expected_head, expected_tree=expected_tree, commit_message=message)
-        self.assertEqual((state.action, state.observed_head), ("publish", expected_head))
+        state = publish.classify_branch(**kwargs)
+        self.assertEqual((state.action, state.observed_head, state.checkpoint_sequence), ("publish", expected_head, None))
 
-        published_head = "c" * 40
-        repeat = StubGitHubClient([
+        published_head = "d" * 40
+        legacy_repeat = StubGitHubClient([
             {"full_name": "StreamScapeTV/example", "default_branch": "main"},
             {"name": "feature/checkpoint", "protected": False, "commit": {"sha": published_head}},
             {
@@ -199,23 +271,53 @@ class SourceCheckpointPublishTests(unittest.TestCase):
                 "commit": {"tree": {"sha": expected_tree}, "message": message},
             },
         ])
-        state = repeat.classify_branch(branch="feature/checkpoint", expected_head=expected_head, expected_tree=expected_tree, commit_message=message)
-        self.assertEqual((state.action, state.observed_head), ("already-published", published_head))
+        state = legacy_repeat.classify_branch(**kwargs)
+        self.assertEqual((state.action, state.observed_head, state.checkpoint_sequence), ("already-published", published_head, None))
+
+        metadata_message = checkpoint_commit_message(
+            message, sequence=2, archive_sha256=archive_sha256, archive_size_bytes=archive_size_bytes
+        )
+        repeat = StubGitHubClient([
+            {"full_name": "StreamScapeTV/example", "default_branch": "main"},
+            {"name": "feature/checkpoint", "protected": False, "commit": {"sha": published_head}},
+            {
+                "sha": published_head,
+                "parents": [{"sha": expected_head}],
+                "commit": {"tree": {"sha": expected_tree}, "message": metadata_message},
+            },
+        ])
+        state = repeat.classify_branch(**kwargs)
+        self.assertEqual((state.action, state.observed_head, state.checkpoint_sequence), ("already-published", published_head, 2))
+
+        wrong_archive = StubGitHubClient([
+            {"full_name": "StreamScapeTV/example", "default_branch": "main"},
+            {"name": "feature/checkpoint", "protected": False, "commit": {"sha": published_head}},
+            {
+                "sha": published_head,
+                "parents": [{"sha": expected_head}],
+                "commit": {"tree": {"sha": expected_tree}, "message": metadata_message},
+            },
+        ])
+        with self.assertRaisesRegex(CheckpointPublishError, "archive identity"):
+            wrong_archive.classify_branch(**{**kwargs, "archive_sha256": "e" * 64})
 
         stale = StubGitHubClient([
             {"full_name": "StreamScapeTV/example", "default_branch": "main"},
             {"name": "feature/checkpoint", "protected": False, "commit": {"sha": published_head}},
             {
                 "sha": published_head,
-                "parents": [{"sha": "d"*40}],
+                "parents": [{"sha": "f"*40}],
                 "commit": {"tree": {"sha": expected_tree}, "message": message},
             },
         ])
         with self.assertRaisesRegex(CheckpointPublishError, "stale"):
-            stale.classify_branch(branch="feature/checkpoint", expected_head=expected_head, expected_tree=expected_tree, commit_message=message)
+            stale.classify_branch(**kwargs)
 
     def test_remote_guard_refuses_default_and_protected_branch(self) -> None:
-        kwargs = dict(expected_head="a"*40, expected_tree="b"*40, commit_message="msg")
+        kwargs = dict(
+            expected_head="a"*40, expected_tree="b"*40, archive_sha256="c"*64,
+            archive_size_bytes=1, commit_message="msg",
+        )
         default = StubGitHubClient([{"full_name": "StreamScapeTV/example", "default_branch": "feature/checkpoint"}])
         with self.assertRaisesRegex(CheckpointPublishError, "default branch"):
             default.classify_branch(branch="feature/checkpoint", **kwargs)
@@ -269,7 +371,7 @@ class SourceCheckpointPublishTests(unittest.TestCase):
         text = WORKFLOW.read_text()
         self.assertIn("download-latest", text)
         self.assertIn("Select and download unique latest numbered Drive checkpoint", text)
-        self.assertNotIn("checkpoint_sequence: {type", text)
+        self.assertNotIn("checkpoint_sequence: {type: number, required: true}", text)
         self.assertNotIn("source-checkpoint-manifest", text)
         self.assertNotIn("patch", text.lower())
 
@@ -277,6 +379,7 @@ class SourceCheckpointPublishTests(unittest.TestCase):
         request_steps = {step.get("name"): step for step in dispatch["jobs"]["request"]["steps"] if step.get("name")}
         admission = request_steps["Validate canonical source checkpoint publication request"]
         self.assertIn('{"expected_head", "expected_tree", "archive_sha256", "archive_size_bytes", "commit_message"}', admission["run"])
+        self.assertNotIn('checkpoint_sequence', admission["run"])
         job = dispatch["jobs"]["source_checkpoint_publish"]
         self.assertEqual(
             set(job["with"]),
@@ -290,6 +393,167 @@ class SourceCheckpointPublishTests(unittest.TestCase):
         for retired in (".patch", "patch-transport", "patch chain", "apply patch"):
             self.assertNotIn(retired, combined)
 
+
+    def test_already_published_replay_resolves_boundary_from_archive_identity_without_request_sequence(self) -> None:
+        prefix = "example-feature%2Fcheckpoint-checkpoint-"
+        target = b"published-checkpoint-bytes"
+        newer = b"newer-checkpoint-bytes"
+        children = [
+            {"id": "checkpoint_2_12345", "name": prefix + "000002.zip", "mimeType": "application/zip", "size": str(len(target))},
+            {"id": "checkpoint_3_12345", "name": prefix + "000003.zip", "mimeType": "application/zip", "size": str(len(newer))},
+        ]
+        drive = FakeDrive(target, children=children)
+        original_media = drive.media
+        drive.media = lambda file_id: target if file_id == "checkpoint_2_12345" else newer
+        boundary = resolve_cleanup_boundary(
+            drive, root_folder_id="root_folder_12345", repository="StreamScapeTV/example",
+            branch="feature/checkpoint", expected_sha256=hashlib.sha256(target).hexdigest(),
+            expected_size_bytes=len(target),
+        )
+        self.assertFalse(boundary.already_consumed)
+        self.assertEqual(boundary.sequence, 2)
+        self.assertEqual(boundary.filename, prefix + "000002.zip")
+
+    def test_legacy_replay_without_boundary_fails_closed_while_numbered_checkpoints_remain(self) -> None:
+        prefix = "example-feature%2Fcheckpoint-checkpoint-"
+        published = b"published-checkpoint-bytes"
+        newer = b"newer-checkpoint-bytes"
+        children = [
+            {"id": "checkpoint_3_12345", "name": prefix + "000003.zip", "mimeType": "application/zip", "size": str(len(newer))},
+        ]
+        drive = FakeDrive(newer, children=children)
+        with self.assertRaisesRegex(CheckpointPublishError, "cannot be proven"):
+            resolve_cleanup_boundary(
+                drive, root_folder_id="root_folder_12345", repository="StreamScapeTV/example",
+                branch="feature/checkpoint", expected_sha256=hashlib.sha256(published).hexdigest(),
+                expected_size_bytes=len(published),
+            )
+        self.assertEqual(drive.deleted, [])
+        self.assertEqual([item["id"] for item in drive.children("ref_folder_12345")], ["checkpoint_3_12345"])
+
+    def test_metadata_replay_cleans_older_after_boundary_deleted_and_preserves_newer(self) -> None:
+        prefix = "example-feature%2Fcheckpoint-checkpoint-"
+        children = [
+            {"id": "checkpoint_1_12345", "name": prefix + "000001.zip", "mimeType": "application/zip"},
+            {"id": "checkpoint_3_12345", "name": prefix + "000003.zip", "mimeType": "application/zip"},
+        ]
+        drive = FakeDrive(b"unused", children=children)
+        with self.assertRaisesRegex(CheckpointPublishError, "boundary is missing"):
+            cleanup_consumed_checkpoints(
+                drive, root_folder_id="root_folder_12345", repository="StreamScapeTV/example",
+                branch="feature/checkpoint", through_sequence=2,
+            )
+        deleted = cleanup_consumed_checkpoints(
+            drive, root_folder_id="root_folder_12345", repository="StreamScapeTV/example",
+            branch="feature/checkpoint", through_sequence=2, allow_missing_boundary=True,
+        )
+        self.assertEqual(deleted, 1)
+        self.assertEqual(drive.deleted, ["checkpoint_1_12345"])
+        self.assertEqual([item["id"] for item in drive.children("ref_folder_12345")], ["checkpoint_3_12345"])
+
+    def test_partial_cleanup_replay_resolves_remaining_boundary_then_preserves_newer(self) -> None:
+        prefix = "example-feature%2Fcheckpoint-checkpoint-"
+        target = b"published-checkpoint-bytes"
+        newer = b"newer-checkpoint-bytes"
+        children = [
+            {"id": "checkpoint_1_12345", "name": prefix + "000001.zip", "mimeType": "application/zip", "size": "5"},
+            {"id": "checkpoint_2_12345", "name": prefix + "000002.zip", "mimeType": "application/zip", "size": str(len(target))},
+            {"id": "checkpoint_3_12345", "name": prefix + "000003.zip", "mimeType": "application/zip", "size": str(len(newer))},
+        ]
+        drive = FakeDrive(target, children=children)
+        drive.media = lambda file_id: target if file_id == "checkpoint_2_12345" else newer
+        boundary = resolve_cleanup_boundary(
+            drive, root_folder_id="root_folder_12345", repository="StreamScapeTV/example",
+            branch="feature/checkpoint", expected_sha256=hashlib.sha256(target).hexdigest(),
+            expected_size_bytes=len(target),
+        )
+        self.assertEqual(boundary.sequence, 2)
+        deleted = cleanup_consumed_checkpoints(
+            drive, root_folder_id="root_folder_12345", repository="StreamScapeTV/example",
+            branch="feature/checkpoint", through_sequence=boundary.sequence,
+        )
+        self.assertEqual(deleted, 2)
+        self.assertEqual(drive.deleted, ["checkpoint_1_12345", "checkpoint_2_12345"])
+        self.assertEqual([item["id"] for item in drive.children("ref_folder_12345")], ["checkpoint_3_12345"])
+
+    def test_cleanup_keeps_boundary_until_older_checkpoints_are_proven_gone(self) -> None:
+        prefix = "example-feature%2Fcheckpoint-checkpoint-"
+        children = [
+            {"id": "checkpoint_1_12345", "name": prefix + "000001.zip", "mimeType": "application/zip"},
+            {"id": "checkpoint_2_12345", "name": prefix + "000002.zip", "mimeType": "application/zip"},
+        ]
+        class StickyOlderDrive(FakeDrive):
+            def delete(self, file_id: str):
+                if file_id == "checkpoint_1_12345":
+                    self.deleted.append("attempted:" + file_id)
+                    return
+                super().delete(file_id)
+            def children(self, parent: str):
+                values = super().children(parent)
+                # An attempted-but-not-deleted older object remains visible.
+                if "attempted:checkpoint_1_12345" in self.deleted:
+                    return [item for item in self._children if item["id"] != "checkpoint_2_12345" or item["id"] not in self.deleted]
+                return values
+        drive = StickyOlderDrive(b"unused", children=children)
+        with self.assertRaisesRegex(CheckpointPublishError, "older consumed checkpoints remain"):
+            cleanup_consumed_checkpoints(
+                drive, root_folder_id="root_folder_12345", repository="StreamScapeTV/example",
+                branch="feature/checkpoint", through_sequence=2,
+            )
+        self.assertNotIn("checkpoint_2_12345", drive.deleted)
+
+    def test_replay_workflow_keeps_five_field_agent_state_contract_and_skips_deleted_boundary(self) -> None:
+        workflow = yaml.safe_load(WORKFLOW.read_text())
+        steps = workflow["jobs"]["publish"]["steps"]
+        by_name = {step.get("name"): step for step in steps if step.get("name")}
+        download = by_name["Select and download unique latest numbered Drive checkpoint"]
+        self.assertEqual(download["if"], "${{ steps.remote.outputs.action == 'publish' }}")
+        self.assertNotIn("CHECKPOINT_SEQUENCE", download["env"])
+        self.assertNotIn("--checkpoint-sequence", download["run"])
+        remote = by_name["Classify exact target branch"]
+        self.assertIn('--archive-sha256 "${ARCHIVE_SHA256}"', remote["run"])
+        self.assertIn('--archive-size-bytes "${ARCHIVE_SIZE_BYTES}"', remote["run"])
+        commit = by_name["Create one normal Git commit from checkpoint"]
+        self.assertIn("render-message", commit["run"])
+        self.assertEqual(commit["env"]["CHECKPOINT_SEQUENCE"], "${{ steps.checkpoint.outputs.checkpoint_sequence }}")
+        replay = by_name["Resolve checkpoint cleanup boundary for published replay"]
+        self.assertEqual(
+            replay["if"],
+            "${{ steps.remote.outputs.action == 'already-published' && steps.remote.outputs.checkpoint_sequence == '' }}",
+        )
+        self.assertIn("resolve-cleanup", replay["run"])
+        cleanup = by_name["Delete consumed numbered Drive checkpoints"]
+        self.assertIn("steps.remote.outputs.checkpoint_sequence != ''", cleanup["if"])
+        self.assertEqual(
+            cleanup["env"]["CHECKPOINT_SEQUENCE"],
+            "${{ steps.checkpoint.outputs.checkpoint_sequence || steps.remote.outputs.checkpoint_sequence || steps.replay_checkpoint.outputs.checkpoint_sequence }}",
+        )
+        self.assertEqual(
+            cleanup["env"]["ALLOW_MISSING_BOUNDARY"],
+            "${{ steps.remote.outputs.action == 'already-published' && steps.remote.outputs.checkpoint_sequence != '' && 'true' || 'false' }}",
+        )
+        self.assertIn("--allow-missing-boundary", cleanup["run"])
+        summary = by_name["Record checkpoint publication result"]
+        self.assertEqual(
+            summary["env"]["CHECKPOINT_FILENAME"],
+            "${{ steps.checkpoint.outputs.checkpoint_filename || steps.remote.outputs.checkpoint_filename || steps.replay_checkpoint.outputs.checkpoint_filename }}",
+        )
+
+    def test_workflow_deletes_consumed_checkpoints_only_after_exact_github_readback(self) -> None:
+        workflow = yaml.safe_load(WORKFLOW.read_text())
+        steps = workflow["jobs"]["publish"]["steps"]
+        names = [step.get("name") for step in steps]
+        verify_index = names.index("Verify exact GitHub head and remote tree readback")
+        cleanup_index = names.index("Delete consumed numbered Drive checkpoints")
+        self.assertLess(verify_index, cleanup_index)
+        cleanup = steps[cleanup_index]
+        self.assertIn("if", cleanup)
+        self.assertIn("cleanup-consumed", cleanup["run"])
+        self.assertEqual(
+            cleanup["env"]["CHECKPOINT_SEQUENCE"],
+            "${{ steps.checkpoint.outputs.checkpoint_sequence || steps.remote.outputs.checkpoint_sequence || steps.replay_checkpoint.outputs.checkpoint_sequence }}",
+        )
+        self.assertNotIn("always()", str(cleanup))
 
 if __name__ == "__main__":
     unittest.main()

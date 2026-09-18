@@ -231,6 +231,29 @@ runs:
             "${TARGET_REPOSITORY}" "${TARGET_REF}" "${EXPECTED_SOURCE_SHA}" "${current_sha}" >> "${GITHUB_STEP_SUMMARY}"
         fi
 
+    - name: Validate existing canonical source archive state
+      if: ${{ steps.mutation_fence.outputs.current == 'true' }}
+      id: source_lifecycle
+      shell: bash
+      env:
+        GOOGLE_DRIVE_ACCESS_TOKEN: ${{ steps.snapshot_drive.outputs.access_token }}
+        GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ env.GOOGLE_DRIVE_ROOT_FOLDER_ID }}
+        TARGET_REPOSITORY: ${{ inputs.repository }}
+        TARGET_REF: ${{ inputs.ref }}
+        REPOSITORY_FOLDER_ID: ${{ steps.drive_repository.outputs.folder_id }}
+        ARCHIVE_FILENAME: ${{ steps.snapshot.outputs.archive_filename }}
+      run: |
+        set -Eeuo pipefail
+        state="${RUNNER_TEMP}/source-snapshot-lifecycle.json"
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/source_snapshot_lifecycle.py" preflight \
+          --repository "${TARGET_REPOSITORY}" \
+          --ref "${TARGET_REF}" \
+          --is-tag false \
+          --archive-filename "${ARCHIVE_FILENAME}" \
+          --repository-folder-id "${REPOSITORY_FOLDER_ID}" \
+          --state "${state}"
+        printf 'state=%s\n' "${state}" >> "${GITHUB_OUTPUT}"
+
     - name: Upload repository snapshot archive
       if: ${{ steps.mutation_fence.outputs.current == 'true' }}
       id: source_upload
@@ -243,6 +266,7 @@ runs:
         file_name: ${{ steps.snapshot.outputs.archive_filename }}
         previous_file_name: source.zip
         mime_type: application/zip
+        fresh_object: true
 
     - name: Write first manifest with archive Drive identity
       if: ${{ steps.source_upload.outcome == 'success' }}
@@ -334,8 +358,32 @@ runs:
         cmp -s "${LOCAL_ARCHIVE}" "${remote_archive}"
         cmp -s "${LOCAL_MANIFEST}" "${remote_manifest}"
 
-    - name: Note newer source if it arrived after this snapshot
+    - name: Delete superseded canonical source archive objects
       if: ${{ steps.manifest_update.outcome == 'success' }}
+      id: source_prune
+      shell: bash
+      env:
+        GOOGLE_DRIVE_ACCESS_TOKEN: ${{ steps.snapshot_drive.outputs.access_token }}
+        GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ env.GOOGLE_DRIVE_ROOT_FOLDER_ID }}
+        TARGET_REPOSITORY: ${{ inputs.repository }}
+        TARGET_REF: ${{ inputs.ref }}
+        REPOSITORY_FOLDER_ID: ${{ steps.drive_repository.outputs.folder_id }}
+        ARCHIVE_FILENAME: ${{ steps.snapshot.outputs.archive_filename }}
+        LIFECYCLE_STATE: ${{ steps.source_lifecycle.outputs.state }}
+        MANIFEST: ${{ steps.snapshot.outputs.manifest }}
+      run: |
+        set -Eeuo pipefail
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/source_snapshot_lifecycle.py" prune \
+          --repository "${TARGET_REPOSITORY}" \
+          --ref "${TARGET_REF}" \
+          --is-tag false \
+          --archive-filename "${ARCHIVE_FILENAME}" \
+          --repository-folder-id "${REPOSITORY_FOLDER_ID}" \
+          --state "${LIFECYCLE_STATE}" \
+          --manifest "${MANIFEST}"
+
+    - name: Note newer source if it arrived after this snapshot
+      if: ${{ steps.source_prune.outcome == 'success' }}
       shell: bash
       env:
         TARGET_TOKEN: ${{ steps.source_token.outputs.token }}
@@ -361,4 +409,5 @@ runs:
       run: |
         rm -rf source
         rm -f "${RUNNER_TEMP}/repository-snapshot.zip" "${RUNNER_TEMP}/manifest.json" \
-          "${RUNNER_TEMP}/snapshot-readback.zip" "${RUNNER_TEMP}/snapshot-readback-manifest.json"
+          "${RUNNER_TEMP}/snapshot-readback.zip" "${RUNNER_TEMP}/snapshot-readback-manifest.json" \
+          "${RUNNER_TEMP}/source-snapshot-lifecycle.json"

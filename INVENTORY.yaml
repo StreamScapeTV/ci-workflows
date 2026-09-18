@@ -30,6 +30,7 @@ scripts:
   ci_log_reconcile: scripts/ci/ci_log_reconcile.py
   source_snapshot_delete: scripts/ci/source_snapshot_delete.py
   source_checkpoint_publish: scripts/ci/source_checkpoint_publish.py
+  source_snapshot_lifecycle: scripts/ci/source_snapshot_lifecycle.py
   swiftpm_binary: scripts/ci/swiftpm_binary.py
 services:
   runner_images: runner-images/

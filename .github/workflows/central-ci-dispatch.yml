@@ -918,6 +918,29 @@ jobs:
             printf 'manifest=%s\n' "${manifest}"
           } >> "${GITHUB_OUTPUT}"
 
+      - name: Validate existing canonical source archive state
+        id: source_lifecycle
+        shell: bash
+        env:
+          GOOGLE_DRIVE_ACCESS_TOKEN: ${{ steps.snapshot_drive.outputs.access_token }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+          TARGET_REPOSITORY: ${{ needs.request.outputs.repository }}
+          TARGET_REF: ${{ needs.request.outputs.ref }}
+          TARGET_IS_TAG: ${{ needs.request.outputs.is_tag }}
+          REPOSITORY_FOLDER_ID: ${{ steps.drive_repository.outputs.folder_id }}
+          ARCHIVE_FILENAME: ${{ steps.snapshot.outputs.archive_filename }}
+        run: |
+          set -Eeuo pipefail
+          state="${RUNNER_TEMP}/source-snapshot-lifecycle.json"
+          python3 scripts/ci/source_snapshot_lifecycle.py preflight \
+            --repository "${TARGET_REPOSITORY}" \
+            --ref "${TARGET_REF}" \
+            --is-tag "${TARGET_IS_TAG}" \
+            --archive-filename "${ARCHIVE_FILENAME}" \
+            --repository-folder-id "${REPOSITORY_FOLDER_ID}" \
+            --state "${state}"
+          printf 'state=%s\n' "${state}" >> "${GITHUB_OUTPUT}"
+
       - name: Upload repository snapshot archive
         id: source_upload
         uses: ./actions/google-drive
@@ -934,6 +957,7 @@ jobs:
           file_name: ${{ steps.snapshot.outputs.archive_filename }}
           previous_file_name: source.zip
           mime_type: application/zip
+          fresh_object: true
 
       - name: Write first manifest with archive Drive identity
         shell: bash
@@ -1003,24 +1027,68 @@ jobs:
           file_name: manifest.json
           mime_type: application/json
 
-      - name: Verify stable manifest identity
+      - name: Verify stable identity and raw Drive readback
         shell: bash
         env:
-          CREATED_ID: ${{ steps.manifest_create.outputs.file_id }}
-          UPDATED_ID: ${{ steps.manifest_update.outputs.file_id }}
+          DRIVE_ACCESS_TOKEN: ${{ steps.snapshot_drive.outputs.access_token }}
+          ARCHIVE_FILE_ID: ${{ steps.source_upload.outputs.file_id }}
+          MANIFEST_FILE_ID: ${{ steps.manifest_update.outputs.file_id }}
+          CREATED_MANIFEST_ID: ${{ steps.manifest_create.outputs.file_id }}
           CREATED_FOLDER: ${{ steps.manifest_create.outputs.folder_id }}
           UPDATED_FOLDER: ${{ steps.manifest_update.outputs.folder_id }}
+          LOCAL_ARCHIVE: ${{ steps.snapshot.outputs.archive }}
+          LOCAL_MANIFEST: ${{ steps.snapshot.outputs.manifest }}
+          EXPECTED_ARCHIVE_SHA256: ${{ steps.snapshot.outputs.archive_sha256 }}
+          EXPECTED_ARCHIVE_SIZE: ${{ steps.snapshot.outputs.archive_size }}
         run: |
           set -Eeuo pipefail
-          test "${CREATED_ID}" = "${UPDATED_ID}"
+          test "${CREATED_MANIFEST_ID}" = "${MANIFEST_FILE_ID}"
           test "${CREATED_FOLDER}" = "${UPDATED_FOLDER}"
+          remote_archive="${RUNNER_TEMP}/snapshot-readback.zip"
+          remote_manifest="${RUNNER_TEMP}/snapshot-readback-manifest.json"
+          curl --fail --silent --show-error --location --http1.1 \
+            -H "Authorization: Bearer ${DRIVE_ACCESS_TOKEN}" \
+            "https://www.googleapis.com/drive/v3/files/${ARCHIVE_FILE_ID}?alt=media" --output "${remote_archive}"
+          curl --fail --silent --show-error --location --http1.1 \
+            -H "Authorization: Bearer ${DRIVE_ACCESS_TOKEN}" \
+            "https://www.googleapis.com/drive/v3/files/${MANIFEST_FILE_ID}?alt=media" --output "${remote_manifest}"
+          test "$(wc -c < "${remote_archive}" | tr -d '[:space:]')" = "${EXPECTED_ARCHIVE_SIZE}"
+          test "$(sha256sum "${remote_archive}" | awk '{print $1}')" = "${EXPECTED_ARCHIVE_SHA256}"
+          cmp -s "${LOCAL_ARCHIVE}" "${remote_archive}"
+          cmp -s "${LOCAL_MANIFEST}" "${remote_manifest}"
+
+      - name: Delete superseded canonical source archive objects
+        id: source_prune
+        shell: bash
+        env:
+          GOOGLE_DRIVE_ACCESS_TOKEN: ${{ steps.snapshot_drive.outputs.access_token }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+          TARGET_REPOSITORY: ${{ needs.request.outputs.repository }}
+          TARGET_REF: ${{ needs.request.outputs.ref }}
+          TARGET_IS_TAG: ${{ needs.request.outputs.is_tag }}
+          REPOSITORY_FOLDER_ID: ${{ steps.drive_repository.outputs.folder_id }}
+          ARCHIVE_FILENAME: ${{ steps.snapshot.outputs.archive_filename }}
+          LIFECYCLE_STATE: ${{ steps.source_lifecycle.outputs.state }}
+          MANIFEST: ${{ steps.snapshot.outputs.manifest }}
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/ci/source_snapshot_lifecycle.py prune \
+            --repository "${TARGET_REPOSITORY}" \
+            --ref "${TARGET_REF}" \
+            --is-tag "${TARGET_IS_TAG}" \
+            --archive-filename "${ARCHIVE_FILENAME}" \
+            --repository-folder-id "${REPOSITORY_FOLDER_ID}" \
+            --state "${LIFECYCLE_STATE}" \
+            --manifest "${MANIFEST}"
 
       - name: Clean snapshot workspace
         if: ${{ always() }}
         shell: bash
         run: |
           rm -rf source
-          rm -f "${RUNNER_TEMP}/repository-snapshot.zip" "${RUNNER_TEMP}/manifest.json"
+          rm -f "${RUNNER_TEMP}/repository-snapshot.zip" "${RUNNER_TEMP}/manifest.json" \
+            "${RUNNER_TEMP}/snapshot-readback.zip" "${RUNNER_TEMP}/snapshot-readback-manifest.json" \
+            "${RUNNER_TEMP}/source-snapshot-lifecycle.json"
 
       - name: Finish Agent State run
         if: ${{ always() }}
