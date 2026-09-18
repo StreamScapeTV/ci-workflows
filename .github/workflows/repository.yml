@@ -433,7 +433,6 @@ jobs:
               path.write_bytes(data)
           PY_REDACT
 
-
       - name: Package bounded repository CI evidence
         id: evidence
         if: ${{ always() && steps.scrub.outcome == 'success' }}
@@ -503,7 +502,6 @@ jobs:
           file_path: ${{ runner.temp }}/central-repository-ci.log
           file_name: ${{ github.run_id }}-${{ github.run_attempt }}-repository-${{ inputs.operation }}.txt
           mime_type: text/plain
-
 
       - name: Upload bounded repository CI evidence to Google Drive
         id: evidence_drive
