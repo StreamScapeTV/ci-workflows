@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
 import os
 from pathlib import Path
 import subprocess
+import tempfile
 import unittest
 
 import yaml
@@ -81,15 +85,203 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
         self.assertIn("swiftpm_binary.py publish", text)
         self.assertIn("Publish and read back immutable binary cohort", text)
 
+    def _private_controls_script(self) -> str:
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        return next(
+            step["run"]
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name") == "Prove unauthenticated private GitHub and artifact reads fail"
+        )
+
+    def _run_private_controls(self, anonymous_mode: str) -> tuple[subprocess.CompletedProcess[str], str, str, str]:
+        artifact = b"private-swift-binary-artifact"
+        checksum = hashlib.sha256(artifact).hexdigest()
+        artifact_b64 = base64.b64encode(artifact).decode("ascii")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            curl_trace = root / "curl-trace.txt"
+            git_trace = root / "git-trace.txt"
+
+            curl_script = fake_bin / "curl"
+            curl_script.write_text(
+                "#!/usr/bin/env python3\n"
+                "import base64\n"
+                "import os\n"
+                "from pathlib import Path\n"
+                "import sys\n"
+                "args = sys.argv[1:]\n"
+                "if not args or args[0] != '--disable':\n"
+                "    raise SystemExit(99)\n"
+                f"trace = Path({str(curl_trace)!r})\n"
+                "with trace.open('a', encoding='utf-8') as handle:\n"
+                "    handle.write('HOME=' + os.environ.get('HOME', '') + '\\n')\n"
+                "    handle.write('CURL_HOME=' + os.environ.get('CURL_HOME', '') + '\\n')\n"
+                "    handle.write('XDG_CONFIG_HOME=' + os.environ.get('XDG_CONFIG_HOME', '') + '\\n')\n"
+                "    handle.write('AMBIENT_HEADER=' + os.environ.get('AMBIENT_HEADER', '<unset>') + '\\n')\n"
+                "out = Path(args[args.index('--output') + 1])\n"
+                "if '--dump-header' in args:\n"
+                "    Path(args[args.index('--dump-header') + 1]).write_text('HTTP/1.1 401 Unauthorized\\n', encoding='utf-8')\n"
+                "authenticated = '--netrc-file' in args\n"
+                f"artifact = base64.b64decode({artifact_b64!r})\n"
+                "if authenticated:\n"
+                "    out.write_bytes(artifact)\n"
+                "    sys.stdout.write('200')\n"
+                "    raise SystemExit(0)\n"
+                f"mode = {anonymous_mode!r}\n"
+                "if mode == 'deny':\n"
+                "    out.write_bytes(b'authentication required')\n"
+                "    sys.stdout.write('401')\n"
+                "    raise SystemExit(0)\n"
+                "if mode == 'exact-public':\n"
+                "    out.write_bytes(artifact)\n"
+                "    sys.stdout.write('200')\n"
+                "    raise SystemExit(0)\n"
+                "if mode == 'unexpected-2xx':\n"
+                "    out.write_bytes(b'login page')\n"
+                "    sys.stdout.write('200')\n"
+                "    raise SystemExit(0)\n"
+                "if mode == 'transport':\n"
+                "    sys.stdout.write('000')\n"
+                "    raise SystemExit(7)\n"
+                "raise SystemExit(98)\n",
+                encoding="utf-8",
+            )
+            curl_script.chmod(0o755)
+
+            git_script = fake_bin / "git"
+            git_script.write_text(
+                "#!/usr/bin/env python3\n"
+                "import os\n"
+                "from pathlib import Path\n"
+                "import sys\n"
+                f"Path({str(git_trace)!r}).write_text(\n"
+                "    'HOME=' + os.environ.get('HOME', '') + '\\n'\n"
+                "    + 'GIT_CONFIG_COUNT=' + os.environ.get('GIT_CONFIG_COUNT', '<unset>') + '\\n'\n"
+                "    + 'AMBIENT_GIT_AUTH=' + os.environ.get('AMBIENT_GIT_AUTH', '<unset>') + '\\n',\n"
+                "    encoding='utf-8',\n"
+                ")\n"
+                "print(\"fatal: could not read Username for 'https://github.com': terminal prompts disabled\", file=sys.stderr)\n"
+                "raise SystemExit(128)\n",
+                encoding="utf-8",
+            )
+            git_script.chmod(0o755)
+
+            receipt = root / "receipt.json"
+            url = "https://git.faruqi.dev/api/packages/mimranfaruqi/generic/streamscape-media-apple/2.1.7/fixture.zip"
+            receipt.write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "packageURL": "https://github.com/StreamScapeTV/streamscape-media.git",
+                        "version": "2.1.7",
+                        "packageRevision": "a" * 40,
+                        "artifactCount": 1,
+                        "replayed": True,
+                        "artifacts": [
+                            {
+                                "target": "FixtureXCFramework",
+                                "url": url,
+                                "checksum": checksum,
+                                "size": len(artifact),
+                            }
+                        ],
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            ci_log = root / "ci.log"
+            ci_log.write_text("", encoding="utf-8")
+            ambient_home = root / "ambient-home"
+            ambient_home.mkdir()
+            (ambient_home / ".curlrc").write_text(
+                'header = "Authorization: Basic ambient"\n', encoding="utf-8"
+            )
+            result = subprocess.run(
+                ["bash", "-c", self._private_controls_script()],
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                    "HOME": str(ambient_home),
+                    "CURL_HOME": str(ambient_home),
+                    "XDG_CONFIG_HOME": str(ambient_home),
+                    "AMBIENT_HEADER": "Authorization: Basic ambient",
+                    "GIT_CONFIG_COUNT": "1",
+                    "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+                    "GIT_CONFIG_VALUE_0": "Authorization: Basic ambient",
+                    "AMBIENT_GIT_AUTH": "present",
+                    "RUNNER_TEMP": str(root),
+                    "CI_LOG": str(ci_log),
+                    "PUBLICATION_RECEIPT": str(receipt),
+                    "PACKAGE_URL": "https://github.com/StreamScapeTV/streamscape-media.git",
+                    "VERSION": "2.1.7",
+                    "CI_PACKAGE_USERNAME": "fixture-user",
+                    "CI_PACKAGE_READ_TOKEN": "fixture-read-token",
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            return (
+                result,
+                ci_log.read_text(encoding="utf-8", errors="replace"),
+                curl_trace.read_text(encoding="utf-8", errors="replace") if curl_trace.exists() else "",
+                git_trace.read_text(encoding="utf-8", errors="replace") if git_trace.exists() else "",
+            )
+
     def test_private_controls_cover_github_git_and_generic_artifact_reads(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
+        controls = self._private_controls_script()
         self.assertIn("Prove unauthenticated private GitHub and artifact reads fail", text)
-        self.assertIn("git -c credential.helper= ls-remote", text)
-        self.assertIn("Private GitHub Swift package is readable without authentication", text)
-        self.assertIn("Private Swift binary artifact is readable without authentication", text)
+        self.assertIn("PUBLICATION_RECEIPT", text)
+        self.assertIn("publication_receipt=", controls)
+        self.assertIn("env -i", controls)
+        self.assertIn("curl --disable --silent --show-error", controls)
+        self.assertNotIn("|| true", controls)
+        self.assertIn("classification=authentication_refusal", controls)
+        self.assertIn("classification=transport_error", controls)
+        self.assertIn("classification=unexpected_2xx", controls)
+        self.assertIn("artifact_authenticated_readback classification=exact", controls)
+        self.assertIn("git -c credential.helper= -c core.askPass=/usr/bin/false", controls)
+        self.assertIn("Private GitHub Swift package is readable without authentication", controls)
+        self.assertIn("Private Swift binary artifact is readable without authentication", controls)
         self.assertIn("machine github.com", text)
         self.assertIn("machine git.faruqi.dev", text)
         self.assertIn("x-access-token", text)
+        self.assertIn('"${RUNNER_TEMP}/swiftpm-private-controls"', text)
+
+    def test_private_controls_isolate_ambient_auth_and_verify_authenticated_exact_bytes(self) -> None:
+        result, private_log, curl_trace, git_trace = self._run_private_controls("deny")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("publication_receipt=", private_log)
+        self.assertIn("artifact_anonymous_control classification=authentication_refusal", private_log)
+        self.assertIn("artifact_authenticated_readback classification=exact", private_log)
+        self.assertIn("github_unauthenticated_control git_rc=128 classification=authentication_required", private_log)
+        self.assertNotIn("AMBIENT_HEADER=Authorization", curl_trace)
+        self.assertGreaterEqual(curl_trace.count("AMBIENT_HEADER=<unset>"), 2)
+        self.assertIn("GIT_CONFIG_COUNT=<unset>", git_trace)
+        self.assertIn("AMBIENT_GIT_AUTH=<unset>", git_trace)
+
+    def test_private_controls_fail_closed_on_transport_error(self) -> None:
+        result, private_log, _, _ = self._run_private_controls("transport")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("artifact_anonymous_control classification=transport_error", private_log)
+        self.assertIn("transport failure", result.stderr)
+
+    def test_private_controls_reject_exact_anonymous_artifact_access(self) -> None:
+        result, private_log, _, _ = self._run_private_controls("exact-public")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("artifact_anonymous_control classification=exact_artifact_access", private_log)
+        self.assertIn("readable without authentication", result.stderr)
+
+    def test_private_controls_reject_nonartifact_http_2xx(self) -> None:
+        result, private_log, _, _ = self._run_private_controls("unexpected-2xx")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("artifact_anonymous_control classification=unexpected_2xx", private_log)
+        self.assertIn("without the exact artifact", result.stderr)
 
     def test_release_dispatch_accepts_only_empty_swiftpm_semantics(self) -> None:
         workflow = yaml.safe_load(DISPATCH.read_text(encoding="utf-8"))
