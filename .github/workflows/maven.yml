@@ -11,6 +11,10 @@ name: Maven publication
         type: string
         required: false
         default: ""
+      source_is_tag:
+        type: boolean
+        required: false
+        default: false
       build_number:
         type: string
         required: true
@@ -108,7 +112,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.repository || github.repository }}
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ inputs.source_is_tag && format('refs/tags/{0}', inputs.ref) || inputs.ref || github.sha }}
           token: ${{ steps.source.outputs.token || github.token }}
           fetch-depth: 1
           persist-credentials: false

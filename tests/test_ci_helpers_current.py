@@ -103,24 +103,34 @@ class CiHelperTests(_prior.CiHelperTests):
     def test_central_dispatch_preserves_newest_run_wins_with_snapshot_isolation(self) -> None:
         workflow = yaml.safe_load((_prior.ROOT / ".github/workflows/central-ci-dispatch.yml").read_text())
         jobs = workflow["jobs"]
-        execution_jobs = (
+        validation_jobs = (
             "apple",
-            "apple_release",
             "android",
-            "android_release",
             "python",
             "node",
             "flutter",
-            "maven",
             "container_service",
             "public_native_image_chart",
             "oci_reproducibility",
         )
+        serialized_release_jobs = (
+            "apple_release",
+            "android_release",
+            "maven",
+            "apple_binary",
+            "apple_swiftpm",
+        )
         self.assertNotIn("concurrency", workflow)
         self.assertNotIn("concurrency", jobs["request"])
-        for name in execution_jobs:
+        for name in validation_jobs:
             self.assertEqual(jobs[name]["concurrency"]["group"], "central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}")
             self.assertTrue(jobs[name]["concurrency"]["cancel-in-progress"])
+        for name in serialized_release_jobs:
+            self.assertEqual(
+                jobs[name]["concurrency"]["group"],
+                "central-release-${{ needs.request.outputs.repository }}-${{ needs.request.outputs.workflow_key }}-${{ needs.request.outputs.test_profile }}",
+            )
+            self.assertFalse(jobs[name]["concurrency"]["cancel-in-progress"])
 
         template = jobs["apple"]["concurrency"]["group"]
 
@@ -140,14 +150,6 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertEqual(branch_delete["group"], "central-ci-maintenance-${{ inputs.active_key }}")
         self.assertFalse(branch_delete["cancel-in-progress"])
 
-        apple_binary = jobs["apple_binary"]["concurrency"]
-        self.assertEqual(apple_binary["group"], "central-ci-apple-binary-${{ inputs.active_key }}")
-        self.assertFalse(apple_binary["cancel-in-progress"])
-
-        apple_swiftpm = jobs["apple_swiftpm"]["concurrency"]
-        self.assertEqual(apple_swiftpm["group"], "central-ci-apple-swiftpm-${{ inputs.active_key }}")
-        self.assertFalse(apple_swiftpm["cancel-in-progress"])
-
         checkpoint_publish = jobs["source_checkpoint_publish"]["concurrency"]
         self.assertEqual(checkpoint_publish["group"], "central-ci-source-checkpoint-publish-${{ inputs.active_key }}")
         self.assertFalse(checkpoint_publish["cancel-in-progress"])
@@ -159,11 +161,11 @@ class CiHelperTests(_prior.CiHelperTests):
 
         settlement = jobs["settle_cancelled"]
         self.assertNotIn("concurrency", settlement)
-        expected = {"request", *execution_jobs, "apple_binary", "apple_swiftpm", "branch_delete", "source_checkpoint_publish", "source_snapshot"}
+        expected = {"request", *validation_jobs, *serialized_release_jobs, "branch_delete", "source_checkpoint_publish", "source_snapshot"}
         self.assertEqual(set(settlement["needs"]), expected)
         self.assertIn("always()", settlement["if"])
         self.assertIn("needs.request.result != 'success'", settlement["if"])
-        for name in (*execution_jobs, "apple_binary", "apple_swiftpm", "branch_delete", "source_checkpoint_publish", "source_snapshot"):
+        for name in (*validation_jobs, *serialized_release_jobs, "branch_delete", "source_checkpoint_publish", "source_snapshot"):
             self.assertIn(f"needs.{name}.result == 'cancelled'", settlement["if"])
         self.assertEqual(settlement["steps"][-1]["with"]["phase"], "cancel-if-active")
 
@@ -188,14 +190,20 @@ class CiHelperTests(_prior.CiHelperTests):
             "${{ needs.request.outputs.workflow_key == 'release.android' && needs.request.outputs.test_profile == 'play' }}",
         )
         self.assertEqual(job["uses"], "./.github/workflows/android.yml")
+        self.assertEqual(job["with"]["source_is_tag"], "${{ needs.request.outputs.is_tag == 'true' }}")
         self.assertEqual(job["with"]["test_profile"], "play")
+        self.assertEqual(job["with"]["release_version"], "${{ needs.request.outputs.release_version }}")
         self.assertEqual(
             job["with"]["build_number"],
             "${{ fromJSON(needs.request.outputs.inputs_json).build_number }}",
         )
         self.assertNotIn("track", job["with"])
         self.assertNotIn("status", job["with"])
-        self.assertTrue(job["concurrency"]["cancel-in-progress"])
+        self.assertFalse(job["concurrency"]["cancel-in-progress"])
+        self.assertEqual(
+            job["concurrency"]["group"],
+            "central-release-${{ needs.request.outputs.repository }}-${{ needs.request.outputs.workflow_key }}-${{ needs.request.outputs.test_profile }}",
+        )
 
     def test_source_bundle_publish_is_retired(self) -> None:
         inventory = yaml.safe_load((_prior.ROOT / "INVENTORY.yaml").read_text())

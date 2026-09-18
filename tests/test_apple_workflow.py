@@ -214,6 +214,9 @@ capture before {safe_expansion} after
 
     def test_testflight_uses_explicit_build_number_and_fixed_product_wrapper(self) -> None:
         workflow_inputs = self.workflow["on"]["workflow_call"]["inputs"]
+        self.assertIn("release_version", workflow_inputs)
+        self.assertFalse(workflow_inputs["release_version"]["required"])
+        self.assertEqual(workflow_inputs["release_version"]["default"], "")
         self.assertIn("build_number", workflow_inputs)
         self.assertFalse(workflow_inputs["build_number"]["required"])
         self.assertEqual(workflow_inputs["build_number"]["default"], "")
@@ -245,10 +248,17 @@ capture before {safe_expansion} after
 
         prepare = by_name["Prepare fixed TestFlight release context"]
         self.assertEqual(prepare["if"], "${{ inputs.test_profile == 'testflight' }}")
+        self.assertEqual(prepare["env"]["SOURCE_IS_TAG"], "${{ inputs.source_is_tag }}")
+        self.assertEqual(prepare["env"]["RELEASE_VERSION"], "${{ inputs.release_version }}")
         self.assertEqual(prepare["env"]["BUILD_NUMBER"], "${{ inputs.build_number }}")
         prepare_script = prepare["run"]
         self.assertIn('test -n "${BUILD_NUMBER}"', prepare_script)
         self.assertIn('${#BUILD_NUMBER} > 64', prepare_script)
+        self.assertIn("Tag-driven TestFlight release requires a bounded dotted release_version", prepare_script)
+        self.assertIn("Tag-driven TestFlight build_number must be a positive decimal build", prepare_script)
+        self.assertIn("Manual TestFlight release does not accept release_version", prepare_script)
+        self.assertIn('CI_APPLE_TESTFLIGHT_SOURCE_IS_TAG=%s', prepare_script)
+        self.assertIn('CI_APPLE_TESTFLIGHT_RELEASE_VERSION=%s', prepare_script)
         self.assertIn('CI_APPLE_TESTFLIGHT_BUILD_NUMBER=%s', prepare_script)
         self.assertNotIn("GITHUB_RUN_NUMBER", prepare_script)
         self.assertNotIn("GITHUB_RUN_ID", prepare_script)
@@ -264,12 +274,53 @@ capture before {safe_expansion} after
         self.assertIn('run_logged apple-testflight bash "${wrapper}"', testflight_block)
         self.assertIn('test ! -L "${wrapper}"', testflight_block)
         self.assertIn('git ls-files --error-unmatch -- "${wrapper}"', testflight_block)
+        self.assertIn('case "${CI_APPLE_TESTFLIGHT_SOURCE_IS_TAG:-}" in true|false)', testflight_block)
+        self.assertIn('CI_APPLE_TESTFLIGHT_RELEASE_VERSION', testflight_block)
         self.assertNotIn("xcodebuild", testflight_block)
         self.assertNotIn("streamscapetv", testflight_block.lower())
         self.assertNotIn("CFBundleVersion", testflight_block)
         self.assertNotIn("CURRENT_PROJECT_VERSION", testflight_block)
         self.assertNotIn("archivePath", testflight_block)
         self.assertNotIn("exportArchive", testflight_block)
+
+    def test_tagged_testflight_release_uses_exact_tag_then_post_success_build_only_transport(self) -> None:
+        steps = self.workflow["jobs"]["execute"]["steps"]
+        by_name = {step.get("name"): step for step in steps if step.get("name")}
+        checkout = by_name["Check out source"]
+        self.assertEqual(
+            checkout["with"]["ref"],
+            "${{ inputs.test_profile == 'screenshot-review' && needs.plan.outputs.screenshot_source_sha || inputs.source_is_tag && format('refs/tags/{0}', inputs.ref) || inputs.ref || github.sha }}",
+        )
+        prepare = by_name["Prepare fixed TestFlight release context"]["run"]
+        self.assertIn("BUILD_NUMBER < 9999999999", prepare)
+
+        preflight = by_name["Preflight tag-driven Apple post-publication bump"]
+        self.assertEqual(preflight["if"], "${{ inputs.test_profile == 'testflight' && inputs.source_is_tag }}")
+        self.assertIn('wrapper="scripts/ci/advance-mobile-build.sh"', preflight["run"])
+        self.assertIn('git ls-files --error-unmatch -- "${wrapper}"', preflight["run"])
+        self.assertIn("default_branch", preflight["run"])
+
+        token = by_name["Create post-publication Apple build bump token"]
+        self.assertIn("steps.commands.outcome == 'success'", token["if"])
+        self.assertIn("steps.testflight_cleanup.outcome == 'success'", token["if"])
+        self.assertEqual(token["with"]["permission-contents"], "write")
+        bump_checkout = by_name["Check out current Apple development branch for post-publication bump"]
+        self.assertEqual(bump_checkout["with"]["ref"], "${{ steps.mobile_bump_contract.outputs.default_branch }}")
+        self.assertFalse(bump_checkout["with"]["persist-credentials"])
+        bump = by_name["Advance and publish next Apple build number"]["run"]
+        self.assertIn("CI_MOBILE_RELEASE_VERSION", bump)
+        self.assertIn("CI_MOBILE_RELEASE_BUILD_NUMBER", bump)
+        self.assertIn("CI_MOBILE_BUMP_WORKTREE", bump)
+        self.assertIn("already advanced after the accepted release", bump)
+        self.assertIn("changed more than one tracked product file", bump)
+        self.assertIn("development branch moved after TestFlight accepted the release", bump)
+        self.assertIn("push --porcelain", bump)
+        self.assertNotIn("--force", bump)
+        report = by_name["Report post-publication TestFlight bump failure"]
+        self.assertIn("steps.commands.outcome == 'success'", report["if"])
+        self.assertIn("without re-uploading it", report["run"])
+        scrub = by_name["Scrub configured CI secrets from private log"]
+        self.assertEqual(scrub["env"]["CI_SECRET_MOBILE_BUMP_TOKEN"], "${{ steps.mobile_bump_token.outputs.token }}")
 
     def test_testflight_wrapper_validation_executes_fail_closed(self) -> None:
         execute_steps = self.workflow["jobs"]["execute"]["steps"]
@@ -288,6 +339,8 @@ capture before {safe_expansion} after
             auth_key.write_text("test", encoding="utf-8")
             env = {
                 "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                "CI_APPLE_TESTFLIGHT_SOURCE_IS_TAG": "false",
+                "CI_APPLE_TESTFLIGHT_RELEASE_VERSION": "",
                 "CI_APPLE_TESTFLIGHT_BUILD_NUMBER": "253",
                 "CI_APPLE_TESTFLIGHT_AUTH_KEY_PATH": str(auth_key),
                 "CI_APPLE_TESTFLIGHT_TEMP_DIR": str(root / "release"),
@@ -353,6 +406,8 @@ run_logged() {
         self.assertIn("base64.b64decode(raw, validate=True)", prepare_script)
 
         command_env = by_name["Run fixed Apple lane"]["env"]
+        self.assertEqual(command_env["CI_APPLE_TESTFLIGHT_SOURCE_IS_TAG"], "${{ env.CI_APPLE_TESTFLIGHT_SOURCE_IS_TAG }}")
+        self.assertEqual(command_env["CI_APPLE_TESTFLIGHT_RELEASE_VERSION"], "${{ env.CI_APPLE_TESTFLIGHT_RELEASE_VERSION }}")
         self.assertEqual(
             command_env["CI_APPLE_TESTFLIGHT_TEAM_ID"],
             "${{ inputs.test_profile == 'testflight' && secrets.APPLE_TEAM_ID || '' }}",
@@ -396,16 +451,22 @@ run_logged() {
         probe = f"""
 set -Eeuo pipefail
 validate() {{
-  local BUILD_NUMBER="$1"
+  local SOURCE_IS_TAG="$1"
+  local RELEASE_VERSION="$2"
+  local BUILD_NUMBER="$3"
   {validation}
-  printf '%s\\n' "$BUILD_NUMBER"
+  printf '%s\n' "$BUILD_NUMBER"
 }}
-validate '253'
-validate '1.2.3+45'
-if ( validate '' ); then exit 91; fi
-if ( validate 'has space' ); then exit 92; fi
+validate false '' '253'
+validate false '' '1.2.3+45'
+validate true '1.2.3' '253'
+if ( validate false '' '' ); then exit 91; fi
+if ( validate false '' 'has space' ); then exit 92; fi
 long="x$(printf '%064d' 0)"
-if ( validate "$long" ); then exit 93; fi
+if ( validate false '' "$long" ); then exit 93; fi
+if ( validate true '1.2.3' 'build-253' ); then exit 94; fi
+if ( validate true 'v1.2.3' '253' ); then exit 95; fi
+if ( validate false '1.2.3' '253' ); then exit 96; fi
 """
         result = subprocess.run(
             ["bash"],
@@ -415,7 +476,7 @@ if ( validate "$long" ); then exit 93; fi
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.splitlines(), ["253", "1.2.3+45"])
+        self.assertEqual(result.stdout.splitlines(), ["253", "1.2.3+45", "253"])
 
     def test_central_dispatch_routes_distinct_bounded_apple_release(self) -> None:
         workflow = yaml.safe_load(
@@ -471,9 +532,10 @@ if ( validate "$long" ); then exit 93; fi
         self.assertEqual(release["uses"], "./.github/workflows/apple.yml")
         self.assertEqual(
             set(release["with"]),
-            {"repository", "ref", "source_is_tag", "test_profile", "build_number", "ci_run_id"},
+            {"repository", "ref", "source_is_tag", "test_profile", "release_version", "build_number", "ci_run_id"},
         )
         self.assertEqual(release["with"]["test_profile"], "testflight")
+        self.assertEqual(release["with"]["release_version"], "${{ needs.request.outputs.release_version }}")
         self.assertEqual(
             release["with"]["build_number"],
             "${{ fromJSON(needs.request.outputs.inputs_json).build_number }}",
@@ -484,8 +546,11 @@ if ( validate "$long" ); then exit 93; fi
             release["with"]["source_is_tag"],
             "${{ needs.request.outputs.is_tag == 'true' }}",
         )
-        self.assertEqual(release["concurrency"]["group"], "central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}")
-        self.assertTrue(release["concurrency"]["cancel-in-progress"])
+        self.assertEqual(
+            release["concurrency"]["group"],
+            "central-release-${{ needs.request.outputs.repository }}-${{ needs.request.outputs.workflow_key }}-${{ needs.request.outputs.test_profile }}",
+        )
+        self.assertFalse(release["concurrency"]["cancel-in-progress"])
         self.assertEqual(release["secrets"], "inherit")
 
         validation_job = jobs["apple"]
@@ -940,7 +1005,7 @@ CURRENT_PROJECT_VERSION = 1;
         checkout = by_name["Check out source"]
         self.assertEqual(
             checkout["with"]["ref"],
-            "${{ inputs.test_profile == 'screenshot-review' && needs.plan.outputs.screenshot_source_sha || inputs.ref || github.sha }}",
+            "${{ inputs.test_profile == 'screenshot-review' && needs.plan.outputs.screenshot_source_sha || inputs.source_is_tag && format('refs/tags/{0}', inputs.ref) || inputs.ref || github.sha }}",
         )
         observed = by_name["Resolve observed source SHA"]
         self.assertEqual(

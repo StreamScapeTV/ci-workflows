@@ -374,6 +374,10 @@ class AndroidPlayReleaseContractTest(unittest.TestCase):
 
     def test_play_release_has_one_explicit_build_number_and_one_private_credential(self) -> None:
         call = self.workflow["on"]["workflow_call"]
+        self.assertIn("source_is_tag", call["inputs"])
+        self.assertFalse(call["inputs"]["source_is_tag"]["default"])
+        self.assertIn("release_version", call["inputs"])
+        self.assertEqual(call["inputs"]["release_version"]["default"], "")
         self.assertIn("build_number", call["inputs"])
         self.assertEqual(call["inputs"]["build_number"]["default"], "")
         self.assertIn("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64", call["secrets"])
@@ -386,6 +390,8 @@ class AndroidPlayReleaseContractTest(unittest.TestCase):
             self.assertIn(secret, call["secrets"])
         prepare = self.by_name["Prepare fixed Google Play draft release context"]
         self.assertEqual(prepare["if"], "${{ inputs.test_profile == 'play' }}")
+        self.assertEqual(prepare["env"]["SOURCE_IS_TAG"], "${{ inputs.source_is_tag }}")
+        self.assertEqual(prepare["env"]["RELEASE_VERSION"], "${{ inputs.release_version }}")
         self.assertEqual(prepare["env"]["BUILD_NUMBER"], "${{ inputs.build_number }}")
         self.assertEqual(
             prepare["env"]["GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64"],
@@ -394,6 +400,10 @@ class AndroidPlayReleaseContractTest(unittest.TestCase):
         script = prepare["run"]
         self.assertIn('[[ "${BUILD_NUMBER}" =~ ^[1-9][0-9]{0,9}$ ]]', script)
         self.assertIn("BUILD_NUMBER <= 2100000000", script)
+        self.assertIn("Tag-driven Google Play release requires a bounded dotted release_version", script)
+        self.assertIn("Manual Google Play release does not accept release_version", script)
+        self.assertIn("CI_ANDROID_PLAY_SOURCE_IS_TAG", script)
+        self.assertIn("CI_ANDROID_PLAY_RELEASE_VERSION", script)
         self.assertIn("base64 --decode", script)
         self.assertIn('chmod 600 "${credential_path}" "${keystore_path}"', script)
         self.assertIn("ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64", script)
@@ -412,6 +422,7 @@ class AndroidPlayReleaseContractTest(unittest.TestCase):
         script = commands["run"]
         self.assertIn("play)", script)
         self.assertIn('wrapper="${repository_root}/scripts/ci/run-android-play-release.sh"', script)
+        self.assertIn('case "${CI_ANDROID_PLAY_SOURCE_IS_TAG:-}" in true|false)', script)
         self.assertIn('test "${CI_ANDROID_PLAY_TRACK:-}" = internal', script)
         self.assertIn('test "${CI_ANDROID_PLAY_RELEASE_STATUS:-}" = draft', script)
         self.assertIn('test -f "${CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PATH}"', script)
@@ -443,6 +454,58 @@ class AndroidPlayReleaseContractTest(unittest.TestCase):
         self.assertIn('test "${PLAY_CLEANUP_OUTCOME}" = success || test "${PLAY_CLEANUP_OUTCOME}" = skipped', diagnostic["run"])
         finish = self.by_name["Finish Agent State run"]
         self.assertEqual(finish["with"]["status"], "${{ steps.terminal_diagnostic.outputs.success == 'true' && 'succeeded' || 'failed' }}")
+
+    def test_tagged_play_release_uses_exact_tag_then_post_success_build_only_transport(self) -> None:
+        checkout = next(
+            step for step in self.workflow["jobs"]["ci"]["steps"]
+            if step.get("name") == "Check out source"
+        )
+        self.assertEqual(
+            checkout["with"]["ref"],
+            "${{ inputs.source_is_tag && format('refs/tags/{0}', inputs.ref) || inputs.ref || github.sha }}",
+        )
+        prepare_script = self.by_name["Prepare fixed Google Play draft release context"]["run"]
+        self.assertIn("BUILD_NUMBER < 2100000000", prepare_script)
+
+        preflight = self.by_name["Preflight tag-driven Android post-publication bump"]
+        self.assertEqual(preflight["if"], "${{ inputs.test_profile == 'play' && inputs.source_is_tag }}")
+        self.assertEqual(preflight["env"]["SOURCE_TOKEN"], "${{ steps.source.outputs.token || github.token }}")
+        self.assertIn('wrapper="scripts/ci/advance-mobile-build.sh"', preflight["run"])
+        self.assertIn('git ls-files --error-unmatch -- "${wrapper}"', preflight["run"])
+        self.assertIn('"https://api.github.com/repos/${SOURCE_REPOSITORY}"', preflight["run"])
+        self.assertIn("default_branch", preflight["run"])
+
+        token = self.by_name["Create post-publication Android build bump token"]
+        self.assertIn("steps.commands.outcome == 'success'", token["if"])
+        self.assertIn("steps.play_cleanup.outcome == 'success'", token["if"])
+        self.assertEqual(token["with"]["permission-contents"], "write")
+        self.assertEqual(token["with"]["repositories"], "${{ steps.mobile_bump_contract.outputs.repository_name }}")
+
+        bump_checkout = self.by_name["Check out current Android development branch for post-publication bump"]
+        self.assertEqual(bump_checkout["with"]["ref"], "${{ steps.mobile_bump_contract.outputs.default_branch }}")
+        self.assertFalse(bump_checkout["with"]["persist-credentials"])
+        bump = self.by_name["Advance and publish next Android build number"]["run"]
+        self.assertIn("CI_MOBILE_RELEASE_VERSION", bump)
+        self.assertIn("CI_MOBILE_RELEASE_BUILD_NUMBER", bump)
+        self.assertIn("CI_MOBILE_BUMP_WORKTREE", bump)
+        self.assertIn("already advanced after the accepted release", bump)
+        self.assertIn("changed more than one tracked product file", bump)
+        self.assertIn("diff --check", bump)
+        self.assertIn("development branch moved after Google Play accepted the release", bump)
+        self.assertIn("push --porcelain", bump)
+        self.assertNotIn("--force", bump)
+
+        scrub = self.by_name["Scrub configured CI secrets from private log"]
+        self.assertEqual(scrub["env"]["CI_SECRET_MOBILE_BUMP_TOKEN"], "${{ steps.mobile_bump_token.outputs.token }}")
+        diagnostic = self.by_name["Classify Android terminal diagnostic"]
+        for name in (
+            "MOBILE_BUMP_CONTRACT_OUTCOME",
+            "MOBILE_BUMP_TOKEN_OUTCOME",
+            "MOBILE_BUMP_CHECKOUT_OUTCOME",
+            "MOBILE_BUMP_OUTCOME",
+        ):
+            self.assertIn(name, diagnostic["env"])
+        self.assertIn("without republishing it", diagnostic["run"])
 
 
 
