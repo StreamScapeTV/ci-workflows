@@ -1,4 +1,7 @@
 from pathlib import Path
+import os
+import subprocess
+import tempfile
 import unittest
 
 import yaml
@@ -170,6 +173,78 @@ class RepositoryWorkflowTests(unittest.TestCase):
         cleanup = by_name["Cleanup ephemeral registry and repository evidence"]
         self.assertEqual(cleanup["if"], "${{ always() }}")
         self.assertIn("central-registry-auth", cleanup["run"])
+
+    def test_text_evidence_scrub_fails_closed_on_oversize_or_symlink_and_redacts_normal_log(self) -> None:
+        by_name = {
+            step.get("name"): step
+            for step in self.workflow["jobs"]["execute"]["steps"]
+            if step.get("name")
+        }
+        script = by_name["Scrub configured CI secrets from private text evidence"]["run"]
+        drive_if = by_name["Upload private repository CI log to Google Drive"]["if"]
+        evidence_if = by_name["Upload bounded repository CI evidence to Google Drive"]["if"]
+        self.assertIn("steps.scrub.outcome == 'success'", drive_if)
+        self.assertIn("steps.evidence.outcome == 'success'", evidence_if)
+
+        def run_case(*, oversized_log: bool = False, oversized_progress: bool = False, symlink_log: bool = False):
+            with tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                log_dir = root / "logs"
+                artifact_dir = root / "artifacts"
+                log_dir.mkdir()
+                artifact_dir.mkdir()
+                secret = "registry-secret-value"
+                target = root / "target.log"
+                target.write_text(f"prefix {secret} suffix\n", encoding="utf-8")
+                ci_log = root / "central.log"
+                if symlink_log:
+                    ci_log.symlink_to(target)
+                else:
+                    ci_log.write_text(f"prefix {secret} suffix\n", encoding="utf-8")
+                    if oversized_log:
+                        with ci_log.open("r+b") as handle:
+                            handle.truncate(16 * 1024 * 1024 + 1)
+                progress = root / "progress.txt"
+                progress.write_text("ok\n", encoding="utf-8")
+                if oversized_progress:
+                    with progress.open("r+b") as handle:
+                        handle.truncate(16 * 1024 * 1024 + 1)
+                env = {
+                    **os.environ,
+                    "CI_LOG": str(ci_log),
+                    "CI_PROGRESS_FILE": str(progress),
+                    "CI_LOG_DIR": str(log_dir),
+                    "CI_ARTIFACT_DIR": str(artifact_dir),
+                    "CI_SECRET_TEST": secret,
+                }
+                result = subprocess.run(
+                    ["bash", "-c", script],
+                    env=env,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                log_text = ci_log.read_text(encoding="utf-8", errors="replace") if ci_log.exists() else ""
+                target_text = target.read_text(encoding="utf-8", errors="replace")
+                return result, log_text, target_text, secret
+
+        normal, log_text, _, secret = run_case()
+        self.assertEqual(normal.returncode, 0, normal.stderr)
+        self.assertNotIn(secret, log_text)
+        self.assertIn("[REDACTED]", log_text)
+
+        oversized_log, _, _, _ = run_case(oversized_log=True)
+        self.assertNotEqual(oversized_log.returncode, 0)
+        self.assertIn("exceeds 16 MiB before scrub", oversized_log.stderr)
+
+        oversized_progress, _, _, _ = run_case(oversized_progress=True)
+        self.assertNotEqual(oversized_progress.returncode, 0)
+        self.assertIn("exceeds 16 MiB before scrub", oversized_progress.stderr)
+
+        symlinked, _, target_text, secret = run_case(symlink_log=True)
+        self.assertNotEqual(symlinked.returncode, 0)
+        self.assertIn("regular non-symlink file", symlinked.stderr)
+        self.assertIn(secret, target_text)
 
     def test_agent_state_validation_route_cannot_authorize_release_or_inject_execution_detail(self) -> None:
         request_steps = self.dispatch["jobs"]["request"]["steps"]

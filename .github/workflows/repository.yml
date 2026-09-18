@@ -432,12 +432,24 @@ jobs:
           paths = [Path(os.environ["CI_LOG"]), Path(os.environ["CI_PROGRESS_FILE"])]
           for name in ("CI_LOG_DIR", "CI_ARTIFACT_DIR"):
               root = Path(os.environ[name])
-              if root.is_dir():
-                  paths.extend(path for path in root.rglob("*") if path.is_file() and not path.is_symlink())
+              if root.is_symlink() or not root.is_dir():
+                  raise SystemExit(f"repository CI {name} must remain one real directory before scrub")
+              resolved_root = root.resolve(strict=True)
+              for path in sorted(root.rglob("*")):
+                  if path.is_symlink():
+                      raise SystemExit(f"repository CI text evidence must not contain symlinks: {path.name}")
+                  if not path.is_file():
+                      continue
+                  resolved = path.resolve(strict=True)
+                  if os.path.commonpath((str(resolved), str(resolved_root))) != str(resolved_root):
+                      raise SystemExit(f"repository CI text evidence escapes its Central-owned root: {path.name}")
+                  paths.append(path)
           secrets = [value.encode() for name, value in os.environ.items() if name.startswith("CI_SECRET_") and value]
           for path in paths:
-              if path.is_symlink() or not path.is_file() or path.stat().st_size > 16 * 1024 * 1024:
-                  continue
+              if path.is_symlink() or not path.is_file():
+                  raise SystemExit(f"repository CI text evidence must remain one regular non-symlink file: {path.name}")
+              if path.stat().st_size > 16 * 1024 * 1024:
+                  raise SystemExit(f"repository CI text evidence file exceeds 16 MiB before scrub: {path.name}")
               data = path.read_bytes()
               for raw in secrets:
                   data = data.replace(raw, b"[REDACTED]")
