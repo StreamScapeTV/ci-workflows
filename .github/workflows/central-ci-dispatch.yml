@@ -271,10 +271,18 @@ jobs:
           raw = inputs.get("semantic_inputs", "{}")
           if not isinstance(raw, str) or len(raw.encode("utf-8")) > 2048:
               raise SystemExit("validation.repository semantic_inputs must be one bounded JSON string")
+          def reject_duplicate_keys(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(f"duplicate semantic field: {key}")
+                  result[key] = value
+              return result
+
           try:
-              semantic = json.loads(raw)
-          except json.JSONDecodeError as exc:
-              raise SystemExit("validation.repository semantic_inputs must encode one JSON object") from exc
+              semantic = json.loads(raw, object_pairs_hook=reject_duplicate_keys)
+          except (json.JSONDecodeError, ValueError) as exc:
+              raise SystemExit("validation.repository semantic_inputs must encode one unambiguous JSON object") from exc
           if not isinstance(semantic, dict):
               raise SystemExit("validation.repository semantic_inputs must encode one JSON object")
 
