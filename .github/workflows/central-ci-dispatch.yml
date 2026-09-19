@@ -263,8 +263,18 @@ jobs:
               raise SystemExit("validation.repository inputs must be one JSON object")
           if profile not in {"build", "test", "full", "ui-test"}:
               raise SystemExit("validation.repository supports only build, test, full, or ui-test")
+
+          provider_operation_id = inputs.pop("provider_operation_id", None)
+          if provider_operation_id is not None:
+              if not isinstance(provider_operation_id, str) or re.fullmatch(
+                  r"provider_[0-9a-f]{32}", provider_operation_id
+              ) is None:
+                  raise SystemExit(
+                      "validation.repository provider_operation_id must match provider_<32 lowercase hex>"
+                  )
+
           if set(inputs) - {"host_os", "semantic_inputs"} or "host_os" not in inputs:
-              raise SystemExit("validation.repository accepts only host_os and semantic_inputs")
+              raise SystemExit("validation.repository accepts only host_os and semantic_inputs plus reserved provider_operation_id metadata")
           if inputs["host_os"] not in {"linux", "macos"}:
               raise SystemExit("validation.repository host_os must be linux or macos")
 
