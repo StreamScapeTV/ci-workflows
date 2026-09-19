@@ -1,6 +1,7 @@
 from pathlib import Path
 import json
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -545,6 +546,16 @@ class RepositoryWorkflowTests(unittest.TestCase):
         ]["run"]
 
         self.assertNotIn("authorization", self.contract)
+        public_surfaces = (
+            self.workflow_text,
+            CONTRACT.read_text(encoding="utf-8"),
+            Path(__file__).read_text(encoding="utf-8"),
+        )
+        for public_text in public_surfaces:
+            repository_refs = set(
+                re.findall(r"StreamScapeTV/[A-Za-z0-9_.-]+", public_text)
+            )
+            self.assertLessEqual(repository_refs, {"StreamScapeTV/ci-workflows"})
         self.assertNotRegex(
             contract_text,
             r"StreamScapeTV/[A-Za-z0-9_.-]+",
