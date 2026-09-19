@@ -237,6 +237,12 @@ class RepositoryWorkflowTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn(message, result.stderr)
 
+        duplicate, _ = self.run_repository_request(
+            semantic='{"product_target":"ios","product_target":"tvos"}'
+        )
+        self.assertNotEqual(duplicate.returncode, 0)
+        self.assertIn("unambiguous JSON object", duplicate.stderr)
+
         oversized, _ = self.run_repository_request(semantic="x" * 2049)
         self.assertNotEqual(oversized.returncode, 0)
         self.assertIn("exceeds the reviewed bound", oversized.stderr)
@@ -291,6 +297,16 @@ class RepositoryWorkflowTests(unittest.TestCase):
 
         no_semantics = self.run_dispatch_request("full", {"host_os": "macos"})
         self.assertEqual(no_semantics.returncode, 0, no_semantics.stderr)
+
+        duplicate = self.run_dispatch_request(
+            "build",
+            {
+                "host_os": "linux",
+                "semantic_inputs": '{"product_target":"linux","product_target":"macos"}',
+            },
+        )
+        self.assertNotEqual(duplicate.returncode, 0)
+        self.assertIn("unambiguous JSON object", duplicate.stderr)
 
         cases = (
             ({"platform": "linux"}, "accepts only host_os and semantic_inputs"),
