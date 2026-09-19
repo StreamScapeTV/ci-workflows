@@ -742,7 +742,7 @@ jobs:
                   output.write(path, arcname=name)
           PY_EVIDENCE
           test -f "${archive}"
-          printf 'archive=%s\\n' "${archive}" >> "${GITHUB_OUTPUT}"
+          printf 'archive=%s\n' "${archive}" >> "${GITHUB_OUTPUT}"
 
       - name: Upload private repository CI log to Google Drive
         id: drive
