@@ -292,36 +292,196 @@ jobs:
         id: controls
         shell: bash
         env:
-          NORMALIZED_PLAN: ${{ steps.plan.outputs.normalized }}
+          PUBLICATION_RECEIPT: ${{ steps.publication.outputs.receipt }}
           PACKAGE_URL: ${{ steps.request.outputs.package_url }}
           VERSION: ${{ steps.request.outputs.version }}
+          CI_PACKAGE_USERNAME: ${{ secrets.PACKAGE_PUBLISH_USERNAME }}
+          CI_PACKAGE_READ_TOKEN: ${{ secrets.PACKAGE_READ_TOKEN }}
         run: |
           set -Eeuo pipefail
-          first_url="$(python3 - "${NORMALIZED_PLAN}" <<'PY'
-          import json, sys
-          value = json.load(open(sys.argv[1], encoding='utf-8'))
-          print(value['artifacts'][0]['url'])
-          PY
-          )"
-          status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 30 "${first_url}" || true)"
-          case "${status}" in
-            2??) echo "Private Swift binary artifact is readable without authentication" >&2; exit 1 ;;
+          control_root="${RUNNER_TEMP}/swiftpm-private-controls"
+          rm -rf -- "${control_root}"
+          mkdir -p "${control_root}"
+          identity="${control_root}/artifact-identity.json"
+          python3 - "${PUBLICATION_RECEIPT}" "${identity}" >>"${CI_LOG}" <<'PY_RECEIPT'
+          from pathlib import Path
+          import json
+          import re
+          import sys
+
+          receipt_path = Path(sys.argv[1])
+          identity_path = Path(sys.argv[2])
+          value = json.loads(receipt_path.read_text(encoding="utf-8"))
+          expected = {
+              "schemaVersion", "packageURL", "version", "packageRevision",
+              "artifactCount", "replayed", "artifacts",
+          }
+          if not isinstance(value, dict) or set(value) != expected or value.get("schemaVersion") != 1:
+              raise SystemExit("Swift binary publication receipt schema is invalid")
+          artifacts = value.get("artifacts")
+          if not isinstance(artifacts, list) or not 1 <= len(artifacts) <= 64:
+              raise SystemExit("Swift binary publication receipt artifact count is invalid")
+          if value.get("artifactCount") != len(artifacts) or not isinstance(value.get("replayed"), bool):
+              raise SystemExit("Swift binary publication receipt summary is invalid")
+          if not isinstance(value.get("version"), str) or len(value["version"]) > 64:
+              raise SystemExit("Swift binary publication receipt version is invalid")
+          if not isinstance(value.get("packageRevision"), str) or re.fullmatch(r"[0-9a-f]{40}", value["packageRevision"]) is None:
+              raise SystemExit("Swift binary publication receipt revision is invalid")
+          for item in artifacts:
+              if not isinstance(item, dict) or set(item) != {"target", "url", "checksum", "size"}:
+                  raise SystemExit("Swift binary publication receipt artifact is malformed")
+              if not isinstance(item["target"], str) or re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", item["target"]) is None:
+                  raise SystemExit("Swift binary publication receipt target is invalid")
+              if not isinstance(item["url"], str) or len(item["url"].encode("utf-8")) > 2048:
+                  raise SystemExit("Swift binary publication receipt URL is invalid")
+              if not isinstance(item["checksum"], str) or re.fullmatch(r"[0-9a-f]{64}", item["checksum"]) is None:
+                  raise SystemExit("Swift binary publication receipt checksum is invalid")
+              if isinstance(item["size"], bool) or not isinstance(item["size"], int) or not 1 <= item["size"] <= 536870912:
+                  raise SystemExit("Swift binary publication receipt size is invalid")
+          print("publication_receipt=" + json.dumps(value, sort_keys=True, separators=(",", ":")))
+          first = artifacts[0]
+          identity_path.write_text(
+              json.dumps(
+                  {"url": first["url"], "checksum": first["checksum"], "size": first["size"]},
+                  sort_keys=True,
+                  separators=(",", ":"),
+              ) + "\n",
+              encoding="utf-8",
+          )
+          PY_RECEIPT
+          first_url="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["url"])' "${identity}")"
+          first_checksum="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["checksum"])' "${identity}")"
+          first_size="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["size"])' "${identity}")"
+
+          sha256_file() {
+            python3 - "$1" <<'PY_SHA256'
+          from pathlib import Path
+          import hashlib
+          import sys
+
+          digest = hashlib.sha256()
+          with Path(sys.argv[1]).open("rb") as handle:
+              for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                  digest.update(chunk)
+          print(digest.hexdigest())
+          PY_SHA256
+          }
+
+          anonymous_home="${control_root}/anonymous-home"
+          anonymous_body="${control_root}/anonymous-body.bin"
+          anonymous_headers="${control_root}/anonymous-headers.txt"
+          mkdir -p "${anonymous_home}"
+          set +e
+          anonymous_status="$(env -i \
+            PATH="${PATH}" \
+            HOME="${anonymous_home}" \
+            CURL_HOME="${anonymous_home}" \
+            XDG_CONFIG_HOME="${anonymous_home}" \
+            curl --disable --silent --show-error \
+              --output "${anonymous_body}" \
+              --dump-header "${anonymous_headers}" \
+              --write-out '%{http_code}' \
+              --max-time 30 \
+              "${first_url}" \
+              2>>"${CI_LOG}")"
+          anonymous_rc=$?
+          set -e
+          printf 'artifact_anonymous_control curl_rc=%s http_status=%s\n' "${anonymous_rc}" "${anonymous_status}" >>"${CI_LOG}"
+          if test "${anonymous_rc}" -ne 0; then
+            printf 'artifact_anonymous_control classification=transport_error\n' >>"${CI_LOG}"
+            echo "Unauthenticated Swift binary control hit a transport failure; inspect the private CI log" >&2
+            exit 1
+          fi
+          case "${anonymous_status}" in
+            401|403)
+              printf 'artifact_anonymous_control classification=authentication_refusal\n' >>"${CI_LOG}"
+              ;;
+            2??)
+              anonymous_sha="$(sha256_file "${anonymous_body}")"
+              anonymous_size="$(wc -c < "${anonymous_body}" | tr -d '[:space:]')"
+              if test "${anonymous_sha}" = "${first_checksum}" && test "${anonymous_size}" = "${first_size}"; then
+                printf 'artifact_anonymous_control classification=exact_artifact_access sha256=%s size=%s\n' "${anonymous_sha}" "${anonymous_size}" >>"${CI_LOG}"
+                echo "Private Swift binary artifact is readable without authentication" >&2
+              else
+                printf 'artifact_anonymous_control classification=unexpected_2xx sha256=%s size=%s\n' "${anonymous_sha}" "${anonymous_size}" >>"${CI_LOG}"
+                echo "Unauthenticated Swift binary control returned HTTP 2xx without the exact artifact; inspect the private CI log" >&2
+              fi
+              exit 1
+              ;;
+            *)
+              printf 'artifact_anonymous_control classification=unexpected_http_status\n' >>"${CI_LOG}"
+              echo "Unauthenticated Swift binary control did not return an explicit authentication refusal; inspect the private CI log" >&2
+              exit 1
+              ;;
           esac
 
-          unauth_home="${RUNNER_TEMP}/swiftpm-unauth-home"
-          rm -rf "${unauth_home}"
+          authenticated_home="${control_root}/authenticated-home"
+          authenticated_body="${control_root}/authenticated-body.bin"
+          mkdir -p "${authenticated_home}"
+          umask 077
+          cat >"${authenticated_home}/.netrc" <<EOF_NETRC
+          machine git.faruqi.dev
+            login ${CI_PACKAGE_USERNAME}
+            password ${CI_PACKAGE_READ_TOKEN}
+          EOF_NETRC
+          chmod 600 "${authenticated_home}/.netrc"
+          set +e
+          authenticated_status="$(env -i \
+            PATH="${PATH}" \
+            HOME="${authenticated_home}" \
+            CURL_HOME="${authenticated_home}" \
+            XDG_CONFIG_HOME="${authenticated_home}" \
+            curl --disable --silent --show-error \
+              --netrc-file "${authenticated_home}/.netrc" \
+              --output "${authenticated_body}" \
+              --write-out '%{http_code}' \
+              --max-time 120 \
+              "${first_url}" \
+              2>>"${CI_LOG}")"
+          authenticated_rc=$?
+          set -e
+          printf 'artifact_authenticated_readback curl_rc=%s http_status=%s\n' "${authenticated_rc}" "${authenticated_status}" >>"${CI_LOG}"
+          if test "${authenticated_rc}" -ne 0 || test "${authenticated_status}" != 200; then
+            echo "Authenticated Swift binary control could not read the private artifact; inspect the private CI log" >&2
+            exit 1
+          fi
+          authenticated_sha="$(sha256_file "${authenticated_body}")"
+          authenticated_size="$(wc -c < "${authenticated_body}" | tr -d '[:space:]')"
+          if test "${authenticated_sha}" != "${first_checksum}" || test "${authenticated_size}" != "${first_size}"; then
+            printf 'artifact_authenticated_readback classification=identity_mismatch sha256=%s size=%s\n' "${authenticated_sha}" "${authenticated_size}" >>"${CI_LOG}"
+            echo "Authenticated Swift binary control returned the wrong artifact identity; inspect the private CI log" >&2
+            exit 1
+          fi
+          printf 'artifact_authenticated_readback classification=exact sha256=%s size=%s\n' "${authenticated_sha}" "${authenticated_size}" >>"${CI_LOG}"
+
+          unauth_home="${control_root}/github-unauth-home"
+          unauth_stderr="${control_root}/github-unauth-stderr.txt"
           mkdir -p "${unauth_home}"
-          if env \
+          set +e
+          env -i \
+            PATH="${PATH}" \
             HOME="${unauth_home}" \
+            XDG_CONFIG_HOME="${unauth_home}" \
             GIT_CONFIG_NOSYSTEM=1 \
+            GIT_CONFIG_GLOBAL=/dev/null \
             GIT_TERMINAL_PROMPT=0 \
             GIT_ASKPASS=/usr/bin/false \
-            git -c credential.helper= ls-remote --refs --tags "${PACKAGE_URL}" "refs/tags/${VERSION}" \
-            >/dev/null 2>&1; then
+            git -c credential.helper= -c core.askPass=/usr/bin/false \
+              ls-remote --refs --tags "${PACKAGE_URL}" "refs/tags/${VERSION}" \
+              >/dev/null 2>"${unauth_stderr}"
+          git_rc=$?
+          set -e
+          if test "${git_rc}" -eq 0; then
             echo "Private GitHub Swift package is readable without authentication" >&2
             exit 1
           fi
-          printf 'Unauthenticated GitHub package and private binary HTTPS controls rejected as required.\n' >>"${CI_LOG}"
+          if ! grep -Eqi 'authentication failed|could not read Username|terminal prompts disabled|repository not found|requested URL returned error: (401|403)' "${unauth_stderr}"; then
+            printf 'github_unauthenticated_control git_rc=%s classification=unclassified_failure\n' "${git_rc}" >>"${CI_LOG}"
+            echo "Unauthenticated GitHub package control failed without authentication-refusal evidence; inspect the private CI log" >&2
+            exit 1
+          fi
+          printf 'github_unauthenticated_control git_rc=%s classification=authentication_required\n' "${git_rc}" >>"${CI_LOG}"
+          printf 'Unauthenticated GitHub package and private binary HTTPS controls rejected as required; authenticated binary identity readback matched publication receipt.\n' >>"${CI_LOG}"
 
       - name: Run two fresh ordinary SwiftPM/Xcode consumers
         id: consumer
@@ -460,6 +620,7 @@ jobs:
           set -Eeuo pipefail
           rm -rf \
             "${RUNNER_TEMP}/swiftpm-binary-evidence" \
+            "${RUNNER_TEMP}/swiftpm-private-controls" \
             "${RUNNER_TEMP}/swiftpm-unauth-home" \
             "${RUNNER_TEMP}/swiftpm-consumer-home-1" \
             "${RUNNER_TEMP}/swiftpm-consumer-home-2" \
