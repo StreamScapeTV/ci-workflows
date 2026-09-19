@@ -228,7 +228,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         for semantic, message in (
             ({"unknown": "value"}, "unknown field"),
             ({"product_target": "../escape"}, "outside the reviewed bound"),
-            ({"test_selectors": ["-only-testing:Injected"]}, "contains an invalid item"),
+            ({"test_selectors": ["-only-testing:Injected"]}, "contains a leading-dash item"),
         ):
             result, _ = self.run_repository_request(
                 operation="build" if "test_selectors" not in semantic else "test",
