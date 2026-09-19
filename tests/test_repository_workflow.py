@@ -90,6 +90,105 @@ class RepositoryWorkflowTests(unittest.TestCase):
             check=False,
         )
 
+    def run_capability_resolver(
+        self,
+        *,
+        run_repository: str = "ExampleOrg/apple-application",
+        source_repository: str | None = None,
+        run_ref: str = "feature",
+        source_ref: str | None = None,
+        run_is_tag: bool = False,
+        source_is_tag: str | None = None,
+        operation: str = "build",
+        run_profile: str | None = None,
+        project_state: dict | None = None,
+        ci_run_id: str = "11111111-1111-4111-8111-111111111111",
+    ):
+        script = self.steps_by_name[
+            "Resolve trusted private infrastructure capabilities"
+        ]["run"]
+        source_repository = source_repository or run_repository
+        source_ref = source_ref or run_ref
+        source_is_tag = source_is_tag or ("true" if run_is_tag else "false")
+        run_profile = run_profile or operation
+        if project_state is None:
+            project_state = {
+                "repository_ci": {
+                    "schemaVersion": 1,
+                    "repository": run_repository,
+                    "capabilities": ["private_network", "github_git"],
+                }
+            }
+
+        claim_response = {
+            "ok": True,
+            "code": "ok",
+            "replayed": True,
+            "run": {
+                "project_key": "private-project",
+                "repository": run_repository,
+                "ref": run_ref,
+                "is_tag": run_is_tag,
+                "workflow_key": "validation.repository",
+                "test_profile": run_profile,
+            },
+        }
+        project_response = {
+            "project_key": "private-project",
+            "state": project_state,
+            "review_policy": "independent_required",
+            "review_policy_version": 1,
+        }
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            curl = fake_bin / "curl"
+            curl.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json\n"
+                "import sys\n"
+                f"claim = {claim_response!r}\n"
+                f"project = {project_response!r}\n"
+                "url = sys.argv[-1]\n"
+                "if url.endswith('/claim_ci_run'):\n"
+                "    print(json.dumps(claim))\n"
+                "elif url.endswith('/get_project_state'):\n"
+                "    print(json.dumps(project))\n"
+                "else:\n"
+                "    raise SystemExit(97)\n",
+                encoding="utf-8",
+            )
+            curl.chmod(0o755)
+            output = root / "github-output"
+            output.write_text("", encoding="utf-8")
+            result = subprocess.run(
+                ["bash", "-c", script],
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                    "CI_RUN_ID": ci_run_id,
+                    "SOURCE_REPOSITORY": source_repository,
+                    "SOURCE_REF": source_ref,
+                    "SOURCE_IS_TAG": source_is_tag,
+                    "OPERATION": operation,
+                    "CONTRACT": str(CONTRACT),
+                    "AGENT_STATE_SUPABASE_URL": "https://agent-state.invalid",
+                    "AGENT_STATE_SUPABASE_SECRET_KEY": "fixture-secret",
+                    "GITHUB_OUTPUT": str(output),
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            values = {}
+            for line in output.read_text(encoding="utf-8").splitlines():
+                key, value = line.split("=", 1)
+                values[key] = value
+            return result, values
+
     def test_reusable_api_is_host_os_plus_structured_semantics_only(self) -> None:
         inputs = self.workflow["on"]["workflow_call"]["inputs"]
         self.assertEqual(
@@ -164,6 +263,18 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertGreaterEqual(len(adoption["adoptionSteps"]), 5)
         self.assertIn("raw_argv", adoption["forbiddenCallerSurface"])
         self.assertIn("runner_label", adoption["forbiddenCallerSurface"])
+        self.assertIn(
+            "trusted private Agent State configuration",
+            adoption["adoptionSteps"][-1],
+        )
+        self.assertEqual(
+            self.contract["migrationLedger"]["source"],
+            "Agent State ci-workflows project configuration",
+        )
+        self.assertEqual(
+            self.contract["migrationLedger"]["projectStateKey"],
+            "repository_ci_migration_v1",
+        )
 
     def test_fixed_entrypoints_are_the_only_executable_mapping(self) -> None:
         request = self.steps_by_name["Validate bounded repository operation"]["run"]
@@ -427,10 +538,55 @@ class RepositoryWorkflowTests(unittest.TestCase):
             script,
         )
 
-    def test_generic_executor_contains_no_migrated_product_branches_or_toolchain_pins(self) -> None:
+    def test_generic_executor_contains_no_public_consumer_authorization_or_toolchain_pins(self) -> None:
+        contract_text = CONTRACT.read_text(encoding="utf-8")
+        resolver = self.steps_by_name[
+            "Resolve trusted private infrastructure capabilities"
+        ]["run"]
+
+        self.assertNotIn("authorization", self.contract)
+        self.assertNotRegex(
+            contract_text,
+            r"StreamScapeTV/[A-Za-z0-9_.-]+",
+        )
+        self.assertEqual(
+            self.contract["trustedCapabilityGrant"]["source"],
+            "Agent State project configuration",
+        )
+        self.assertEqual(
+            self.contract["trustedCapabilityGrant"]["projectStateKey"],
+            "repository_ci",
+        )
+        self.assertEqual(
+            self.contract["trustedCapabilityGrant"]["defaultCapabilities"],
+            [],
+        )
+        self.assertTrue(
+            self.contract["trustedCapabilityGrant"]["failClosed"],
+        )
+        self.assertFalse(
+            self.contract["migrationLedger"]["publicContractContainsConcreteConsumers"]
+        )
+
+        for generic_class in (
+            "apple-application",
+            "apple-library-package",
+            "android-application",
+            "android-library-package",
+            "linux-service-backend",
+            "generic-package-consumer",
+        ):
+            self.assertIn(generic_class, self.contract["consumerClasses"])
+
+        self.assertIn("claim_ci_run", resolver)
+        self.assertIn("get_project_state", resolver)
+        self.assertIn('state.get("repository_ci")', resolver)
+        self.assertIn("trusted repository CI capability grant is not bound", resolver)
+        self.assertIn("bound to a different repository", resolver)
+        self.assertNotIn('case "${SOURCE_REPOSITORY}"', resolver)
+        self.assertNotIn('get("repositories")', resolver)
+
         for forbidden in (
-            "StreamScapeTV/iptv-apple",
-            "StreamScapeTV/iptv-android",
             "android-api37",
             "platforms;android-37",
             "build-tools;37.0.0",
@@ -440,58 +596,88 @@ class RepositoryWorkflowTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, self.workflow_text)
 
-        policy_text = CONTRACT.read_text(encoding="utf-8")
-        self.assertIn("StreamScapeTV/iptv-apple", policy_text)
-        self.assertIn("StreamScapeTV/iptv-android", policy_text)
-
-    def test_capability_policy_defaults_to_none_and_resolves_generic_capability_names(self) -> None:
+    def test_private_agent_state_capability_grant_is_exactly_bound_and_fail_closed(self) -> None:
         self.assertEqual(
             set(self.contract["capabilityTypes"]),
             {"private_network", "github_git", "registry_netrc", "gradle_maven"},
         )
-        self.assertEqual(
-            self.contract["authorization"]["defaultCapabilities"],
-            [],
-        )
-        script = self.steps_by_name[
-            "Resolve reviewed generic infrastructure capabilities"
-        ]["run"]
 
-        def resolve(repository: str):
-            with tempfile.TemporaryDirectory() as td:
-                output = Path(td) / "github-output"
-                output.write_text("", encoding="utf-8")
-                result = subprocess.run(
-                    ["bash", "-c", script],
-                    cwd=ROOT,
-                    env={
-                        **os.environ,
-                        "SOURCE_REPOSITORY": repository,
-                        "CONTRACT": str(CONTRACT),
-                        "GITHUB_OUTPUT": str(output),
-                    },
-                    text=True,
-                    capture_output=True,
-                    check=False,
-                )
-                values = {}
-                for line in output.read_text(encoding="utf-8").splitlines():
-                    key, value = line.split("=", 1)
-                    values[key] = value
-                return result, values
-
-        unknown, unknown_values = resolve("StreamScapeTV/example")
-        self.assertEqual(unknown.returncode, 0, unknown.stderr)
-        self.assertEqual(unknown_values["auth_enabled"], "false")
+        no_run, no_run_values = self.run_capability_resolver(ci_run_id="")
+        self.assertEqual(no_run.returncode, 0, no_run.stderr)
+        self.assertEqual(no_run_values["auth_enabled"], "false")
         for capability in self.contract["capabilityTypes"]:
-            self.assertEqual(unknown_values[capability], "false")
+            self.assertEqual(no_run_values[capability], "false")
 
-        apple, apple_values = resolve("StreamScapeTV/iptv-apple")
-        self.assertEqual(apple.returncode, 0, apple.stderr)
-        self.assertEqual(apple_values["private_network"], "true")
-        self.assertEqual(apple_values["github_git"], "true")
-        self.assertEqual(apple_values["registry_netrc"], "true")
-        self.assertEqual(apple_values["gradle_maven"], "false")
+        trusted, trusted_values = self.run_capability_resolver(
+            project_state={
+                "repository_ci": {
+                    "schemaVersion": 1,
+                    "repository": "ExampleOrg/apple-application",
+                    "capabilities": [
+                        "private_network",
+                        "github_git",
+                        "registry_netrc",
+                    ],
+                }
+            }
+        )
+        self.assertEqual(trusted.returncode, 0, trusted.stderr)
+        self.assertEqual(trusted_values["private_network"], "true")
+        self.assertEqual(trusted_values["github_git"], "true")
+        self.assertEqual(trusted_values["registry_netrc"], "true")
+        self.assertEqual(trusted_values["gradle_maven"], "false")
+        self.assertEqual(trusted_values["auth_enabled"], "true")
+
+        absent, absent_values = self.run_capability_resolver(project_state={})
+        self.assertEqual(absent.returncode, 0, absent.stderr)
+        self.assertEqual(absent_values["auth_enabled"], "false")
+        for capability in self.contract["capabilityTypes"]:
+            self.assertEqual(absent_values[capability], "false")
+
+        mismatched_run, _ = self.run_capability_resolver(
+            source_repository="ExampleOrg/other-application"
+        )
+        self.assertNotEqual(mismatched_run.returncode, 0)
+        self.assertIn(
+            "not bound to the exact Agent State request",
+            mismatched_run.stderr,
+        )
+
+        mismatched_grant, _ = self.run_capability_resolver(
+            project_state={
+                "repository_ci": {
+                    "schemaVersion": 1,
+                    "repository": "ExampleOrg/other-application",
+                    "capabilities": ["private_network"],
+                }
+            }
+        )
+        self.assertNotEqual(mismatched_grant.returncode, 0)
+        self.assertIn("bound to a different repository", mismatched_grant.stderr)
+
+        unknown_capability, _ = self.run_capability_resolver(
+            project_state={
+                "repository_ci": {
+                    "schemaVersion": 1,
+                    "repository": "ExampleOrg/apple-application",
+                    "capabilities": ["private_network", "arbitrary_secret_access"],
+                }
+            }
+        )
+        self.assertNotEqual(unknown_capability.returncode, 0)
+        self.assertIn("unknown capability", unknown_capability.stderr)
+
+        duplicate_capability, _ = self.run_capability_resolver(
+            project_state={
+                "repository_ci": {
+                    "schemaVersion": 1,
+                    "repository": "ExampleOrg/apple-application",
+                    "capabilities": ["private_network", "private_network"],
+                }
+            }
+        )
+        self.assertNotEqual(duplicate_capability.returncode, 0)
+        self.assertIn("unique list", duplicate_capability.stderr)
 
     def test_package_auth_is_generic_file_configuration_not_product_secret_env(self) -> None:
         auth = self.steps_by_name[
