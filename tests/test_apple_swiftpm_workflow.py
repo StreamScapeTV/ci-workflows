@@ -168,6 +168,15 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
             )
             git_script.chmod(0o755)
 
+            sha256sum_script = fake_bin / "sha256sum"
+            sha256sum_script.write_text(
+                "#!/bin/sh\n"
+                "echo 'sha256sum must not be required by the macOS-portable control' >&2\n"
+                "exit 97\n",
+                encoding="utf-8",
+            )
+            sha256sum_script.chmod(0o755)
+
             receipt = root / "receipt.json"
             url = "https://git.faruqi.dev/api/packages/mimranfaruqi/generic/streamscape-media-apple/2.1.7/fixture.zip"
             receipt.write_text(
@@ -245,6 +254,9 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
         self.assertIn("classification=transport_error", controls)
         self.assertIn("classification=unexpected_2xx", controls)
         self.assertIn("artifact_authenticated_readback classification=exact", controls)
+        self.assertIn("hashlib.sha256()", controls)
+        self.assertIn("sha256_file", controls)
+        self.assertNotIn("sha256sum", controls)
         self.assertIn("git -c credential.helper= -c core.askPass=/usr/bin/false", controls)
         self.assertIn("Private GitHub Swift package is readable without authentication", controls)
         self.assertIn("Private Swift binary artifact is readable without authentication", controls)
