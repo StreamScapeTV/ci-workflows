@@ -410,15 +410,50 @@ class RepositoryWorkflowTests(unittest.TestCase):
         no_semantics = self.run_dispatch_request("full", {"host_os": "macos"})
         self.assertEqual(no_semantics.returncode, 0, no_semantics.stderr)
 
-        replay_metadata = self.run_dispatch_request(
-            "build",
-            {
-                "host_os": "linux",
-                "semantic_inputs": json.dumps({"product_target": "jvm"}),
-                "provider_operation_id": "provider_" + ("a" * 32),
-            },
+        provider_operation_id = "provider_" + ("a" * 32)
+        replay_cases = (
+            (
+                "build",
+                {
+                    "host_os": "linux",
+                    "semantic_inputs": json.dumps({"product_target": "jvm"}),
+                    "provider_operation_id": provider_operation_id,
+                },
+            ),
+            (
+                "test",
+                {
+                    "host_os": "linux",
+                    "semantic_inputs": json.dumps(
+                        {"test_selectors": ["pkg.Test/test_case"]}
+                    ),
+                    "provider_operation_id": provider_operation_id,
+                },
+            ),
+            (
+                "full",
+                {
+                    "host_os": "macos",
+                    "provider_operation_id": provider_operation_id,
+                },
+            ),
+            (
+                "ui-test",
+                {
+                    "host_os": "macos",
+                    "semantic_inputs": json.dumps({"ui_mode": "smoke"}),
+                    "provider_operation_id": provider_operation_id,
+                },
+            ),
         )
-        self.assertEqual(replay_metadata.returncode, 0, replay_metadata.stderr)
+        for profile, inputs in replay_cases:
+            with self.subTest(profile=profile):
+                replay_metadata = self.run_dispatch_request(profile, inputs)
+                self.assertEqual(
+                    replay_metadata.returncode,
+                    0,
+                    replay_metadata.stderr,
+                )
 
         duplicate = self.run_dispatch_request(
             "build",
