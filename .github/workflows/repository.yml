@@ -451,7 +451,7 @@ jobs:
           project_key="$(jq -r '.project_key // empty' <<<"${run}")"
           run_repository="$(jq -r '.repository // empty' <<<"${run}")"
           run_ref="$(jq -r '.ref // empty' <<<"${run}")"
-          run_is_tag="$(jq -r '.is_tag // empty' <<<"${run}")"
+          run_is_tag="$(jq -r '.is_tag | tostring' <<<"${run}")"
           run_workflow="$(jq -r '.workflow_key // empty' <<<"${run}")"
           run_profile="$(jq -r '.test_profile // empty' <<<"${run}")"
 
