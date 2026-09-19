@@ -164,5 +164,14 @@
       "legacy_lane_live"
     ],
     "retirementRule": "A legacy profile lane may be removed only when the private ledger has no remaining live consumer for that lane."
-  }
+  },
+  "consumerClasses": [
+    "apple-application",
+    "apple-library-package",
+    "android-application",
+    "android-library-package",
+    "linux-service-backend",
+    "generic-package-consumer",
+    "generic-node-python-java-native"
+  ]
 }
