@@ -190,10 +190,18 @@ jobs:
               raise SystemExit("repository CI semantic input bound is invalid")
           if len(raw.encode("utf-8")) > max_raw:
               raise SystemExit("repository CI semantic input payload exceeds the reviewed bound")
+          def reject_duplicate_keys(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(f"duplicate semantic field: {key}")
+                  result[key] = value
+              return result
+
           try:
-              values = json.loads(raw)
-          except json.JSONDecodeError as exc:
-              raise SystemExit("repository CI semantic inputs must be one JSON object") from exc
+              values = json.loads(raw, object_pairs_hook=reject_duplicate_keys)
+          except (json.JSONDecodeError, ValueError) as exc:
+              raise SystemExit("repository CI semantic inputs must be one unambiguous JSON object") from exc
           if not isinstance(values, dict):
               raise SystemExit("repository CI semantic inputs must be one JSON object")
 
