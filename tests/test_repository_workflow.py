@@ -410,6 +410,16 @@ class RepositoryWorkflowTests(unittest.TestCase):
         no_semantics = self.run_dispatch_request("full", {"host_os": "macos"})
         self.assertEqual(no_semantics.returncode, 0, no_semantics.stderr)
 
+        replay_metadata = self.run_dispatch_request(
+            "build",
+            {
+                "host_os": "linux",
+                "semantic_inputs": json.dumps({"product_target": "jvm"}),
+                "provider_operation_id": "provider_" + ("a" * 32),
+            },
+        )
+        self.assertEqual(replay_metadata.returncode, 0, replay_metadata.stderr)
+
         duplicate = self.run_dispatch_request(
             "build",
             {
@@ -422,6 +432,21 @@ class RepositoryWorkflowTests(unittest.TestCase):
 
         cases = (
             ({"platform": "linux"}, "accepts only host_os and semantic_inputs"),
+            (
+                {
+                    "host_os": "linux",
+                    "provider_operation_id": "provider_" + ("A" * 32),
+                },
+                "provider_operation_id must match provider_<32 lowercase hex>",
+            ),
+            (
+                {
+                    "host_os": "linux",
+                    "provider_operation_id": "provider_" + ("a" * 32),
+                    "trace_id": "not-a-reviewed-metadata-field",
+                },
+                "accepts only host_os and semantic_inputs",
+            ),
             ({"host_os": "ios"}, "host_os must be linux or macos"),
             (
                 {"host_os": "linux", "semantic_inputs": json.dumps({"unknown": "x"})},
@@ -477,6 +502,13 @@ class RepositoryWorkflowTests(unittest.TestCase):
             },
         )
         self.assertNotIn("release_authorized", job["with"])
+        self.assertNotIn("provider_operation_id", job["with"])
+        self.assertEqual(
+            job["with"]["semantic_inputs_json"],
+            "${{ fromJSON(needs.request.outputs.inputs_json).semantic_inputs || '{}' }}",
+        )
+        self.assertIn('inputs.pop("provider_operation_id", None)', admission["run"])
+        self.assertNotIn("provider_operation_id", str(job["with"]))
         self.assertNotIn("release", admission["run"].split("PY_VALIDATE_REPOSITORY", 1)[0])
 
     def test_source_ref_namespace_is_exact_for_same_named_branch_and_tag(self) -> None:
