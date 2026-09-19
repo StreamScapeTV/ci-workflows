@@ -31,7 +31,7 @@
       "Read CI_HOST_OS and CI_INPUTS_JSON when product target, selectors, UI mode, or release identity are needed.",
       "Validate and translate reviewed semantics inside the repository before invoking Xcode, Gradle, Python, Node, Flutter, or other product commands.",
       "Do not upload evidence or request Drive, registry, runner, or secret configuration from the caller.",
-      "Request additional private infrastructure by changing this reviewed Central capability policy, never by adding caller-controlled hosts or secret names."
+      "Request private infrastructure authorization through the project's trusted private Agent State configuration; public Central changes only when a new generic capability type or shared mechanism is required."
     ],
     "forbiddenCallerSurface": [
       "command",
@@ -128,22 +128,41 @@
     "gradle_maven": "Configure ephemeral Gradle properties centralRegistryUsername and centralRegistryReadToken for a repository that consumes a private Maven registry."
   },
   "infrastructure": {
-    "githubHost": "github.com",
-    "registryHost": "git.faruqi.dev"
+    "githubHost": "github.com"
   },
-  "authorization": {
+  "trustedCapabilityGrant": {
+    "source": "Agent State project configuration",
+    "projectStateKey": "repository_ci",
+    "schemaVersion": 1,
     "defaultCapabilities": [],
-    "repositories": {
-      "StreamScapeTV/iptv-apple": [
-        "private_network",
-        "github_git",
-        "registry_netrc"
-      ],
-      "StreamScapeTV/iptv-android": [
-        "private_network",
-        "registry_netrc",
-        "gradle_maven"
-      ]
-    }
+    "binding": [
+      "ci_run_id",
+      "project_key",
+      "repository",
+      "ref",
+      "source_is_tag",
+      "operation"
+    ],
+    "fields": {
+      "repository": "Exact repository identity bound privately to the requesting Agent State project.",
+      "capabilities": "Unique subset of the public generic capabilityTypes keys."
+    },
+    "failClosed": true
+  },
+  "migrationLedger": {
+    "source": "Agent State ci-workflows project configuration",
+    "projectStateKey": "repository_ci_migration_v1",
+    "schemaVersion": 1,
+    "publicContractContainsConcreteConsumers": false,
+    "requiredEntryFields": [
+      "project_key",
+      "repository",
+      "consumer_class",
+      "required_operations",
+      "entrypoints_adopted",
+      "live_proof_complete",
+      "legacy_lane_live"
+    ],
+    "retirementRule": "A legacy profile lane may be removed only when the private ledger has no remaining live consumer for that lane."
   }
 }
