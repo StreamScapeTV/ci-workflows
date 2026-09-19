@@ -1,0 +1,177 @@
+{
+  "schemaVersion": 1,
+  "name": "StreamScapeTV repository-owned CI contract",
+  "summary": "Central selects one fixed repository entrypoint on a bounded host OS and supplies only reviewed infrastructure plus a versioned structured semantic input document. Product commands and toolchain behavior stay in the repository.",
+  "adoption": {
+    "fixedEntrypoints": {
+      "build": ".ci/build.sh",
+      "test": ".ci/test.sh",
+      "full": ".ci/test-full.sh",
+      "ui-test": ".ci/test-ui.sh",
+      "release": ".ci/release.sh"
+    },
+    "hostExecution": {
+      "linux": {
+        "runner": "ubuntu-24.04"
+      },
+      "macos": {
+        "runner": "macos-latest"
+      }
+    },
+    "scriptEnvironment": {
+      "CI_HOST_OS": "Selected host execution OS: linux or macos.",
+      "CI_OPERATION": "Selected fixed semantic operation: build, test, full, ui-test, or separately authorized release.",
+      "CI_INPUTS_JSON": "Canonical JSON object with schemaVersion=1 and an inputs object validated against the operation schema.",
+      "CI_LOG_DIR": "Central-owned optional text evidence directory.",
+      "CI_ARTIFACT_DIR": "Central-owned optional bounded artifact evidence directory.",
+      "CI_PROGRESS_FILE": "Central-owned optional progress text file."
+    },
+    "adoptionSteps": [
+      "Add tracked executable fixed entrypoints under .ci/; unsupported operations must fail closed explicitly.",
+      "Read CI_HOST_OS and CI_INPUTS_JSON when product target, selectors, UI mode, or release identity are needed.",
+      "Validate and translate reviewed semantics inside the repository before invoking Xcode, Gradle, Python, Node, Flutter, or other product commands.",
+      "Do not upload evidence or request Drive, registry, runner, or secret configuration from the caller.",
+      "Request private infrastructure authorization through the project's trusted private Agent State configuration; public Central changes only when a new generic capability type or shared mechanism is required."
+    ],
+    "forbiddenCallerSurface": [
+      "command",
+      "script_path",
+      "raw_argv",
+      "environment_map",
+      "secret_name",
+      "runner_label",
+      "timeout",
+      "sdk_package_list",
+      "xcode_arguments",
+      "gradle_arguments",
+      "callback_command"
+    ]
+  },
+  "semanticInputs": {
+    "maxRawBytes": 2048,
+    "fields": {
+      "product_target": {
+        "type": "string",
+        "maxLength": 64,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+      },
+      "test_selectors": {
+        "type": "string-list",
+        "maxItems": 64,
+        "itemMaxLength": 240,
+        "itemPattern": "^[A-Za-z0-9_.$/:+-]{1,240}$",
+        "rejectLeadingDash": true
+      },
+      "ui_mode": {
+        "type": "enum",
+        "values": [
+          "smoke",
+          "full-ordinary"
+        ]
+      },
+      "release_kind": {
+        "type": "enum",
+        "values": [
+          "prepare"
+        ]
+      },
+      "build_identity": {
+        "type": "string",
+        "maxLength": 64,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$"
+      }
+    },
+    "operations": {
+      "build": {
+        "allowed": [
+          "product_target"
+        ],
+        "required": []
+      },
+      "test": {
+        "allowed": [
+          "product_target",
+          "test_selectors"
+        ],
+        "required": []
+      },
+      "full": {
+        "allowed": [
+          "product_target"
+        ],
+        "required": []
+      },
+      "ui-test": {
+        "allowed": [
+          "product_target",
+          "ui_mode"
+        ],
+        "required": []
+      },
+      "release": {
+        "allowed": [
+          "product_target",
+          "release_kind",
+          "build_identity"
+        ],
+        "required": [
+          "release_kind",
+          "build_identity"
+        ]
+      }
+    }
+  },
+  "capabilityTypes": {
+    "private_network": "Connect the reviewed private network boundary before product execution.",
+    "github_git": "Configure ephemeral Git HTTPS credentials for github.com using the Central source App token.",
+    "registry_netrc": "Configure ephemeral HTTPS .netrc credentials for the approved private package registry host.",
+    "gradle_maven": "Configure ephemeral Gradle properties centralRegistryUsername and centralRegistryReadToken for a repository that consumes a private Maven registry."
+  },
+  "infrastructure": {
+    "githubHost": "github.com"
+  },
+  "trustedCapabilityGrant": {
+    "source": "Agent State project configuration",
+    "projectStateKey": "repository_ci",
+    "schemaVersion": 1,
+    "defaultCapabilities": [],
+    "binding": [
+      "ci_run_id",
+      "project_key",
+      "repository",
+      "ref",
+      "source_is_tag",
+      "operation"
+    ],
+    "fields": {
+      "repository": "Exact repository identity bound privately to the requesting Agent State project.",
+      "capabilities": "Unique subset of the public generic capabilityTypes keys."
+    },
+    "failClosed": true
+  },
+  "migrationLedger": {
+    "source": "Agent State ci-workflows project configuration",
+    "projectStateKey": "repository_ci_migration_v1",
+    "schemaVersion": 1,
+    "publicContractContainsConcreteConsumers": false,
+    "requiredEntryFields": [
+      "project_key",
+      "repository",
+      "consumer_class",
+      "required_operations",
+      "entrypoints_adopted",
+      "live_proof_complete",
+      "legacy_lane_live"
+    ],
+    "retirementRule": "A legacy profile lane may be removed only when the private ledger has no remaining live consumer for that lane."
+  },
+  "consumerClasses": [
+    "apple-application",
+    "apple-library-package",
+    "android-application",
+    "android-library-package",
+    "linux-service-backend",
+    "generic-package-consumer",
+    "generic-node-python-java-native"
+  ]
+}

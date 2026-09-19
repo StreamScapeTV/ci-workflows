@@ -1,27 +1,15 @@
 name: Repository-owned CI
 
-# Adoption contract (source of truth):
-# - repositories expose fixed tracked executable paths .ci/build.sh, .ci/test.sh,
-#   .ci/test-full.sh, .ci/test-ui.sh and .ci/release.sh;
-# - unsupported operations fail closed in the repository-owned script;
-# - validation.repository selects only build/test/full/ui-test plus bounded platform
-#   and UI-suite semantics; no command, executable path, runner label, timeout,
-#   environment map, secret name, or tool-specific arguments are caller-controlled;
-# - Central owns exact-source checkout, runner choice/toolchain capability provisioning,
-#   approved private-network and package-registry capability setup, private log transport
-#   and Agent State lifecycle;
-# - repository scripts own all toolchain/project/task/test/package behavior;
-# - build/test receive only --platform for non-Linux platforms; ui-test additionally
-#   receives an optional --suite; full receives no arguments. Product-specific selectors
-#   stay repository-owned until a reviewed shared semantic is added here;
-# - Central provides only CI_LOG_DIR, CI_ARTIFACT_DIR and CI_PROGRESS_FILE as callback
-#   paths. Repository scripts never upload evidence or receive Drive credentials;
-# - this generic lane intentionally has no persistent dependency cache. Cache keys and
-#   restore/save policy remain Central capabilities and are added only as reviewed,
-#   repository-independent classes rather than caller inputs;
-# - release.sh is structurally supported only for separately authorized Central callers
-#   from reviewed ci-workflows main, an admitted tag, and bounded release semantics;
-#   it is not reachable from validation.repository.
+# Generic adoption contract:
+# - Central selects only one fixed tracked .ci entrypoint and one host OS (linux/macos).
+# - Product target, selector, UI-mode, toolchain and packaging behavior stays repository-owned.
+# - Reviewed structured semantics arrive only through versioned CI_INPUTS_JSON; Central never
+#   converts them into arbitrary argv, commands, executable paths, environment maps or runner labels.
+# - Central owns exact-source checkout, bounded host selection, reviewed private infrastructure,
+#   evidence/log transport, redaction/cleanup and Agent State lifecycle.
+# - Private capability authorization is read from contracts/repository-ci-v1.json. The workflow
+#   interprets generic capability names only; repository names do not select workflow code paths.
+# - Release remains structurally gated by Central main + immutable tag + separate authorization.
 
 "on":
   workflow_call:
@@ -39,21 +27,13 @@ name: Repository-owned CI
       operation:
         type: string
         required: true
-      platform:
+      host_os:
         type: string
         required: true
-      ui_suite:
+      semantic_inputs_json:
         type: string
         required: false
-        default: ""
-      build_number:
-        type: string
-        required: false
-        default: ""
-      release_kind:
-        type: string
-        required: false
-        default: ""
+        default: "{}"
       release_authorized:
         type: boolean
         required: false
@@ -97,7 +77,7 @@ permissions:
 
 jobs:
   execute:
-    runs-on: ${{ inputs.platform == 'linux' && 'ubuntu-24.04' || 'macos-latest' }}
+    runs-on: ${{ inputs.host_os == 'linux' && 'ubuntu-24.04' || 'macos-latest' }}
     timeout-minutes: 300
     steps:
       - name: Initialize private execution paths
@@ -130,24 +110,32 @@ jobs:
           phase: start
           ci_run_id: ${{ inputs.ci_run_id }}
 
+      - name: Check out reviewed repository CI contract
+        uses: actions/checkout@v4
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.sha }}
+          path: central-ci
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Validate bounded repository operation
         id: request
         shell: bash
         env:
           OPERATION: ${{ inputs.operation }}
-          PLATFORM: ${{ inputs.platform }}
-          UI_SUITE: ${{ inputs.ui_suite }}
-          BUILD_NUMBER: ${{ inputs.build_number }}
-          RELEASE_KIND: ${{ inputs.release_kind }}
+          HOST_OS: ${{ inputs.host_os }}
+          RAW_SEMANTIC_INPUTS: ${{ inputs.semantic_inputs_json }}
           RELEASE_AUTHORIZED: ${{ inputs.release_authorized }}
           SOURCE_IS_TAG: ${{ inputs.source_is_tag }}
           CALLER_REPOSITORY: ${{ github.repository }}
           CALLER_REF: ${{ github.ref }}
+          CONTRACT: ${{ github.workspace }}/central-ci/contracts/repository-ci-v1.json
         run: |
           set -Eeuo pipefail
-          case "${PLATFORM}" in
-            linux|macos|ios|tvos) ;;
-            *) echo "repository operation platform must be linux, macos, ios, or tvos" >&2; exit 2 ;;
+          case "${HOST_OS}" in
+            linux|macos) ;;
+            *) echo "repository operation host_os must be linux or macos" >&2; exit 2 ;;
           esac
           case "${OPERATION}" in
             build) entrypoint=.ci/build.sh ;;
@@ -168,32 +156,129 @@ jobs:
                 echo "repository release requires an admitted immutable tag source" >&2
                 exit 2
               }
-              [[ "${BUILD_NUMBER}" =~ ^[1-9][0-9]{0,9}$ ]] || {
-                echo "repository release build_number must be one bounded positive decimal" >&2
-                exit 2
-              }
-              case "${RELEASE_KIND}" in
-                prepare) ;;
-                *) echo "repository release supports only the prepare semantic kind" >&2; exit 2 ;;
-              esac
               ;;
             *) echo "unsupported repository semantic operation" >&2; exit 2 ;;
           esac
-          if test "${OPERATION}" != ui-test && test -n "${UI_SUITE}"; then
-            echo "ui_suite is accepted only by ui-test" >&2
+          if test "${OPERATION}" != release && test "${RELEASE_AUTHORIZED}" = true; then
+            echo "release authorization is accepted only by the release operation" >&2
             exit 2
           fi
-          if test "${OPERATION}" = ui-test; then
-            case "${UI_SUITE}" in
-              ""|smoke|full-ordinary) ;;
-              *) echo "repository ui-test supports only smoke or full-ordinary" >&2; exit 2 ;;
-            esac
-          fi
-          if test "${OPERATION}" != release && { test -n "${BUILD_NUMBER}" || test -n "${RELEASE_KIND}" || test "${RELEASE_AUTHORIZED}" = true; }; then
-            echo "release semantics are accepted only by the separately authorized release operation" >&2
-            exit 2
-          fi
-          printf 'entrypoint=%s\n' "${entrypoint}" >> "${GITHUB_OUTPUT}"
+          export ENTRYPOINT="${entrypoint}"
+          python3 - <<'PY_REPOSITORY_INPUTS'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          contract_path = Path(os.environ["CONTRACT"])
+          if contract_path.is_symlink() or not contract_path.is_file():
+              raise SystemExit("repository CI contract must be one regular file")
+          contract = json.loads(contract_path.read_text(encoding="utf-8"))
+          if not isinstance(contract, dict) or contract.get("schemaVersion") != 1:
+              raise SystemExit("repository CI contract schema is invalid")
+
+          operation = os.environ["OPERATION"]
+          host_os = os.environ["HOST_OS"]
+          entrypoint = os.environ["ENTRYPOINT"]
+          raw = os.environ.get("RAW_SEMANTIC_INPUTS", "{}")
+          semantic = contract.get("semanticInputs")
+          adoption = contract.get("adoption")
+          if not isinstance(semantic, dict) or not isinstance(adoption, dict):
+              raise SystemExit("repository CI contract is incomplete")
+          max_raw = semantic.get("maxRawBytes")
+          if not isinstance(max_raw, int) or isinstance(max_raw, bool) or not 1 <= max_raw <= 16384:
+              raise SystemExit("repository CI semantic input bound is invalid")
+          if len(raw.encode("utf-8")) > max_raw:
+              raise SystemExit("repository CI semantic input payload exceeds the reviewed bound")
+          def reject_duplicate_keys(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(f"duplicate semantic field: {key}")
+                  result[key] = value
+              return result
+
+          try:
+              values = json.loads(raw, object_pairs_hook=reject_duplicate_keys)
+          except (json.JSONDecodeError, ValueError) as exc:
+              raise SystemExit("repository CI semantic inputs must be one unambiguous JSON object") from exc
+          if not isinstance(values, dict):
+              raise SystemExit("repository CI semantic inputs must be one JSON object")
+
+          entrypoints = adoption.get("fixedEntrypoints")
+          host_execution = adoption.get("hostExecution")
+          if not isinstance(entrypoints, dict) or entrypoints.get(operation) != entrypoint:
+              raise SystemExit("repository CI fixed entrypoint disagrees with the reviewed contract")
+          if not isinstance(host_execution, dict) or host_os not in host_execution:
+              raise SystemExit("repository CI host OS is not present in the reviewed contract")
+
+          operations = semantic.get("operations")
+          fields = semantic.get("fields")
+          if not isinstance(operations, dict) or not isinstance(fields, dict) or operation not in operations:
+              raise SystemExit("repository CI semantic operation schema is missing")
+          spec = operations[operation]
+          if not isinstance(spec, dict):
+              raise SystemExit("repository CI semantic operation schema is invalid")
+          allowed = spec.get("allowed")
+          required = spec.get("required")
+          if not isinstance(allowed, list) or not isinstance(required, list):
+              raise SystemExit("repository CI semantic operation schema is invalid")
+          if any(not isinstance(name, str) or name not in fields for name in allowed + required):
+              raise SystemExit("repository CI semantic operation references an unknown field")
+          if set(values) - set(allowed):
+              raise SystemExit("repository CI semantic inputs contain an unknown field")
+          if set(required) - set(values):
+              raise SystemExit("repository CI semantic inputs omit a required field")
+
+          def validate_field(name, value):
+              field = fields[name]
+              if not isinstance(field, dict):
+                  raise SystemExit(f"repository CI semantic field {name} has an invalid schema")
+              kind = field.get("type")
+              if kind == "string":
+                  if not isinstance(value, str):
+                      raise SystemExit(f"repository CI semantic field {name} must be a string")
+                  max_length = field.get("maxLength")
+                  pattern = field.get("pattern")
+                  if not isinstance(max_length, int) or isinstance(max_length, bool) or not 1 <= max_length <= 2048:
+                      raise SystemExit(f"repository CI semantic field {name} has an invalid length bound")
+                  if not 1 <= len(value) <= max_length or not isinstance(pattern, str) or re.fullmatch(pattern, value) is None:
+                      raise SystemExit(f"repository CI semantic field {name} is outside the reviewed bound")
+              elif kind == "enum":
+                  choices = field.get("values")
+                  if not isinstance(value, str) or not isinstance(choices, list) or value not in choices:
+                      raise SystemExit(f"repository CI semantic field {name} is outside the reviewed enum")
+              elif kind == "string-list":
+                  max_items = field.get("maxItems")
+                  max_length = field.get("itemMaxLength")
+                  pattern = field.get("itemPattern")
+                  reject_dash = field.get("rejectLeadingDash") is True
+                  if not isinstance(value, list) or not isinstance(max_items, int) or isinstance(max_items, bool):
+                      raise SystemExit(f"repository CI semantic field {name} must be a reviewed string list")
+                  if not 0 <= len(value) <= max_items or max_items > 128:
+                      raise SystemExit(f"repository CI semantic field {name} has too many items")
+                  if not isinstance(max_length, int) or isinstance(max_length, bool) or not 1 <= max_length <= 2048 or not isinstance(pattern, str):
+                      raise SystemExit(f"repository CI semantic field {name} has an invalid item schema")
+                  for item in value:
+                      if not isinstance(item, str) or not 1 <= len(item) <= max_length or re.fullmatch(pattern, item) is None:
+                          raise SystemExit(f"repository CI semantic field {name} contains an invalid item")
+                      if reject_dash and item.startswith("-"):
+                          raise SystemExit(f"repository CI semantic field {name} contains a leading-dash item")
+              else:
+                  raise SystemExit(f"repository CI semantic field {name} has an unsupported type")
+
+          for name, value in values.items():
+              validate_field(name, value)
+
+          normalized = json.dumps(
+              {"schemaVersion": 1, "inputs": values},
+              sort_keys=True,
+              separators=(",", ":"),
+          )
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"entrypoint={entrypoint}\n")
+              output.write(f"semantic_inputs_json={normalized}\n")
+          PY_REPOSITORY_INPUTS
 
       - name: Prepare source token
         id: source
@@ -288,137 +373,162 @@ jobs:
           ci_run_id: ${{ inputs.ci_run_id }}
           observed_source_sha: ${{ steps.source_identity.outputs.source_sha }}
 
-      - name: Resolve reviewed runner capability class
-        id: runner_capability
+      - name: Resolve trusted private infrastructure capabilities
+        id: capabilities
         shell: bash
         env:
+          CI_RUN_ID: ${{ inputs.ci_run_id }}
           SOURCE_REPOSITORY: ${{ inputs.repository }}
+          SOURCE_REF: ${{ inputs.ref }}
+          SOURCE_IS_TAG: ${{ inputs.source_is_tag }}
           OPERATION: ${{ inputs.operation }}
-          PLATFORM: ${{ inputs.platform }}
+          CONTRACT: ${{ github.workspace }}/central-ci/contracts/repository-ci-v1.json
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
         run: |
           set -Eeuo pipefail
-          capability=none
-          case "${SOURCE_REPOSITORY}" in
-            StreamScapeTV/iptv-android)
-              test "${PLATFORM}" = linux || {
-                echo "Android repository-owned CI requires the reviewed Linux runner capability" >&2
-                exit 2
-              }
-              case "${OPERATION}" in
-                ui-test) capability=android-api37-ui-api36 ;;
-                build|test|full|release) capability=android-api37 ;;
-                *) echo "unsupported Android repository operation" >&2; exit 2 ;;
-              esac
-              ;;
-          esac
-          printf 'capability=%s\n' "${capability}" >> "${GITHUB_OUTPUT}"
 
-      - name: Set up JDK 25 for reviewed Android capability
-        if: ${{ startsWith(steps.runner_capability.outputs.capability, 'android-') }}
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "25"
+          known_capabilities="$(python3 - "${CONTRACT}" <<'PY_KNOWN_CAPABILITIES'
+          from pathlib import Path
+          import json
+          import sys
 
-      - name: Provision fixed Android SDK capability
-        if: ${{ startsWith(steps.runner_capability.outputs.capability, 'android-') }}
-        shell: bash
-        env:
-          RUNNER_CAPABILITY: ${{ steps.runner_capability.outputs.capability }}
-        run: |
-          set -Eeuo pipefail
-          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
-          test -n "${sdk_root}" || {
-            echo "reviewed Android runner capability requires an Android SDK root" >&2
-            exit 1
+          value = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          capability_types = value.get("capabilityTypes")
+          trusted = value.get("trustedCapabilityGrant")
+          if not isinstance(capability_types, dict) or not isinstance(trusted, dict):
+              raise SystemExit("repository CI capability contract is incomplete")
+          expected = {"private_network", "github_git", "registry_netrc", "gradle_maven"}
+          if set(capability_types) != expected:
+              raise SystemExit("repository CI capability type set is not the reviewed v1 set")
+          if trusted.get("source") != "Agent State project configuration":
+              raise SystemExit("repository CI trusted capability authority is invalid")
+          if trusted.get("projectStateKey") != "repository_ci" or trusted.get("schemaVersion") != 1:
+              raise SystemExit("repository CI trusted capability schema is invalid")
+          if trusted.get("defaultCapabilities") != [] or trusted.get("failClosed") is not True:
+              raise SystemExit("repository CI trusted capability default must fail closed")
+          print(",".join(sorted(expected)))
+          PY_KNOWN_CAPABILITIES
+          )"
+
+          emit_none() {
+            python3 - "${known_capabilities}" "${GITHUB_OUTPUT}" <<'PY_NONE'
+          from pathlib import Path
+          import sys
+
+          known, output_path = sys.argv[1:3]
+          with Path(output_path).open("a", encoding="utf-8") as output:
+              for capability in known.split(","):
+                  output.write(f"{capability}=false\n")
+              output.write("auth_enabled=false\n")
+          PY_NONE
           }
-          sdkmanager="$(command -v sdkmanager || true)"
-          avdmanager="$(command -v avdmanager || true)"
-          test -n "${sdkmanager}" || sdkmanager="${sdk_root}/cmdline-tools/latest/bin/sdkmanager"
-          test -x "${sdkmanager}" || {
-            echo "reviewed Android runner capability requires sdkmanager" >&2
-            exit 1
-          }
-          packages=(platform-tools "platforms;android-37" "build-tools;37.0.0")
-          if test "${RUNNER_CAPABILITY}" = android-api37-ui-api36; then
-            packages+=(emulator "system-images;android-36;google_apis;x86_64")
-          elif test "${RUNNER_CAPABILITY}" != android-api37; then
-            echo "unsupported reviewed Android runner capability" >&2
-            exit 2
+
+          if test -z "${CI_RUN_ID}"; then
+            emit_none
+            exit 0
           fi
-          "${sdkmanager}" --install "${packages[@]}" >> "${CI_LOG}" 2>&1
-          test -d "${sdk_root}/platforms/android-37" || {
-            echo "Android API 37 platform was not provisioned" >&2
+
+          : "${AGENT_STATE_SUPABASE_URL:?Agent State URL is required for trusted repository capabilities}"
+          : "${AGENT_STATE_SUPABASE_SECRET_KEY:?Agent State secret is required for trusted repository capabilities}"
+
+          headers=(
+            -H "apikey: ${AGENT_STATE_SUPABASE_SECRET_KEY}"
+            -H "Content-Type: application/json"
+            -H "Content-Profile: agent_api"
+            -H "Accept-Profile: agent_api"
+          )
+          rpc() {
+            curl --fail --silent --show-error               "${headers[@]}"               --data "$2"               "${AGENT_STATE_SUPABASE_URL%/}/rest/v1/rpc/$1"
+          }
+
+          claim_response="$(rpc claim_ci_run "$(jq -cn --arg id "${CI_RUN_ID}" '{p_ci_run_id:$id}')")"
+          test "$(jq -r '.ok' <<<"${claim_response}")" = true || {
+            echo "repository CI could not replay the trusted Agent State CI claim" >&2
             exit 1
           }
-          test -x "${sdk_root}/platform-tools/adb" || {
-            echo "Android platform-tools were not provisioned" >&2
-            exit 1
-          }
-          if test "${RUNNER_CAPABILITY}" = android-api37-ui-api36; then
-            test -n "${avdmanager}" || avdmanager="${sdk_root}/cmdline-tools/latest/bin/avdmanager"
-            emulator="$(command -v emulator || true)"
-            test -n "${emulator}" || emulator="${sdk_root}/emulator/emulator"
-            test -x "${avdmanager}" && test -x "${emulator}" || {
-              echo "Android UI runner capability requires avdmanager and emulator" >&2
+          run="$(jq -c '.run' <<<"${claim_response}")"
+          project_key="$(jq -r '.project_key // empty' <<<"${run}")"
+          run_repository="$(jq -r '.repository // empty' <<<"${run}")"
+          run_ref="$(jq -r '.ref // empty' <<<"${run}")"
+          run_is_tag="$(jq -r '.is_tag | tostring' <<<"${run}")"
+          run_workflow="$(jq -r '.workflow_key // empty' <<<"${run}")"
+          run_profile="$(jq -r '.test_profile // empty' <<<"${run}")"
+
+          test -n "${project_key}"             && test "${run_repository}" = "${SOURCE_REPOSITORY}"             && test "${run_ref}" = "${SOURCE_REF}"             && test "${run_is_tag}" = "${SOURCE_IS_TAG}"             && test "${run_workflow}" = validation.repository             && test "${run_profile}" = "${OPERATION}" || {
+              echo "repository CI trusted capability grant is not bound to the exact Agent State request" >&2
               exit 1
             }
-            test -d "${sdk_root}/system-images/android-36/google_apis/x86_64" || {
-              echo "Android API 36 Google APIs x86_64 system image was not provisioned" >&2
-              exit 1
-            }
-          fi
-          java_version="$("${JAVA_HOME}/bin/java" -version 2>&1 | head -n 1)"
-          [[ "${java_version}" == *'"25'* ]] || {
-            echo "Android runner capability requires JDK 25" >&2
-            exit 1
-          }
-          {
-            printf 'ANDROID_SDK_ROOT=%s\n' "${sdk_root}"
-            printf 'ANDROID_HOME=%s\n' "${sdk_root}"
-          } >> "${GITHUB_ENV}"
-          printf '%s\n' "${sdk_root}/platform-tools" "${sdk_root}/emulator" >> "${GITHUB_PATH}"
 
-      - name: Resolve reviewed registry capability class
-        id: registry
-        shell: bash
-        env:
-          SOURCE_REPOSITORY: ${{ inputs.repository }}
-        run: |
-          set -Eeuo pipefail
-          case "${SOURCE_REPOSITORY}" in
-            StreamScapeTV/iptv-apple) capability=private-swiftpm ;;
-            StreamScapeTV/iptv-android) capability=private-maven ;;
-            *) capability=none ;;
-          esac
-          printf 'capability=%s\n' "${capability}" >> "${GITHUB_OUTPUT}"
+          project_response="$(rpc get_project_state "$(jq -cn --arg project "${project_key}" '{p_project_key:$project}')")"
+          project_state="$(jq -c '.state // {}' <<<"${project_response}")"
+          PROJECT_STATE="${project_state}" python3 - "${known_capabilities}" "${SOURCE_REPOSITORY}" "${GITHUB_OUTPUT}" <<'PY_CAPABILITIES'
+          from pathlib import Path
+          import json
+          import os
+          import sys
 
-      - name: Connect approved private registry network
-        if: ${{ steps.registry.outputs.capability != 'none' }}
+          known_raw, expected_repository, output_path = sys.argv[1:4]
+          known = set(known_raw.split(","))
+          state = json.loads(os.environ["PROJECT_STATE"])
+          if not isinstance(state, dict):
+              raise SystemExit("Agent State project configuration must be one object")
+          grant = state.get("repository_ci")
+          if grant is None:
+              capabilities = []
+          else:
+              if not isinstance(grant, dict) or set(grant) != {"schemaVersion", "repository", "capabilities"}:
+                  raise SystemExit("trusted repository CI capability grant schema is invalid")
+              if grant.get("schemaVersion") != 1:
+                  raise SystemExit("trusted repository CI capability grant version is invalid")
+              if grant.get("repository") != expected_repository:
+                  raise SystemExit("trusted repository CI capability grant is bound to a different repository")
+              capabilities = grant.get("capabilities")
+              if not isinstance(capabilities, list) or len(capabilities) != len(set(capabilities)):
+                  raise SystemExit("trusted repository CI capability grant must be one unique list")
+              if any(not isinstance(value, str) or value not in known for value in capabilities):
+                  raise SystemExit("trusted repository CI capability grant contains an unknown capability")
+
+          with Path(output_path).open("a", encoding="utf-8") as output:
+              for capability in sorted(known):
+                  output.write(f"{capability}={'true' if capability in capabilities else 'false'}\n")
+              auth_enabled = any(
+                  value in capabilities
+                  for value in ("github_git", "registry_netrc", "gradle_maven")
+              )
+              output.write(f"auth_enabled={'true' if auth_enabled else 'false'}\n")
+          PY_CAPABILITIES
+
+      - name: Connect reviewed private network capability
+        if: ${{ steps.capabilities.outputs.private_network == 'true' }}
         uses: StreamScapeTV/ci-workflows/actions/private-git@main
         env:
           TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
 
-      - name: Configure ephemeral approved registry authentication
+      - name: Configure ephemeral generic package-manager authentication
         id: registry_auth
-        if: ${{ steps.registry.outputs.capability != 'none' }}
+        if: ${{ steps.capabilities.outputs.auth_enabled == 'true' }}
         shell: bash
         env:
-          CAPABILITY: ${{ steps.registry.outputs.capability }}
+          USE_GITHUB_GIT: ${{ steps.capabilities.outputs.github_git }}
+          USE_REGISTRY_NETRC: ${{ steps.capabilities.outputs.registry_netrc }}
+          USE_GRADLE_MAVEN: ${{ steps.capabilities.outputs.gradle_maven }}
           GITHUB_SOURCE_TOKEN: ${{ steps.source.outputs.token }}
           REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
         run: |
           set -Eeuo pipefail
-          case "${CAPABILITY}" in
-            private-swiftpm|private-maven) ;;
-            *) echo "unsupported Central registry capability class" >&2; exit 2 ;;
+          case "${USE_GITHUB_GIT}:${USE_REGISTRY_NETRC}:${USE_GRADLE_MAVEN}" in
+            true:*:*|false:true:*|false:false:true) ;;
+            *) echo "repository CI authentication capability outputs are invalid" >&2; exit 2 ;;
           esac
-          test -n "${REGISTRY_USERNAME}" && test -n "${REGISTRY_READ_TOKEN}" || {
-            echo "approved private registry capability is missing its fixed read credential" >&2
-            exit 1
-          }
+          if test "${USE_REGISTRY_NETRC}" = true || test "${USE_GRADLE_MAVEN}" = true; then
+            test -n "${REGISTRY_USERNAME}" && test -n "${REGISTRY_READ_TOKEN}" || {
+              echo "reviewed private registry capability is missing its fixed read credential" >&2
+              exit 1
+            }
+          fi
           auth_root="${RUNNER_TEMP}/central-registry-auth"
           auth_home="${auth_root}/home"
           git_config="${auth_root}/gitconfig"
@@ -426,10 +536,16 @@ jobs:
           rm -rf -- "${auth_root}"
           mkdir -p "${auth_home}"
           chmod 700 "${auth_root}" "${auth_home}"
-          printf '%s' "${GITHUB_SOURCE_TOKEN}" > "${auth_root}/github-token"
-          printf '%s' "${REGISTRY_USERNAME}" > "${auth_root}/registry-user"
-          printf '%s' "${REGISTRY_READ_TOKEN}" > "${auth_root}/registry-token"
-          chmod 600 "${auth_root}/github-token" "${auth_root}/registry-user" "${auth_root}/registry-token"
+          if test "${USE_GITHUB_GIT}" = true; then
+            test -n "${GITHUB_SOURCE_TOKEN}" || exit 1
+            printf '%s' "${GITHUB_SOURCE_TOKEN}" > "${auth_root}/github-token"
+            chmod 600 "${auth_root}/github-token"
+          fi
+          if test "${USE_REGISTRY_NETRC}" = true || test "${USE_GRADLE_MAVEN}" = true; then
+            printf '%s' "${REGISTRY_USERNAME}" > "${auth_root}/registry-user"
+            printf '%s' "${REGISTRY_READ_TOKEN}" > "${auth_root}/registry-token"
+            chmod 600 "${auth_root}/registry-user" "${auth_root}/registry-token"
+          fi
           cat > "${helper}" <<'SH_CREDENTIAL_HELPER'
           #!/usr/bin/env bash
           set -Eeuo pipefail
@@ -445,9 +561,11 @@ jobs:
           root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
           case "${host}" in
             github.com)
+              test -f "${root}/github-token" || exit 0
               printf 'username=x-access-token\npassword=%s\n' "$(cat "${root}/github-token")"
               ;;
             git.faruqi.dev)
+              test -f "${root}/registry-user" && test -f "${root}/registry-token" || exit 0
               printf 'username=%s\npassword=%s\n' "$(cat "${root}/registry-user")" "$(cat "${root}/registry-token")"
               ;;
           esac
@@ -455,22 +573,35 @@ jobs:
           chmod 700 "${helper}"
           git config --file "${git_config}" credential.helper "${helper}"
           git config --file "${git_config}" credential.useHttpPath false
-          cat > "${auth_home}/.netrc" <<EOF_NETRC
+          : > "${auth_home}/.netrc"
+          if test "${USE_GITHUB_GIT}" = true; then
+            cat >> "${auth_home}/.netrc" <<EOF_GITHUB_NETRC
           machine github.com
             login x-access-token
             password ${GITHUB_SOURCE_TOKEN}
+          EOF_GITHUB_NETRC
+          fi
+          if test "${USE_REGISTRY_NETRC}" = true; then
+            cat >> "${auth_home}/.netrc" <<EOF_REGISTRY_NETRC
           machine git.faruqi.dev
             login ${REGISTRY_USERNAME}
             password ${REGISTRY_READ_TOKEN}
-          EOF_NETRC
+          EOF_REGISTRY_NETRC
+          fi
           chmod 600 "${auth_home}/.netrc"
+          if test "${USE_GRADLE_MAVEN}" = true; then
+            mkdir -p "${auth_home}/.gradle"
+            chmod 700 "${auth_home}/.gradle"
+            cat > "${auth_home}/.gradle/gradle.properties" <<EOF_GRADLE
+          centralRegistryUsername=${REGISTRY_USERNAME}
+          centralRegistryReadToken=${REGISTRY_READ_TOKEN}
+          EOF_GRADLE
+            chmod 600 "${auth_home}/.gradle/gradle.properties"
+          fi
           {
             printf 'auth_home=%s\n' "${auth_home}"
             printf 'git_config=%s\n' "${git_config}"
           } >> "${GITHUB_OUTPUT}"
-          if test "${CAPABILITY}" = private-maven; then
-            printf 'CIW_MAVEN_PACKAGE_READ_TOKEN=%s\n' "${REGISTRY_READ_TOKEN}" >> "${GITHUB_ENV}"
-          fi
 
       - name: Execute fixed repository-owned entrypoint
         id: execute_contract
@@ -478,41 +609,25 @@ jobs:
         env:
           ENTRYPOINT: ${{ steps.request.outputs.entrypoint }}
           OPERATION: ${{ inputs.operation }}
-          PLATFORM: ${{ inputs.platform }}
-          UI_SUITE: ${{ inputs.ui_suite }}
-          BUILD_NUMBER: ${{ inputs.build_number }}
-          CAPABILITY: ${{ steps.registry.outputs.capability }}
+          HOST_OS: ${{ inputs.host_os }}
+          NORMALIZED_INPUTS: ${{ steps.request.outputs.semantic_inputs_json }}
+          AUTH_ENABLED: ${{ steps.capabilities.outputs.auth_enabled }}
           AUTH_HOME: ${{ steps.registry_auth.outputs.auth_home }}
           AUTH_GIT_CONFIG: ${{ steps.registry_auth.outputs.git_config }}
         run: |
           set -Eeuo pipefail
-          args=()
-          case "${OPERATION}" in
-            build|test|ui-test)
-              if test "${PLATFORM}" != linux; then
-                args+=(--platform "${PLATFORM}")
-              fi
-              if test "${OPERATION}" = ui-test && test -n "${UI_SUITE}"; then
-                args+=(--suite "${UI_SUITE}")
-              fi
-              ;;
-            full) ;;
-            release)
-              if test "${PLATFORM}" != linux; then
-                args+=(--platform "${PLATFORM}")
-              fi
-              args+=(--build-number "${BUILD_NUMBER}")
-              ;;
-          esac
-          if test "${CAPABILITY}" != none; then
+          if test "${AUTH_ENABLED}" = true; then
             export HOME="${AUTH_HOME}"
             export GIT_CONFIG_GLOBAL="${AUTH_GIT_CONFIG}"
             export GIT_TERMINAL_PROMPT=0
           fi
+          export CI_HOST_OS="${HOST_OS}"
+          export CI_OPERATION="${OPERATION}"
+          export CI_INPUTS_JSON="${NORMALIZED_INPUTS}"
           set +e
           (
             cd source
-            "./${ENTRYPOINT}" "${args[@]}"
+            "./${ENTRYPOINT}"
           ) >> "${CI_LOG}" 2>&1
           status=$?
           set -e
