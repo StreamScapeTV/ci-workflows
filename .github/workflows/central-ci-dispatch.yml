@@ -241,6 +241,40 @@ jobs:
                   raise SystemExit("test_filter is accepted only by legacy Android targeted-unit")
           PY_VALIDATE_NATIVE_TARGETED
 
+      - name: Validate generic repository-owned CI request
+        if: ${{ steps.claim.outputs.workflow_key == 'validation.repository' }}
+        shell: bash
+        env:
+          TEST_PROFILE: ${{ steps.claim.outputs.test_profile }}
+          INPUTS_JSON: ${{ steps.claim.outputs.inputs_json }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY_VALIDATE_REPOSITORY'
+          import json
+          import os
+
+          profile = os.environ.get("TEST_PROFILE", "")
+          try:
+              inputs = json.loads(os.environ.get("INPUTS_JSON", "{}"))
+          except json.JSONDecodeError as exc:
+              raise SystemExit("validation.repository inputs must be one JSON object") from exc
+          if not isinstance(inputs, dict):
+              raise SystemExit("validation.repository inputs must be one JSON object")
+          if profile not in {"build", "test", "full", "ui-test"}:
+              raise SystemExit("validation.repository supports only build, test, full, or ui-test")
+          allowed = {"platform", "ui_suite"} if profile == "ui-test" else {"platform"}
+          if set(inputs) - allowed or "platform" not in inputs:
+              raise SystemExit("validation.repository accepts only the bounded platform and ui_suite semantic inputs")
+          platform = inputs["platform"]
+          if platform not in {"linux", "macos", "ios", "tvos"}:
+              raise SystemExit("validation.repository platform must be linux, macos, ios, or tvos")
+          ui_suite = inputs.get("ui_suite", "")
+          if profile != "ui-test" and ui_suite not in (None, ""):
+              raise SystemExit("validation.repository ui_suite is accepted only by ui-test")
+          if profile == "ui-test" and ui_suite not in ("", "smoke", "full-ordinary"):
+              raise SystemExit("validation.repository ui_suite must be smoke or full-ordinary")
+          PY_VALIDATE_REPOSITORY
+
       - name: Validate Maven release request
         if: ${{ steps.claim.outputs.workflow_key == 'release.maven' }}
         shell: bash
@@ -449,6 +483,35 @@ jobs:
           else:
               raise SystemExit("release.apple supports only testflight, binary-package and swiftpm-package profiles")
           PY_VALIDATE_APPLE_RELEASE
+
+  repository:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'validation.repository' }}
+    concurrency:
+      group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
+      cancel-in-progress: true
+    uses: ./.github/workflows/repository.yml
+    with:
+      repository: ${{ needs.request.outputs.repository }}
+      ref: ${{ needs.request.outputs.ref }}
+      source_is_tag: ${{ needs.request.outputs.is_tag == 'true' }}
+      operation: ${{ needs.request.outputs.test_profile }}
+      platform: ${{ fromJSON(needs.request.outputs.inputs_json).platform }}
+      ui_suite: ${{ fromJSON(needs.request.outputs.inputs_json).ui_suite || '' }}
+      ci_run_id: ${{ inputs.ci_run_id }}
+    secrets:
+      SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
+      SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+      AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+      AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+      GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+      GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+      REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+      REGISTRY_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
 
   apple:
     needs: request
@@ -1104,6 +1167,7 @@ jobs:
   settle_cancelled:
     needs:
       - request
+      - repository
       - apple
       - apple_release
       - android
@@ -1125,6 +1189,7 @@ jobs:
         always() &&
         (
           needs.request.result != 'success' ||
+          needs.repository.result == 'cancelled' ||
           needs.apple.result == 'cancelled' ||
           needs.apple_release.result == 'cancelled' ||
           needs.android.result == 'cancelled' ||
