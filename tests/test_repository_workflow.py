@@ -260,6 +260,62 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertEqual(cleanup["if"], "${{ always() }}")
         self.assertIn("central-registry-auth", cleanup["run"])
 
+    def test_evidence_archive_output_is_one_existing_regular_file_path(self) -> None:
+        by_name = {
+            step.get("name"): step
+            for step in self.workflow["jobs"]["execute"]["steps"]
+            if step.get("name")
+        }
+        package = by_name["Package bounded repository CI evidence"]
+        evidence_upload = by_name["Upload bounded repository CI evidence to Google Drive"]
+        self.assertEqual(
+            evidence_upload["with"]["file_path"],
+            "${{ steps.evidence.outputs.archive }}",
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log_dir = root / "logs"
+            artifact_dir = root / "artifacts"
+            log_dir.mkdir()
+            artifact_dir.mkdir()
+            (log_dir / "tool.log").write_text("bounded log\n", encoding="utf-8")
+            (artifact_dir / "result.json").write_text("{}\n", encoding="utf-8")
+            progress = root / "progress.txt"
+            progress.write_text("complete\n", encoding="utf-8")
+            github_output = root / "github-output"
+            github_output.write_text("", encoding="utf-8")
+
+            result = subprocess.run(
+                ["bash", "-c", package["run"]],
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "RUNNER_TEMP": str(root),
+                    "CI_LOG_DIR": str(log_dir),
+                    "CI_ARTIFACT_DIR": str(artifact_dir),
+                    "CI_PROGRESS_FILE": str(progress),
+                    "GITHUB_OUTPUT": str(github_output),
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            output_lines = github_output.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(output_lines), 1)
+            self.assertTrue(output_lines[0].startswith("archive="))
+            archive_value = output_lines[0].split("=", 1)[1]
+            self.assertNotIn("\\n", archive_value)
+            archive = Path(archive_value)
+            self.assertEqual(
+                archive,
+                root / "central-repository-ci-evidence.zip",
+            )
+            self.assertTrue(archive.is_file())
+            self.assertFalse(archive.is_symlink())
+
     def test_text_evidence_scrub_fails_closed_on_oversize_or_symlink_and_redacts_normal_log(self) -> None:
         by_name = {
             step.get("name"): step
