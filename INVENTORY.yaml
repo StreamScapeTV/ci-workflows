@@ -33,5 +33,7 @@ scripts:
   source_checkpoint_publish: scripts/ci/source_checkpoint_publish.py
   source_snapshot_lifecycle: scripts/ci/source_snapshot_lifecycle.py
   swiftpm_binary: scripts/ci/swiftpm_binary.py
+contracts:
+  repository_ci_v1: contracts/repository-ci-v1.json
 services:
   runner_images: runner-images/

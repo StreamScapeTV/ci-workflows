@@ -252,6 +252,7 @@ jobs:
           python3 - <<'PY_VALIDATE_REPOSITORY'
           import json
           import os
+          import re
 
           profile = os.environ.get("TEST_PROFILE", "")
           try:
@@ -262,17 +263,56 @@ jobs:
               raise SystemExit("validation.repository inputs must be one JSON object")
           if profile not in {"build", "test", "full", "ui-test"}:
               raise SystemExit("validation.repository supports only build, test, full, or ui-test")
-          allowed = {"platform", "ui_suite"} if profile == "ui-test" else {"platform"}
-          if set(inputs) - allowed or "platform" not in inputs:
-              raise SystemExit("validation.repository accepts only the bounded platform and ui_suite semantic inputs")
-          platform = inputs["platform"]
-          if platform not in {"linux", "macos", "ios", "tvos"}:
-              raise SystemExit("validation.repository platform must be linux, macos, ios, or tvos")
-          ui_suite = inputs.get("ui_suite", "")
-          if profile != "ui-test" and ui_suite not in (None, ""):
-              raise SystemExit("validation.repository ui_suite is accepted only by ui-test")
-          if profile == "ui-test" and ui_suite not in ("", "smoke", "full-ordinary"):
-              raise SystemExit("validation.repository ui_suite must be smoke or full-ordinary")
+          if set(inputs) - {"host_os", "semantic_inputs"} or "host_os" not in inputs:
+              raise SystemExit("validation.repository accepts only host_os and semantic_inputs")
+          if inputs["host_os"] not in {"linux", "macos"}:
+              raise SystemExit("validation.repository host_os must be linux or macos")
+
+          raw = inputs.get("semantic_inputs", "{}")
+          if not isinstance(raw, str) or len(raw.encode("utf-8")) > 2048:
+              raise SystemExit("validation.repository semantic_inputs must be one bounded JSON string")
+          def reject_duplicate_keys(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(f"duplicate semantic field: {key}")
+                  result[key] = value
+              return result
+
+          try:
+              semantic = json.loads(raw, object_pairs_hook=reject_duplicate_keys)
+          except (json.JSONDecodeError, ValueError) as exc:
+              raise SystemExit("validation.repository semantic_inputs must encode one unambiguous JSON object") from exc
+          if not isinstance(semantic, dict):
+              raise SystemExit("validation.repository semantic_inputs must encode one JSON object")
+
+          allowed = {
+              "build": {"product_target"},
+              "test": {"product_target", "test_selectors"},
+              "full": {"product_target"},
+              "ui-test": {"product_target", "ui_mode"},
+          }[profile]
+          if set(semantic) - allowed:
+              raise SystemExit("validation.repository semantic_inputs contains an unknown field")
+
+          target = semantic.get("product_target")
+          if target is not None:
+              if not isinstance(target, str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", target) is None:
+                  raise SystemExit("validation.repository product_target is outside the reviewed bound")
+
+          selectors = semantic.get("test_selectors")
+          if selectors is not None:
+              if profile != "test" or not isinstance(selectors, list) or len(selectors) > 64:
+                  raise SystemExit("validation.repository test_selectors must be one bounded list for test")
+              pattern = re.compile(r"[A-Za-z0-9_.$/:+-]{1,240}")
+              for selector in selectors:
+                  if not isinstance(selector, str) or selector.startswith("-") or pattern.fullmatch(selector) is None:
+                      raise SystemExit("validation.repository test_selectors contains an invalid selector")
+
+          ui_mode = semantic.get("ui_mode")
+          if ui_mode is not None:
+              if profile != "ui-test" or ui_mode not in {"smoke", "full-ordinary"}:
+                  raise SystemExit("validation.repository ui_mode must be smoke or full-ordinary for ui-test")
           PY_VALIDATE_REPOSITORY
 
       - name: Validate Maven release request
@@ -496,8 +536,8 @@ jobs:
       ref: ${{ needs.request.outputs.ref }}
       source_is_tag: ${{ needs.request.outputs.is_tag == 'true' }}
       operation: ${{ needs.request.outputs.test_profile }}
-      platform: ${{ fromJSON(needs.request.outputs.inputs_json).platform }}
-      ui_suite: ${{ fromJSON(needs.request.outputs.inputs_json).ui_suite || '' }}
+      host_os: ${{ fromJSON(needs.request.outputs.inputs_json).host_os }}
+      semantic_inputs_json: ${{ fromJSON(needs.request.outputs.inputs_json).semantic_inputs || '{}' }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets:
       SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}

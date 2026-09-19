@@ -31,6 +31,8 @@ class CiHelperTests(_prior.CiHelperTests):
         )
         self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git", "source_snapshot"})
         self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility", "ci_log_reconcile", "source_snapshot_delete", "source_snapshot_lifecycle", "source_checkpoint_publish", "swiftpm_binary"})
+        self.assertEqual(set(inventory["contracts"]), {"repository_ci_v1"})
+        self.assertEqual(inventory["contracts"]["repository_ci_v1"], "contracts/repository-ci-v1.json")
         self.assertEqual(set(inventory["services"]), {"runner_images"})
 
     def test_only_three_custom_actions_exist(self) -> None:
