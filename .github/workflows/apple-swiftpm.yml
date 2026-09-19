@@ -353,6 +353,20 @@ jobs:
           first_checksum="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["checksum"])' "${identity}")"
           first_size="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["size"])' "${identity}")"
 
+          sha256_file() {
+            python3 - "$1" <<'PY_SHA256'
+          from pathlib import Path
+          import hashlib
+          import sys
+
+          digest = hashlib.sha256()
+          with Path(sys.argv[1]).open("rb") as handle:
+              for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                  digest.update(chunk)
+          print(digest.hexdigest())
+          PY_SHA256
+          }
+
           anonymous_home="${control_root}/anonymous-home"
           anonymous_body="${control_root}/anonymous-body.bin"
           anonymous_headers="${control_root}/anonymous-headers.txt"
@@ -383,7 +397,7 @@ jobs:
               printf 'artifact_anonymous_control classification=authentication_refusal\n' >>"${CI_LOG}"
               ;;
             2??)
-              anonymous_sha="$(sha256sum "${anonymous_body}" | awk '{print $1}')"
+              anonymous_sha="$(sha256_file "${anonymous_body}")"
               anonymous_size="$(wc -c < "${anonymous_body}" | tr -d '[:space:]')"
               if test "${anonymous_sha}" = "${first_checksum}" && test "${anonymous_size}" = "${first_size}"; then
                 printf 'artifact_anonymous_control classification=exact_artifact_access sha256=%s size=%s\n' "${anonymous_sha}" "${anonymous_size}" >>"${CI_LOG}"
@@ -431,7 +445,7 @@ jobs:
             echo "Authenticated Swift binary control could not read the private artifact; inspect the private CI log" >&2
             exit 1
           fi
-          authenticated_sha="$(sha256sum "${authenticated_body}" | awk '{print $1}')"
+          authenticated_sha="$(sha256_file "${authenticated_body}")"
           authenticated_size="$(wc -c < "${authenticated_body}" | tr -d '[:space:]')"
           if test "${authenticated_sha}" != "${first_checksum}" || test "${authenticated_size}" != "${first_size}"; then
             printf 'artifact_authenticated_readback classification=identity_mismatch sha256=%s size=%s\n' "${authenticated_sha}" "${authenticated_size}" >>"${CI_LOG}"
