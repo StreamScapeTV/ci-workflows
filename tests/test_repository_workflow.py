@@ -581,7 +581,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertIn("claim_ci_run", resolver)
         self.assertIn("get_project_state", resolver)
         self.assertIn('state.get("repository_ci")', resolver)
-        self.assertIn("trusted repository CI capability grant is not bound", resolver)
+        self.assertIn("not bound to the exact Agent State request", resolver)
         self.assertIn("bound to a different repository", resolver)
         self.assertNotIn('case "${SOURCE_REPOSITORY}"', resolver)
         self.assertNotIn('get("repositories")', resolver)
