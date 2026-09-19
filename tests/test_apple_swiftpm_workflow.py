@@ -178,13 +178,13 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
             sha256sum_script.chmod(0o755)
 
             receipt = root / "receipt.json"
-            url = "https://git.faruqi.dev/api/packages/mimranfaruqi/generic/streamscape-media-apple/2.1.7/fixture.zip"
+            url = "https://git.faruqi.dev/api/packages/fixture-user/generic/swift-binary/1.2.3/fixture.zip"
             receipt.write_text(
                 json.dumps(
                     {
                         "schemaVersion": 1,
-                        "packageURL": "https://github.com/StreamScapeTV/streamscape-media.git",
-                        "version": "2.1.7",
+                        "packageURL": "https://github.com/example-org/private-swift-package.git",
+                        "version": "1.2.3",
                         "packageRevision": "a" * 40,
                         "artifactCount": 1,
                         "replayed": True,
@@ -225,8 +225,8 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
                     "RUNNER_TEMP": str(root),
                     "CI_LOG": str(ci_log),
                     "PUBLICATION_RECEIPT": str(receipt),
-                    "PACKAGE_URL": "https://github.com/StreamScapeTV/streamscape-media.git",
-                    "VERSION": "2.1.7",
+                    "PACKAGE_URL": "https://github.com/example-org/private-swift-package.git",
+                    "VERSION": "1.2.3",
                     "CI_PACKAGE_USERNAME": "fixture-user",
                     "CI_PACKAGE_READ_TOKEN": "fixture-read-token",
                 },
