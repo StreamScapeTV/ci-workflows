@@ -868,17 +868,78 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertIn("centralRegistryUsername=", script)
         self.assertIn("centralRegistryReadToken=", script)
 
-        execute_env = self.steps_by_name[
-            "Execute fixed repository-owned entrypoint"
-        ]["env"]
+        execute = self.steps_by_name["Execute fixed repository-owned entrypoint"]
+        execute_env = execute["env"]
         for forbidden in (
             "REGISTRY_USERNAME",
             "REGISTRY_READ_TOKEN",
             "GITHUB_SOURCE_TOKEN",
-            "TS_OAUTH",
-            "GOOGLE_DRIVE",
+            "TS_OAUTH_CLIENT_ID",
+            "TS_OAUTH_SECRET",
+            "GOOGLE_DRIVE_CLIENT_ID",
+            "GOOGLE_DRIVE_CLIENT_SECRET",
+            "GOOGLE_DRIVE_REFRESH_TOKEN",
         ):
-            self.assertNotIn(forbidden, str(execute_env))
+            self.assertNotIn(forbidden, execute_env)
+
+        checkpoint_only = {
+            name
+            for name in execute_env
+            if name.startswith("CHECKPOINT_GOOGLE_DRIVE_") or name.startswith("CI_SECRET_")
+        }
+        self.assertTrue(checkpoint_only)
+        script = execute["run"]
+        product_index = script.index('"./${ENTRYPOINT}"')
+        unset_index = script.index("unset \\")
+        self.assertLess(unset_index, product_index)
+        for name in checkpoint_only:
+            self.assertIn(name, script[unset_index:product_index])
+
+    def test_repository_log_checkpointing_replaces_one_seeded_drive_object(self) -> None:
+        by_name = self.steps_by_name
+        seed = by_name["Seed stable private repository CI log object"]
+        execute = by_name["Execute fixed repository-owned entrypoint"]
+        final_upload = by_name["Upload private repository CI log to Google Drive"]
+
+        self.assertTrue(seed["continue-on-error"])
+        self.assertEqual(
+            seed["if"],
+            "${{ inputs.ci_run_id != '' || inputs.upload_private_log }}",
+        )
+        self.assertEqual(
+            seed["uses"],
+            "StreamScapeTV/ci-workflows/actions/google-drive@main",
+        )
+        stable_name = "${{ github.run_id }}-${{ github.run_attempt }}-repository-${{ inputs.operation }}.txt"
+        self.assertEqual(seed["with"]["file_name"], stable_name)
+        self.assertEqual(final_upload["with"]["file_name"], stable_name)
+        self.assertEqual(
+            seed["with"]["file_path"],
+            "${{ runner.temp }}/central-repository-ci.log",
+        )
+
+        env = execute["env"]
+        self.assertEqual(env["CHECKPOINT_FILE_ID"], "${{ steps.log_seed.outputs.file_id }}")
+        self.assertEqual(
+            env["CHECKPOINT_SEED_SHA256"],
+            "${{ steps.log_seed.outputs.file_sha256 }}",
+        )
+        script = execute["run"]
+        self.assertIn("central-ci/scripts/ci/repository_log_checkpoint.py", script)
+        self.assertIn('--file-id "${CHECKPOINT_FILE_ID}"', script)
+        self.assertIn('--seed-sha256 "${CHECKPOINT_SEED_SHA256}"', script)
+        self.assertNotIn("--repository", script)
+        self.assertNotIn("--file-name", script)
+        self.assertNotIn("--folder-id", script)
+        self.assertIn('kill -TERM "${checkpoint_pid}"', script)
+        self.assertIn("trap terminate_with_checkpoint TERM INT", script)
+        self.assertLess(
+            script.index("stop_checkpoint", script.index('"./${ENTRYPOINT}"')),
+            script.index("printf 'exit_code=%s"),
+        )
+
+        cleanup = by_name["Cleanup ephemeral registry and repository evidence"]["run"]
+        self.assertIn("central-repository-ci-log-checkpoint-status.json", cleanup)
 
     def test_central_owns_log_paths_scrubbing_transport_and_cleanup(self) -> None:
         by_name = self.steps_by_name
