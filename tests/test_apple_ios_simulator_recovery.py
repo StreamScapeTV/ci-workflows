@@ -1,3 +1,4 @@
+# LEGACY_MIGRATION_RESIDUE: This file verifies still-live compatibility whose source currently contains concrete consumer identity; do not extend that identity coupling.
 from pathlib import Path
 import json
 import os

@@ -303,8 +303,8 @@ class RepositoryWorkflowTests(unittest.TestCase):
             "pytest",
             "mvn ",
             "swift test",
-            "streamscapetvTests",
-            "streamscapetv.xcworkspace",
+            ".xcworkspace",
+            ".xcodeproj",
         ):
             self.assertNotIn(product_command, execute)
 

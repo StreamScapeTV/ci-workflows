@@ -51,8 +51,6 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertIn("source-checkpoint-publish.yml", names)
         self.assertIn("apple-binary.yml", names)
         self.assertIn("apple-swiftpm.yml", names)
-        self.assertNotIn("streamscape-media-release.yml", names)
-        self.assertNotIn("streamscape-media-apple-binary.yml", names)
 
     def test_long_running_execution_jobs_have_five_hour_ceiling(self) -> None:
         expected = {
