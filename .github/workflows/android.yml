@@ -2536,6 +2536,178 @@ jobs:
           path.write_bytes(data)
           PY_REDACT
 
+      - name: Classify public-safe Android product failure
+        id: product_failure
+        if: ${{ always() && inputs.ci_run_id != '' && steps.scrub.outcome == 'success' && (steps.commands.outcome == 'failure' || steps.commands.outcome == 'cancelled' || steps.commands.outcome == 'skipped') }}
+        shell: bash
+        env:
+          TEST_PROFILE: ${{ inputs.test_profile }}
+          TEST_PLATFORM: ${{ inputs.test_platform }}
+          ROOM_SCHEMA: ${{ inputs.room_schema }}
+          COMMANDS_OUTCOME: ${{ steps.commands.outcome }}
+          ANDROID_EMULATOR_OUTCOME: ${{ steps.android_emulator.outcome }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY_ANDROID_FAILURE_SUMMARY'
+          from pathlib import Path
+          import os
+          import re
+
+          log_path = Path(os.environ["CI_LOG"])
+          if log_path.is_symlink() or not log_path.is_file():
+              raise SystemExit("Android sanitized private log is unavailable for bounded failure classification")
+
+          max_scan_bytes = 8 * 1024 * 1024
+          size = log_path.stat().st_size
+          with log_path.open("rb") as stream:
+              if size > max_scan_bytes:
+                  stream.seek(size - max_scan_bytes)
+              data = stream.read(max_scan_bytes)
+          text = data.decode("utf-8", errors="replace")
+          lower = text.lower()
+
+          profile = os.environ.get("TEST_PROFILE", "").strip()
+          platform = os.environ.get("TEST_PLATFORM", "").strip()
+          room_schema = os.environ.get("ROOM_SCHEMA", "false").strip().lower() == "true"
+          commands_outcome = os.environ.get("COMMANDS_OUTCOME", "").strip()
+          android_emulator_outcome = os.environ.get("ANDROID_EMULATOR_OUTCOME", "").strip()
+
+          def contains_any(values: tuple[str, ...]) -> bool:
+              return any(value in lower for value in values)
+
+          def regex_any(values: tuple[str, ...]) -> bool:
+              return any(re.search(value, lower, flags=re.MULTILINE) for value in values)
+
+          classification = "product_validation_failure"
+          remediation = "product validation failed; route the exact observed source to the product owner and use the private diagnostic only for bounded detail."
+
+          instrumentation_bootstrap = contains_any((
+              "android emulator exited before boot completed",
+              "android emulator did not boot within the bounded timeout",
+              "install_failed",
+              "unable to find instrumentation info",
+              "no instrumentation registered",
+              "device offline",
+              "no connected devices",
+              "failed to install",
+              "adb: error",
+          ))
+          dependency_resolution = contains_any((
+              "could not resolve all files for configuration",
+              "could not resolve all dependencies for configuration",
+              "could not determine the dependencies of task",
+              "could not get resource",
+              "could not find ",
+              "failed to transform ",
+          )) or regex_any((r"could not resolve [^\\n]+",))
+          selector_failure = contains_any((
+              "no tests found for given includes",
+              "no tests found for given filters",
+              "no tests found for given",
+              "no matching tests found",
+              "no tests were found for",
+          ))
+          timeout_failure = contains_any((
+              "test timed out",
+              "timeout has been exceeded",
+              "timeoutexception",
+              "timed out after",
+              "did not complete within",
+          ))
+          infrastructure_failure = contains_any((
+              "no space left on device",
+              "network is unreachable",
+              "temporary failure in name resolution",
+              "connection reset by peer",
+              "runner was unable",
+              "failed to create process",
+              "cannot allocate memory",
+          ))
+          compile_failure = contains_any((
+              "compilation error",
+              "unresolved reference",
+              "cannot find symbol",
+              "kotlin compilation",
+              "java compilation",
+          )) or regex_any((
+              r"task [^\\n]*compile[^\\n]* failed",
+              r"execution failed for task '[^']*compile[^']*'",
+          ))
+          assertion_failure = contains_any((
+              "there were failing tests",
+              "assertionerror",
+              "comparisonfailure",
+              "<failure",
+              "<error",
+              "tests completed with",
+              "test failed",
+          ))
+          room_failure = room_schema and (
+              "===== room-schema =====" in lower
+              or "room schema validation failed" in lower
+              or "room-schema-json-integrity" in lower
+          )
+
+          if commands_outcome == "skipped":
+              if android_emulator_outcome in {"failure", "cancelled"} and (
+                  profile == "emulator"
+                  or (profile == "targeted-tests" and platform == "instrumentation")
+              ):
+                  classification = "instrumentation_bootstrap_failure"
+                  remediation = "Android instrumentation/emulator bootstrap failed before product test execution; repair device/test bootstrap and rerun."
+              else:
+                  classification = "infrastructure_failure"
+                  remediation = "a mandatory Central pre-command step prevented Android product execution after exact source observation; repair the CI prerequisite and retry."
+          elif dependency_resolution:
+              classification = "dependency_resolution_failure"
+              remediation = "Gradle could not resolve required dependencies; verify declared dependency/version availability and retry."
+          elif selector_failure:
+              classification = "test_selector_failure"
+              remediation = "the requested test selector matched no tests; correct the bounded class/method selector and rerun."
+          elif instrumentation_bootstrap:
+              classification = "instrumentation_bootstrap_failure"
+              remediation = "Android instrumentation/emulator bootstrap failed before a trustworthy assertion result; repair device/test bootstrap and rerun."
+          elif timeout_failure:
+              classification = "timeout"
+              remediation = "product validation emitted a timeout signature; correct the owning task/test timeout or long-running behavior before rerun."
+          elif infrastructure_failure:
+              classification = "infrastructure_failure"
+              remediation = "product execution hit a runner/network/resource infrastructure signature; retry after infrastructure recovery."
+          elif compile_failure:
+              classification = "compile_failure"
+              remediation = "Kotlin/Java compilation failed at the exact observed source; fix compiler errors before rerunning validation."
+          elif room_failure:
+              classification = "assertion_test_failure"
+              remediation = "Room schema correctness validation failed; repair the schema/export integrity regression and rerun."
+          elif assertion_failure:
+              classification = "assertion_test_failure"
+              remediation = "a product test/assertion failed at the exact observed source; fix the failing correctness behavior and rerun."
+          elif profile in {"compile", "build"}:
+              classification = "compile_failure"
+              remediation = "the Android compile/build profile failed at the exact observed source; fix build/compile errors before rerunning validation."
+          elif profile in {"unit", "targeted-unit", "search-performance", "test"} or (
+              profile == "targeted-tests" and platform == "jvm"
+          ):
+              classification = "assertion_test_failure"
+              remediation = "the JVM correctness validation failed at the exact observed source; fix the selected product test/assertion and rerun."
+          elif profile == "targeted-tests" and platform == "instrumentation":
+              classification = "assertion_test_failure"
+              remediation = "the connected instrumentation validation failed after bootstrap; fix the selected device test/assertion and rerun."
+          elif commands_outcome == "cancelled":
+              classification = "infrastructure_failure"
+              remediation = "product execution was cancelled without a reviewed timeout signature; retry unless the Agent State request was intentionally superseded."
+
+          label = classification.removesuffix("_failure")
+          summary = f"Android {profile} failure [{label}]: {remediation}"
+          if len(summary) > 480 or "\n" in summary or "\r" in summary:
+              raise SystemExit("Android public-safe failure summary exceeded its fixed bound")
+
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as stream:
+              stream.write(f"failure_class={classification}\n")
+              stream.write(f"error_summary={summary}\n")
+          PY_ANDROID_FAILURE_SUMMARY
+
       - name: Upload CI log to Google Drive
         id: drive
         if: ${{ always() && steps.scrub.outcome == 'success' && (inputs.ci_run_id != '' || inputs.upload_private_log) }}
@@ -2563,6 +2735,9 @@ jobs:
           SOURCE_IDENTITY_OUTCOME: ${{ steps.source_identity.outcome }}
           SOURCE_OBSERVE_OUTCOME: ${{ steps.source_observe.outcome }}
           COMMANDS_OUTCOME: ${{ steps.commands.outcome }}
+          PRODUCT_FAILURE_OUTCOME: ${{ steps.product_failure.outcome }}
+          PRODUCT_FAILURE_CLASS: ${{ steps.product_failure.outputs.failure_class }}
+          PRODUCT_ERROR_SUMMARY: ${{ steps.product_failure.outputs.error_summary }}
           MOBILE_BUMP_CONTRACT_OUTCOME: ${{ steps.mobile_bump_contract.outcome }}
           MOBILE_BUMP_STAGE_CHECKOUT_OUTCOME: ${{ steps.mobile_bump_stage_checkout.outcome }}
           MOBILE_BUMP_STAGE_OUTCOME: ${{ steps.mobile_bump_stage.outcome }}
@@ -2612,8 +2787,16 @@ jobs:
               error_summary="Android source checkout failed before product source identity could be recorded."
             elif test "${SOURCE_IDENTITY_OUTCOME}" != success || test "${SOURCE_OBSERVE_OUTCOME}" != success; then
               error_summary="Android source checkout succeeded, but exact product source observation failed."
-            elif test "${COMMANDS_OUTCOME}" = failure; then
-              error_summary="Android ${TEST_PROFILE} product validation failed after exact source observation; see the private CI log diagnostic."
+            elif test "${COMMANDS_OUTCOME}" = failure || test "${COMMANDS_OUTCOME}" = cancelled || test "${COMMANDS_OUTCOME}" = skipped; then
+              if test "${PRODUCT_FAILURE_OUTCOME}" = success && test -n "${PRODUCT_FAILURE_CLASS}" && test -n "${PRODUCT_ERROR_SUMMARY}"; then
+                error_summary="${PRODUCT_ERROR_SUMMARY}"
+              elif test "${SCRUB_OUTCOME}" != success; then
+                error_summary="Android ${TEST_PROFILE} failure [infrastructure]: product validation failed and safe diagnostic scrubbing also failed; repair Central evidence handling before product triage."
+              elif test "${COMMANDS_OUTCOME}" = cancelled; then
+                error_summary="Android ${TEST_PROFILE} failure [infrastructure]: product execution was cancelled before a reviewed public-safe failure signature could be emitted; retry unless intentionally superseded."
+              else
+                error_summary="Android ${TEST_PROFILE} failure [product_validation]: product validation failed after exact source observation, but no reviewed public-safe signature matched; route to the product owner with the diagnostic key."
+              fi
             elif test "${TEST_PROFILE}" = play && test "${SOURCE_IS_TAG}" = true && test "${COMMANDS_OUTCOME}" = success && test "${mobile_release_ok}" != true; then
               error_summary="Google Play publication succeeded, but the development build-number advance is incomplete. Rerun the same tag after correcting the bump failure; the product wrapper must reconcile the already-accepted version/build without republishing it."
             elif test "${SCRUB_OUTCOME}" != success; then
