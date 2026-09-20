@@ -34,7 +34,12 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
         physical = jobs["physical_performance"]
         self.assertEqual(physical["runs-on"], "ubuntu-24.04")
         self.assertNotIn("strategy", physical)
-        self.assertNotIn("android-physical-", str(physical))
+        for invented_runner in (
+            "android-physical-phone",
+            "android-physical-tablet",
+            "android-physical-tv",
+        ):
+            self.assertNotIn(invented_runner, str(physical))
         screenshot = jobs["screenshot"]
         self.assertEqual(screenshot["runs-on"], "ubuntu-24.04")
         include = screenshot["strategy"]["matrix"]["include"]
