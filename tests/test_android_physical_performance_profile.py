@@ -4,8 +4,10 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 import yaml
 
@@ -164,11 +166,94 @@ class AndroidPhysicalPerformanceProfileTests(unittest.TestCase):
                 "localPort": "5038",
             },
         )
+        anonymous = {
+            "sessionId": "session-direct",
+            "buildId": "build-direct",
+            "localPort": "5040",
+        }
+        self.assertEqual(
+            self.helper._extract_connection_metadata(anonymous, "private-device"),
+            {
+                "providerSessionId": "session-direct",
+                "providerBuildId": "build-direct",
+                "localPort": "5040",
+            },
+        )
         with self.assertRaises(self.helper.ExpectedFailure):
             self.helper._extract_connection_metadata(
                 {"deviceId": "private-device", "sessionId": "session-123"},
                 "private-device",
             )
+
+    def test_tunnel_connection_metadata_never_binds_another_device(self) -> None:
+        wrong = {
+            "deviceId": "other-device",
+            "sessionId": "session-other",
+            "buildId": "build-other",
+            "localPort": "localhost:5039",
+        }
+        with self.assertRaises(self.helper.ExpectedFailure) as raised:
+            self.helper._extract_connection_metadata(wrong, "selected-device")
+        self.assertEqual(raised.exception.code, "provider_transport_failure")
+
+        mixed = [
+            {"deviceId": "selected-device", "state": "connecting"},
+            wrong,
+        ]
+        with self.assertRaises(self.helper.ExpectedFailure):
+            self.helper._extract_connection_metadata(mixed, "selected-device")
+
+        ambiguous_anonymous = [
+            {"sessionId": "one", "buildId": "build-one", "localPort": "5041"},
+            {"sessionId": "two", "buildId": "build-two", "localPort": "5042"},
+        ]
+        with self.assertRaises(self.helper.ExpectedFailure):
+            self.helper._extract_connection_metadata(ambiguous_anonymous, "selected-device")
+
+    def test_adb_endpoint_must_match_reviewed_device_model_and_os(self) -> None:
+        def result(stdout: str, returncode: int = 0):
+            return subprocess.CompletedProcess([], returncode, stdout=stdout, stderr="")
+
+        def adb_run(args, **_kwargs):
+            marker = args[-1]
+            values = {
+                "get-state": "device\n",
+                "ro.kernel.qemu": "0\n",
+                "ro.product.marketname": "Galaxy S24\n",
+                "ro.product.model": "SM-S921B\n",
+                "ro.build.version.release": "14\n",
+            }
+            return result(values[marker])
+
+        with mock.patch.object(self.helper.shutil, "which", return_value="/usr/bin/adb"), mock.patch.object(
+            self.helper, "_run", side_effect=adb_run
+        ):
+            serial = self.helper.wait_for_adb(
+                "5038", Path("/tmp/private.log"), "Samsung Galaxy S24", "14.0"
+            )
+        self.assertEqual(serial, "localhost:5038")
+
+        def wrong_model(args, **kwargs):
+            value = adb_run(args, **kwargs)
+            if args[-1] in {"ro.product.marketname", "ro.product.model"}:
+                return result("Pixel 9\n")
+            return value
+
+        def wrong_os(args, **kwargs):
+            value = adb_run(args, **kwargs)
+            if args[-1] == "ro.build.version.release":
+                return result("15\n")
+            return value
+
+        for runner in (wrong_model, wrong_os):
+            with self.subTest(runner=runner.__name__), mock.patch.object(
+                self.helper.shutil, "which", return_value="/usr/bin/adb"
+            ), mock.patch.object(self.helper, "_run", side_effect=runner):
+                with self.assertRaises(self.helper.ExpectedFailure) as raised:
+                    self.helper.wait_for_adb(
+                        "5038", Path("/tmp/private.log"), "Samsung Galaxy S24", "14.0"
+                    )
+                self.assertEqual(raised.exception.code, "provider_transport_failure")
 
     def _valid_product_result(self, root: Path) -> tuple[Path, Path, dict[str, str]]:
         evidence = root / "evidence"

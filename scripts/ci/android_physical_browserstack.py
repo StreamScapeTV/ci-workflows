@@ -61,6 +61,23 @@ DEVICE_SPECS = (
         "osVersion": "11.0",
     },
 )
+ADB_MODEL_PATTERNS = {
+    "Samsung Galaxy S24": (
+        re.compile(r"Samsung Galaxy S24", re.IGNORECASE),
+        re.compile(r"Galaxy S24", re.IGNORECASE),
+        re.compile(r"SM-S921[A-Z0-9-]*", re.IGNORECASE),
+    ),
+    "Samsung Galaxy Tab S9": (
+        re.compile(r"Samsung Galaxy Tab S9", re.IGNORECASE),
+        re.compile(r"Galaxy Tab S9", re.IGNORECASE),
+        re.compile(r"SM-X71[068][A-Z0-9-]*", re.IGNORECASE),
+    ),
+    "Nvidia Shield TV Pro 2019": (
+        re.compile(r"Nvidia Shield TV Pro 2019", re.IGNORECASE),
+        re.compile(r"SHIELD Android TV", re.IGNORECASE),
+        re.compile(r"P2897", re.IGNORECASE),
+    ),
+}
 ALLOWED_UNITS = {
     "ms",
     "bytes",
@@ -364,39 +381,79 @@ def start_orchestrator(
     )
 
 
+def _connection_metadata_candidate(node: dict) -> dict[str, str] | None:
+    session_id = _field(node, "session_id", "sessionId")
+    build_id = _field(node, "build_id", "buildId")
+    local_port = _field(node, "local_port", "localPort")
+    if session_id is None or build_id is None or local_port is None:
+        return None
+    session_id = str(session_id)
+    build_id = str(build_id)
+    local_port = str(local_port)
+    if not SAFE_ID.fullmatch(session_id) or not SAFE_ID.fullmatch(build_id):
+        return None
+    match = re.search(r"(?:localhost:)?([1-9][0-9]{1,4})\Z", local_port)
+    if not match:
+        return None
+    port = int(match.group(1))
+    if not 1 <= port <= 65535:
+        return None
+    return {
+        "providerSessionId": session_id,
+        "providerBuildId": build_id,
+        "localPort": str(port),
+    }
+
+
 def _extract_connection_metadata(payload: object, udid: str) -> dict[str, str]:
-    preferred = []
-    fallback = []
-    for node in _walk_dicts(payload):
-        device_id = _field(node, "device_id", "deviceId", "udid")
-        if device_id == udid:
-            preferred.append(node)
-        fallback.append(node)
-    for node in preferred + fallback:
-        session_id = _field(node, "session_id", "sessionId")
-        build_id = _field(node, "build_id", "buildId")
-        local_port = _field(node, "local_port", "localPort")
-        if session_id is None or build_id is None or local_port is None:
-            continue
-        session_id = str(session_id)
-        build_id = str(build_id)
-        local_port = str(local_port)
-        if not SAFE_ID.fullmatch(session_id) or not SAFE_ID.fullmatch(build_id):
-            continue
-        match = re.search(r"(?:localhost:)?([1-9][0-9]{1,4})\Z", local_port)
-        if not match:
-            continue
-        port = int(match.group(1))
-        if not 1 <= port <= 65535:
-            continue
-        return {
-            "providerSessionId": session_id,
-            "providerBuildId": build_id,
-            "localPort": str(port),
-        }
+    exact: dict[tuple[str, str, str], dict[str, str]] = {}
+    anonymous: dict[tuple[str, str, str], dict[str, str]] = {}
+    conflicting = False
+
+    def visit(value: object, inherited_device_id: str | None = None) -> None:
+        nonlocal conflicting
+        if isinstance(value, dict):
+            raw_device_id = _field(value, "device_id", "deviceId", "udid")
+            device_id = inherited_device_id
+            if raw_device_id is not None and str(raw_device_id).strip():
+                device_id = str(raw_device_id).strip()
+            candidate = _connection_metadata_candidate(value)
+            if candidate is not None:
+                key = (
+                    candidate["providerSessionId"],
+                    candidate["providerBuildId"],
+                    candidate["localPort"],
+                )
+                if device_id == udid:
+                    exact[key] = candidate
+                elif device_id is None:
+                    anonymous[key] = candidate
+                else:
+                    conflicting = True
+            for child in value.values():
+                visit(child, device_id)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child, inherited_device_id)
+
+    visit(payload)
+    if len(exact) == 1:
+        return next(iter(exact.values()))
+    if len(exact) > 1:
+        raise ExpectedFailure(
+            "provider_transport_failure",
+            "BrowserStack Device Tunnel returned ambiguous selected-device connection identity",
+        )
+    if conflicting:
+        raise ExpectedFailure(
+            "provider_transport_failure",
+            "BrowserStack Device Tunnel connection identity belongs to a different device",
+        )
+    if len(anonymous) == 1:
+        return next(iter(anonymous.values()))
     raise ExpectedFailure(
         "provider_transport_failure",
-        "BrowserStack Device Tunnel returned incomplete connection identity",
+        "BrowserStack Device Tunnel returned incomplete or ambiguous connection identity",
     )
 
 
@@ -445,7 +502,26 @@ def connect_device(binary: Path, udid: str, log_path: Path) -> dict[str, str]:
     return metadata
 
 
-def wait_for_adb(local_port: str, log_path: Path) -> str:
+def _android_version_key(value: str) -> tuple[int, ...] | None:
+    if re.fullmatch(r"[0-9]+(?:\.[0-9]+)*", value) is None:
+        return None
+    parts = [int(part) for part in value.split(".")]
+    while len(parts) > 1 and parts[-1] == 0:
+        parts.pop()
+    return tuple(parts)
+
+
+def _adb_model_matches(expected_model: str, observed_models: list[str]) -> bool:
+    patterns = ADB_MODEL_PATTERNS.get(expected_model, ())
+    return any(pattern.fullmatch(value) for pattern in patterns for value in observed_models)
+
+
+def wait_for_adb(
+    local_port: str,
+    log_path: Path,
+    expected_model: str,
+    expected_os_version: str,
+) -> str:
     adb = shutil.which("adb")
     if not adb:
         raise ExpectedFailure(
@@ -465,6 +541,32 @@ def wait_for_adb(local_port: str, log_path: Path) -> str:
                 raise ExpectedFailure(
                     "provider_transport_failure",
                     "BrowserStack tunnel did not expose a real physical Android device",
+                )
+            observed_models = []
+            for prop in ("ro.product.marketname", "ro.product.model"):
+                model = _run(
+                    [adb, "-s", serial, "shell", "getprop", prop],
+                    log_path=log_path,
+                    timeout=15,
+                )
+                if model.returncode == 0 and model.stdout.strip():
+                    observed_models.append(model.stdout.strip())
+            if not _adb_model_matches(expected_model, observed_models):
+                raise ExpectedFailure(
+                    "provider_transport_failure",
+                    "BrowserStack adb endpoint model does not match the reviewed device class",
+                )
+            os_release = _run(
+                [adb, "-s", serial, "shell", "getprop", "ro.build.version.release"],
+                log_path=log_path,
+                timeout=15,
+            )
+            expected_os = _android_version_key(expected_os_version)
+            observed_os = _android_version_key(os_release.stdout.strip()) if os_release.returncode == 0 else None
+            if expected_os is None or observed_os != expected_os:
+                raise ExpectedFailure(
+                    "provider_transport_failure",
+                    "BrowserStack adb endpoint Android version does not match the reviewed device class",
                 )
             return serial
         time.sleep(2)
@@ -771,7 +873,12 @@ def run_cohort(
                         selected = select_device(devices, spec)
                         print(f"::add-mask::{selected['udid']}")
                         provider_meta = connect_device(binary, selected["udid"], log_path)
-                        serial = wait_for_adb(provider_meta["localPort"], log_path)
+                        serial = wait_for_adb(
+                            provider_meta["localPort"],
+                            log_path,
+                            spec["deviceModel"],
+                            spec["osVersion"],
+                        )
                         api_result = _run(
                             ["adb", "-s", serial, "shell", "getprop", "ro.build.version.sdk"],
                             log_path=log_path,
