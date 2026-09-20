@@ -86,10 +86,6 @@ name: Android CI
         required: false
       ANDROID_PLAY_UPLOAD_KEY_PASSWORD:
         required: false
-      BROWSERSTACK_USERNAME:
-        required: false
-      BROWSERSTACK_ACCESS_KEY:
-        required: false
       STREAMSCAPE_API_BASE:
         required: false
       STREAMSCAPE_EMAIL:
@@ -987,7 +983,7 @@ jobs:
 
   physical_performance:
     if: ${{ inputs.test_profile == 'physical-performance' }}
-    runs-on: ubuntu-24.04
+    runs-on: [macOS, ARM64]
     timeout-minutes: 300
     concurrency:
       group: central-android-physical-performance
@@ -999,7 +995,7 @@ jobs:
           set -Eeuo pipefail
           log="$RUNNER_TEMP/central-android-physical-performance.log"
           evidence="$RUNNER_TEMP/central-android-physical-performance-evidence"
-          rm -rf -- "$evidence" "$RUNNER_TEMP/central-browserstack-physical"
+          rm -rf -- "$evidence" "$RUNNER_TEMP/central-owner-attached-physical"
           mkdir -p "$evidence"
           : > "$log"
           chmod 600 "$log"
@@ -1027,7 +1023,7 @@ jobs:
           phase: start
           ci_run_id: ${{ inputs.ci_run_id }}
 
-      - name: Validate fixed BrowserStack physical-performance request
+      - name: Validate fixed owner-attached physical-performance request
         shell: bash
         env:
           SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
@@ -1069,6 +1065,12 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Set up JDK 25 for Android physical-performance
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
       - name: Record Android physical-performance source identity
         id: source_identity
         shell: bash
@@ -1090,28 +1092,24 @@ jobs:
           ci_run_id: ${{ inputs.ci_run_id }}
           observed_source_sha: ${{ steps.source_identity.outputs.source_sha }}
 
-      - name: Run bounded BrowserStack physical-performance cohort
+      - name: Run bounded owner-attached physical-performance device
         id: physical
         shell: bash
         env:
-          BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
-          BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
           SOURCE_SHA: ${{ steps.source_identity.outputs.source_sha }}
         run: |
           set -Eeuo pipefail
-          python3 central-physical-performance/scripts/ci/android_physical_browserstack.py \
+          python3 central-physical-performance/scripts/ci/android_physical_attached.py \
             --source-dir physical-performance-source \
             --source-sha "$SOURCE_SHA" \
             --evidence-dir "$PHYSICAL_EVIDENCE_DIR" \
             --private-log "$CI_LOG"
 
-      - name: Scrub BrowserStack physical-performance evidence
+      - name: Scrub owner-attached physical-performance evidence
         id: scrub
         if: ${{ always() }}
         shell: bash
         env:
-          CI_SECRET_BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
-          CI_SECRET_BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
           CI_SECRET_SOURCE_TOKEN: ${{ steps.source.outputs.token }}
           CI_SECRET_GITHUB_TOKEN: ${{ github.token }}
           CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
@@ -1222,7 +1220,7 @@ jobs:
           rm -rf -- \
             "$GITHUB_WORKSPACE/physical-performance-source" \
             "$GITHUB_WORKSPACE/central-physical-performance" \
-            "$RUNNER_TEMP/central-browserstack-physical" \
+            "$RUNNER_TEMP/central-owner-attached-physical" \
             "$RUNNER_TEMP/central-android-physical-performance-evidence" \
             "$RUNNER_TEMP/central-android-physical-performance-evidence.zip"
 
@@ -1251,7 +1249,7 @@ jobs:
           else
             code="$FAILURE_CODE"
             test -n "$code" || code=central_post_processing_failed
-            error_summary="Android BrowserStack physical-performance failed closed: $code"
+            error_summary="Android owner-attached physical-performance failed closed: $code"
           fi
           diagnostic_key=""
           diagnostic_status="unavailable"
@@ -1287,7 +1285,7 @@ jobs:
           SUCCESS: ${{ steps.terminal.outputs.success }}
         run: |
           test "$SUCCESS" = true || {
-            echo "Android BrowserStack physical-performance did not complete with three physical-device PASS results; inspect the private diagnostic." >&2
+            echo "Android owner-attached physical-performance did not complete on the attached real device; inspect the private diagnostic." >&2
             exit 1
           }
 
