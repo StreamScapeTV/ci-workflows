@@ -1,0 +1,216 @@
+name: Repository CI acceptance canary
+
+# Internal Central acceptance only. The caller selects no fixture mode, command,
+# path, runner, secret, or timeout. The fixed matrix below proves generic
+# execution/evidence mechanics; real product/toolchain integration still requires
+# a representative real consumer through validation.repository.
+"on":
+  workflow_call:
+    inputs:
+      ci_run_id:
+        type: string
+        required: true
+    secrets:
+      AGENT_STATE_SUPABASE_URL:
+        required: true
+      AGENT_STATE_SUPABASE_SECRET_KEY:
+        required: true
+      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID:
+        required: true
+      GOOGLE_DRIVE_CLIENT_ID:
+        required: true
+      GOOGLE_DRIVE_CLIENT_SECRET:
+        required: true
+      GOOGLE_DRIVE_REFRESH_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  start:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Mark Agent State acceptance run as running
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: start
+          ci_run_id: ${{ inputs.ci_run_id }}
+
+  fixture:
+    needs: start
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        mode: [success, failure, stall]
+    env:
+      REPOSITORY_ACCEPTANCE_SECRET: repository-acceptance-${{ github.run_id }}-${{ matrix.mode }}
+    steps:
+      - name: Check out exact Central acceptance helpers
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Initialize acceptance evidence paths
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          root="${RUNNER_TEMP}/repository-acceptance-${{ matrix.mode }}"
+          log="${root}/central.log"
+          log_dir="${root}/logs"
+          artifact_dir="${root}/artifacts"
+          progress="${root}/progress.txt"
+          archive="${root}/evidence.zip"
+          rm -rf -- "${root}"
+          mkdir -p "${log_dir}" "${artifact_dir}"
+          : > "${log}"
+          : > "${progress}"
+          chmod 600 "${log}" "${progress}"
+          chmod 700 "${root}" "${log_dir}" "${artifact_dir}"
+          {
+            printf 'CI_LOG=%s\n' "${log}"
+            printf 'CI_LOG_DIR=%s\n' "${log_dir}"
+            printf 'CI_ARTIFACT_DIR=%s\n' "${artifact_dir}"
+            printf 'CI_PROGRESS_FILE=%s\n' "${progress}"
+            printf 'CI_ACCEPTANCE_ARCHIVE=%s\n' "${archive}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Run fixed acceptance fixture through Central command supervision
+        id: fixture_run
+        shell: bash
+        env:
+          MODE: ${{ matrix.mode }}
+        run: |
+          set -Eeuo pipefail
+          timeout_args=()
+          if test "${MODE}" = stall; then
+            timeout_args=(--timeout-seconds 8)
+          fi
+          set +e
+          python3 scripts/ci/repository_command.py \
+            --cwd "${GITHUB_WORKSPACE}" \
+            --log-path "${CI_LOG}" \
+            "${timeout_args[@]}" \
+            -- python3 scripts/ci/repository_acceptance_fixture.py "${MODE}"
+          status=$?
+          set -e
+          printf 'exit_code=%s\n' "${status}" >> "${GITHUB_OUTPUT}"
+
+      - name: Scrub acceptance private evidence with production helper
+        shell: bash
+        env:
+          CI_SECRET_ACCEPTANCE: ${{ env.REPOSITORY_ACCEPTANCE_SECRET }}
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/ci/repository_evidence.py scrub
+
+      - name: Package acceptance evidence with production helper
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/ci/repository_evidence.py package --archive "${CI_ACCEPTANCE_ARCHIVE}"
+
+      - name: Verify fixed acceptance outcome and evidence boundaries
+        shell: bash
+        env:
+          MODE: ${{ matrix.mode }}
+          EXIT_CODE: ${{ steps.fixture_run.outputs.exit_code }}
+        run: |
+          set -Eeuo pipefail
+          case "${MODE}" in
+            success) expected=0 ;;
+            failure) expected=23 ;;
+            stall) expected=124 ;;
+            *) exit 2 ;;
+          esac
+          test "${EXIT_CODE}" = "${expected}" || {
+            echo "repository acceptance mode ${MODE} returned ${EXIT_CODE}, expected ${expected}" >&2
+            exit 1
+          }
+          python3 - "${CI_LOG}" "${CI_ACCEPTANCE_ARCHIVE}" "${REPOSITORY_ACCEPTANCE_SECRET}" <<'PY_ACCEPTANCE_VERIFY'
+          from pathlib import Path
+          import stat
+          import sys
+          import zipfile
+
+          log = Path(sys.argv[1])
+          archive = Path(sys.argv[2])
+          secret = sys.argv[3].encode()
+          log_bytes = log.read_bytes()
+          if secret in log_bytes or b"[REDACTED]" not in log_bytes:
+              raise SystemExit("acceptance private log was not scrubbed")
+          with zipfile.ZipFile(archive) as bundle:
+              names = set(bundle.namelist())
+              if "artifacts/oversized-artifact.bin" in names:
+                  raise SystemExit("oversized acceptance artifact entered evidence")
+              expected = {
+                  "logs/fixture.log",
+                  "artifacts/Acceptance.framework/Headers",
+                  "artifacts/Acceptance.framework/Versions/Current",
+                  "artifacts/Acceptance.framework/Versions/A/Headers/Acceptance.h",
+                  "progress.txt",
+              }
+              if not expected <= names:
+                  raise SystemExit("acceptance evidence is missing required entries")
+              for name, target in (
+                  ("artifacts/Acceptance.framework/Headers", b"Versions/Current/Headers"),
+                  ("artifacts/Acceptance.framework/Versions/Current", b"A"),
+              ):
+                  info = bundle.getinfo(name)
+                  if stat.S_IFMT((info.external_attr >> 16) & 0xFFFF) != stat.S_IFLNK:
+                      raise SystemExit("acceptance framework symlink metadata was not preserved")
+                  if bundle.read(name) != target:
+                      raise SystemExit("acceptance framework symlink target changed")
+              payload = b"".join(bundle.read(name) for name in names)
+              if secret in payload or b"must-not-enter-evidence" in payload:
+                  raise SystemExit("acceptance evidence contains secret/oversized bytes")
+          PY_ACCEPTANCE_VERIFY
+
+      - name: Upload scrubbed acceptance private log
+        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: main
+          file_path: ${{ env.CI_LOG }}
+          file_name: ${{ github.run_id }}-${{ github.run_attempt }}-repository-acceptance-${{ matrix.mode }}.txt
+          mime_type: text/plain
+
+      - name: Clean acceptance fixture state
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          root="${RUNNER_TEMP}/repository-acceptance-${{ matrix.mode }}"
+          rm -rf -- "${root}"
+          test ! -e "${root}"
+
+  finish:
+    needs: [start, fixture]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Finish Agent State acceptance run
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: finish
+          ci_run_id: ${{ inputs.ci_run_id }}
+          status: ${{ needs.start.result == 'success' && needs.fixture.result == 'success' && 'succeeded' || (needs.start.result == 'cancelled' || needs.fixture.result == 'cancelled') && 'cancelled' || 'failed' }}
+          error_summary: ${{ needs.fixture.result == 'success' && '' || 'Repository CI acceptance canary failed; inspect the fixed mode jobs.' }}

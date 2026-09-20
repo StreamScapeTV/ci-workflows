@@ -3,6 +3,7 @@ repository: StreamScapeTV/ci-workflows
 workflows:
   apple: .github/workflows/apple.yml
   repository: .github/workflows/repository.yml
+  repository_acceptance: .github/workflows/repository-acceptance.yml
   android: .github/workflows/android.yml
   python: .github/workflows/python.yml
   node: .github/workflows/node.yml
@@ -31,6 +32,9 @@ scripts:
   oci_reproducibility: scripts/ci/oci_reproducibility.py
   ci_log_reconcile: scripts/ci/ci_log_reconcile.py
   repository_log_checkpoint: scripts/ci/repository_log_checkpoint.py
+  repository_command: scripts/ci/repository_command.py
+  repository_evidence: scripts/ci/repository_evidence.py
+  repository_acceptance_fixture: scripts/ci/repository_acceptance_fixture.py
   source_snapshot_delete: scripts/ci/source_snapshot_delete.py
   source_checkpoint_publish: scripts/ci/source_checkpoint_publish.py
   source_snapshot_lifecycle: scripts/ci/source_snapshot_lifecycle.py

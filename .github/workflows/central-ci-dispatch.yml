@@ -283,6 +283,9 @@ jobs:
         env:
           TEST_PROFILE: ${{ steps.claim.outputs.test_profile }}
           INPUTS_JSON: ${{ steps.claim.outputs.inputs_json }}
+          REQUEST_REPOSITORY: ${{ steps.claim.outputs.repository }}
+          REQUEST_REF: ${{ steps.claim.outputs.ref }}
+          REQUEST_IS_TAG: ${{ steps.claim.outputs.is_tag }}
         run: |
           set -Eeuo pipefail
           python3 - <<'PY_VALIDATE_REPOSITORY'
@@ -297,8 +300,6 @@ jobs:
               raise SystemExit("validation.repository inputs must be one JSON object") from exc
           if not isinstance(inputs, dict):
               raise SystemExit("validation.repository inputs must be one JSON object")
-          if profile not in {"build", "test", "full", "ui-test"}:
-              raise SystemExit("validation.repository supports only build, test, full, or ui-test")
 
           provider_operation_id = inputs.pop("provider_operation_id", None)
           if provider_operation_id is not None:
@@ -308,6 +309,20 @@ jobs:
                   raise SystemExit(
                       "validation.repository provider_operation_id must match provider_<32 lowercase hex>"
                   )
+
+          if profile == "acceptance":
+              if (
+                  os.environ.get("REQUEST_REPOSITORY") != "StreamScapeTV/ci-workflows"
+                  or os.environ.get("REQUEST_REF") != "main"
+                  or os.environ.get("REQUEST_IS_TAG") != "false"
+              ):
+                  raise SystemExit("validation.repository acceptance is fixed to StreamScapeTV/ci-workflows main")
+              if inputs:
+                  raise SystemExit("validation.repository acceptance accepts no semantic inputs")
+              raise SystemExit(0)
+
+          if profile not in {"build", "test", "full", "ui-test"}:
+              raise SystemExit("validation.repository supports only build, test, full, ui-test, or acceptance")
 
           if set(inputs) - {"host_os", "semantic_inputs"} or "host_os" not in inputs:
               raise SystemExit("validation.repository accepts only host_os and semantic_inputs plus reserved provider_operation_id metadata")
@@ -613,7 +628,7 @@ jobs:
 
   repository:
     needs: request
-    if: ${{ needs.request.outputs.workflow_key == 'validation.repository' }}
+    if: ${{ needs.request.outputs.workflow_key == 'validation.repository' && needs.request.outputs.test_profile != 'acceptance' }}
     concurrency:
       group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
       cancel-in-progress: true
@@ -639,6 +654,23 @@ jobs:
       TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
       REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
       REGISTRY_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+
+  repository_acceptance:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'validation.repository' && needs.request.outputs.test_profile == 'acceptance' }}
+    concurrency:
+      group: central-ci-repository-acceptance
+      cancel-in-progress: false
+    uses: ./.github/workflows/repository-acceptance.yml
+    with:
+      ci_run_id: ${{ inputs.ci_run_id }}
+    secrets:
+      AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+      AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+      GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+      GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
 
   repository_release:
     needs: request
@@ -1358,6 +1390,7 @@ jobs:
     needs:
       - request
       - repository
+      - repository_acceptance
       - repository_release
       - apple
       - apple_release
@@ -1382,6 +1415,7 @@ jobs:
         (
           needs.request.result != 'success' ||
           needs.repository.result == 'cancelled' ||
+          needs.repository_acceptance.result == 'cancelled' ||
           needs.repository_release.result == 'cancelled' ||
           needs.apple.result == 'cancelled' ||
           needs.apple_release.result == 'cancelled' ||
