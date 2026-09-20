@@ -31,11 +31,10 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
             jobs["ci"]["if"],
             "${{ inputs.test_profile != 'screenshot-review' && inputs.test_profile != 'physical-performance' }}",
         )
-        self.assertEqual(jobs["physical_performance_plan"]["runs-on"], "ubuntu-24.04")
-        self.assertEqual(
-            jobs["physical_performance"]["runs-on"],
-            ["linux", "x64", "${{ matrix.runner_label }}"],
-        )
+        physical = jobs["physical_performance"]
+        self.assertEqual(physical["runs-on"], "ubuntu-24.04")
+        self.assertNotIn("strategy", physical)
+        self.assertNotIn("android-physical-", str(physical))
         screenshot = jobs["screenshot"]
         self.assertEqual(screenshot["runs-on"], "ubuntu-24.04")
         include = screenshot["strategy"]["matrix"]["include"]
