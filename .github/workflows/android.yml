@@ -86,6 +86,10 @@ name: Android CI
         required: false
       ANDROID_PLAY_UPLOAD_KEY_PASSWORD:
         required: false
+      BROWSERSTACK_USERNAME:
+        required: false
+      BROWSERSTACK_ACCESS_KEY:
+        required: false
       STREAMSCAPE_API_BASE:
         required: false
       STREAMSCAPE_EMAIL:
@@ -981,8 +985,305 @@ jobs:
           ci_run_id: ${{ inputs.ci_run_id }}
           status: ${{ (needs.screenshot_plan.result == 'cancelled' || needs.screenshot_cache.result == 'cancelled' || needs.screenshot.result == 'cancelled') && 'cancelled' || (needs.screenshot_plan.result == 'success' && needs.screenshot_cache.result == 'success' && needs.screenshot.result == 'success') && 'succeeded' || 'failed' }}
 
+  physical_performance:
+    if: ${{ inputs.test_profile == 'physical-performance' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    concurrency:
+      group: central-android-physical-performance
+      cancel-in-progress: false
+    steps:
+      - name: Initialize Android physical-performance evidence paths
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          log="$RUNNER_TEMP/central-android-physical-performance.log"
+          evidence="$RUNNER_TEMP/central-android-physical-performance-evidence"
+          rm -rf -- "$evidence" "$RUNNER_TEMP/central-browserstack-physical"
+          mkdir -p "$evidence"
+          : > "$log"
+          chmod 600 "$log"
+          chmod 700 "$evidence"
+          {
+            printf 'CI_LOG=%s\n' "$log"
+            printf 'PHYSICAL_EVIDENCE_DIR=%s\n' "$evidence"
+          } >> "$GITHUB_ENV"
+
+      - name: Mark Agent State run as running
+        if: ${{ inputs.ci_run_id != '' }}
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: start
+          ci_run_id: ${{ inputs.ci_run_id }}
+
+      - name: Validate fixed BrowserStack physical-performance request
+        shell: bash
+        env:
+          SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
+          SOURCE_REF: ${{ inputs.ref }}
+          PROJECT_DIRECTORY: ${{ inputs.project_directory }}
+          TEST_FILTER: ${{ inputs.test_filter }}
+          TEST_SELECTORS: ${{ inputs.test_selectors }}
+          TEST_PLATFORM: ${{ inputs.test_platform }}
+          ROOM_SCHEMA: ${{ inputs.room_schema }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+        run: |
+          set -Eeuo pipefail
+          test "$SOURCE_REPOSITORY" = StreamScapeTV/iptv-android || { echo "Android physical-performance is bounded to StreamScapeTV/iptv-android" >&2; exit 2; }
+          test -n "$SOURCE_REF" || { echo "Android physical-performance requires an explicit product ref" >&2; exit 2; }
+          test "$PROJECT_DIRECTORY" = . || { echo "Android physical-performance does not accept project_directory" >&2; exit 2; }
+          test -z "$TEST_FILTER" || { echo "Android physical-performance does not accept test_filter" >&2; exit 2; }
+          test "$TEST_SELECTORS" = '[]' || { echo "Android physical-performance does not accept test_selectors" >&2; exit 2; }
+          test -z "$TEST_PLATFORM" || { echo "Android physical-performance does not accept test_platform" >&2; exit 2; }
+          test "$ROOM_SCHEMA" = false || { echo "Android physical-performance does not accept room_schema" >&2; exit 2; }
+          test -z "$RELEASE_VERSION" || { echo "Android physical-performance does not accept release_version" >&2; exit 2; }
+          test -z "$BUILD_NUMBER" || { echo "Android physical-performance does not accept build_number" >&2; exit 2; }
+
+      - name: Prepare Android physical-performance source token
+        id: source
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.SOURCE_APP_ID }}
+          private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          owner: StreamScapeTV
+
+      - name: Check out exact Android physical-performance source
+        uses: actions/checkout@v4
+        with:
+          repository: StreamScapeTV/iptv-android
+          ref: ${{ inputs.ref }}
+          token: ${{ steps.source.outputs.token }}
+          path: physical-performance-source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Record Android physical-performance source identity
+        id: source_identity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          source_sha="$(git -C physical-performance-source rev-parse HEAD)"
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
+          test -z "$(git -C physical-performance-source status --porcelain --untracked-files=all)"
+          printf 'source_sha=%s\n' "$source_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Record Android physical-performance source SHA
+        if: ${{ inputs.ci_run_id != '' }}
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: observe-source
+          ci_run_id: ${{ inputs.ci_run_id }}
+          observed_source_sha: ${{ steps.source_identity.outputs.source_sha }}
+
+      - name: Run bounded BrowserStack physical-performance cohort
+        id: physical
+        shell: bash
+        env:
+          BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+          BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+          SOURCE_SHA: ${{ steps.source_identity.outputs.source_sha }}
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/ci/android_physical_browserstack.py \
+            --source-dir physical-performance-source \
+            --source-sha "$SOURCE_SHA" \
+            --evidence-dir "$PHYSICAL_EVIDENCE_DIR" \
+            --private-log "$CI_LOG"
+
+      - name: Scrub BrowserStack physical-performance evidence
+        id: scrub
+        if: ${{ always() }}
+        shell: bash
+        env:
+          CI_SECRET_BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+          CI_SECRET_BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+          CI_SECRET_SOURCE_TOKEN: ${{ steps.source.outputs.token }}
+          CI_SECRET_GITHUB_TOKEN: ${{ github.token }}
+          CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          CI_SECRET_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          CI_SECRET_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          CI_SECRET_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          python3 - "$CI_LOG" "$PHYSICAL_EVIDENCE_DIR" <<'PY_ANDROID_PHYSICAL_REDACT'
+          from pathlib import Path
+          import os
+          import sys
+
+          log = Path(sys.argv[1])
+          root = Path(sys.argv[2])
+          paths = [log]
+          if root.is_dir() and not root.is_symlink():
+              paths.extend(sorted(path for path in root.iterdir() if path.is_file() and not path.is_symlink()))
+          secrets = [value.encode() for name, value in os.environ.items() if name.startswith("CI_SECRET_") and value]
+          for path in paths:
+              if path.is_symlink() or not path.is_file():
+                  raise SystemExit("Android physical-performance evidence must be regular non-symlink files")
+              if path.stat().st_size > 16 * 1024 * 1024:
+                  raise SystemExit("Android physical-performance evidence exceeds the pre-scrub bound")
+              data = path.read_bytes()
+              for raw in secrets:
+                  data = data.replace(raw, b"[REDACTED]")
+                  escaped = raw.replace(b"\n", b"\\n")
+                  if escaped != raw:
+                      data = data.replace(escaped, b"[REDACTED]")
+              path.write_bytes(data)
+          PY_ANDROID_PHYSICAL_REDACT
+
+      - name: Package bounded Android physical-performance evidence
+        id: evidence
+        if: ${{ always() && steps.scrub.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          archive="$RUNNER_TEMP/central-android-physical-performance-evidence.zip"
+          rm -f -- "$archive"
+          python3 - "$PHYSICAL_EVIDENCE_DIR" "$archive" <<'PY_ANDROID_PHYSICAL_EVIDENCE'
+          from pathlib import Path
+          import sys
+          import zipfile
+
+          root = Path(sys.argv[1])
+          archive = Path(sys.argv[2])
+          if not root.is_dir() or root.is_symlink():
+              raise SystemExit("Android physical-performance evidence root is invalid")
+          files = []
+          total = 0
+          for path in sorted(root.iterdir()):
+              if path.is_symlink() or not path.is_file():
+                  raise SystemExit("Android physical-performance evidence contains an unsupported entry")
+              size = path.stat().st_size
+              if size > 4 * 1024 * 1024:
+                  raise SystemExit("Android physical-performance evidence file exceeds 4 MiB")
+              total += size
+              files.append(path)
+          if not 1 <= len(files) <= 8 or total > 16 * 1024 * 1024:
+              raise SystemExit("Android physical-performance evidence set is outside the reviewed bound")
+          with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+              for path in files:
+                  bundle.write(path, arcname=path.name)
+          print(archive)
+          PY_ANDROID_PHYSICAL_EVIDENCE
+          test -f "$archive" && test ! -L "$archive"
+          printf 'archive=%s\n' "$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Android physical-performance private log
+        id: drive
+        if: ${{ always() && steps.scrub.outcome == 'success' && (inputs.ci_run_id != '' || inputs.upload_private_log) }}
+        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+        with:
+          repository: StreamScapeTV/iptv-android
+          ref: ${{ inputs.ref }}
+          file_path: ${{ runner.temp }}/central-android-physical-performance.log
+          file_name: ${{ github.run_id }}-${{ github.run_attempt }}-android-physical-performance.txt
+          mime_type: text/plain
+
+      - name: Upload bounded Android physical-performance evidence
+        id: evidence_drive
+        if: ${{ always() && steps.evidence.outcome == 'success' && (inputs.ci_run_id != '' || inputs.upload_private_log) }}
+        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+        with:
+          repository: StreamScapeTV/iptv-android
+          ref: ${{ inputs.ref }}
+          file_path: ${{ steps.evidence.outputs.archive }}
+          file_name: ${{ github.run_id }}-${{ github.run_attempt }}-android-physical-performance-evidence.zip
+          mime_type: application/zip
+
+      - name: Cleanup Android physical-performance state
+        id: cleanup
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          rm -rf -- \
+            "$GITHUB_WORKSPACE/physical-performance-source" \
+            "$RUNNER_TEMP/central-browserstack-physical" \
+            "$RUNNER_TEMP/central-android-physical-performance-evidence" \
+            "$RUNNER_TEMP/central-android-physical-performance-evidence.zip"
+
+      - name: Classify Android physical-performance terminal diagnostic
+        id: terminal
+        if: ${{ always() }}
+        shell: bash
+        env:
+          PHYSICAL_OUTCOME: ${{ steps.physical.outcome }}
+          PHYSICAL_SUCCESS: ${{ steps.physical.outputs.success }}
+          FAILURE_CODE: ${{ steps.physical.outputs.failure_code }}
+          SCRUB_OUTCOME: ${{ steps.scrub.outcome }}
+          EVIDENCE_OUTCOME: ${{ steps.evidence.outcome }}
+          DRIVE_OUTCOME: ${{ steps.drive.outcome }}
+          EVIDENCE_DRIVE_OUTCOME: ${{ steps.evidence_drive.outcome }}
+          CLEANUP_OUTCOME: ${{ steps.cleanup.outcome }}
+        run: |
+          set -Eeuo pipefail
+          success=false
+          error_summary=""
+          if test "$PHYSICAL_OUTCOME" = success && test "$PHYSICAL_SUCCESS" = true \
+            && test "$SCRUB_OUTCOME" = success && test "$EVIDENCE_OUTCOME" = success \
+            && test "$DRIVE_OUTCOME" = success && test "$EVIDENCE_DRIVE_OUTCOME" = success \
+            && test "$CLEANUP_OUTCOME" = success; then
+            success=true
+          else
+            code="$FAILURE_CODE"
+            test -n "$code" || code=central_post_processing_failed
+            error_summary="Android BrowserStack physical-performance failed closed: $code"
+          fi
+          diagnostic_key=""
+          diagnostic_status="unavailable"
+          if test "$DRIVE_OUTCOME" = success; then
+            diagnostic_key="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-android-physical-performance.txt"
+            diagnostic_status="available"
+          fi
+          {
+            printf 'success=%s\n' "$success"
+            printf 'error_summary=%s\n' "$error_summary"
+            printf 'diagnostic_key=%s\n' "$diagnostic_key"
+            printf 'diagnostic_status=%s\n' "$diagnostic_status"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Finish Agent State run
+        if: ${{ always() && inputs.ci_run_id != '' }}
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: finish
+          ci_run_id: ${{ inputs.ci_run_id }}
+          status: ${{ steps.terminal.outputs.success == 'true' && 'succeeded' || 'failed' }}
+          error_summary: ${{ steps.terminal.outputs.error_summary }}
+          diagnostic_key: ${{ steps.terminal.outputs.diagnostic_key }}
+          diagnostic_status: ${{ steps.terminal.outputs.diagnostic_status }}
+
+      - name: Require Android physical-performance acceptance
+        if: ${{ always() }}
+        shell: bash
+        env:
+          SUCCESS: ${{ steps.terminal.outputs.success }}
+        run: |
+          test "$SUCCESS" = true || {
+            echo "Android BrowserStack physical-performance did not complete with three physical-device PASS results; inspect the private diagnostic." >&2
+            exit 1
+          }
+
   ci:
-    if: ${{ inputs.test_profile != 'screenshot-review' }}
+    if: ${{ inputs.test_profile != 'screenshot-review' && inputs.test_profile != 'physical-performance' }}
     runs-on: ubuntu-latest
     timeout-minutes: 300
     steps:

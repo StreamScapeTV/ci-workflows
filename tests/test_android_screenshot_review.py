@@ -28,7 +28,19 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
 
     def test_android_profile_has_exactly_five_fixed_hosted_lanes(self) -> None:
         jobs = self.workflow["jobs"]
-        self.assertEqual(jobs["ci"]["if"], "${{ inputs.test_profile != 'screenshot-review' }}")
+        self.assertEqual(
+            jobs["ci"]["if"],
+            "${{ inputs.test_profile != 'screenshot-review' && inputs.test_profile != 'physical-performance' }}",
+        )
+        physical = jobs["physical_performance"]
+        self.assertEqual(physical["runs-on"], "ubuntu-24.04")
+        self.assertNotIn("strategy", physical)
+        for invented_runner in (
+            "android-physical-phone",
+            "android-physical-tablet",
+            "android-physical-tv",
+        ):
+            self.assertNotIn(invented_runner, str(physical))
         screenshot = jobs["screenshot"]
         self.assertEqual(screenshot["runs-on"], "ubuntu-24.04")
         include = screenshot["strategy"]["matrix"]["include"]

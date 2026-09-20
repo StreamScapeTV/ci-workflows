@@ -166,7 +166,14 @@ jobs:
           if profile != "native-component" and native_component not in (None, ""):
               raise SystemExit("native_component is accepted only by Apple native-component")
 
-          if profile == "screenshot-review":
+          if profile == "physical-performance":
+              if workflow != "validation.android":
+                  raise SystemExit("physical-performance is supported only by validation.android")
+              if repository != "StreamScapeTV/iptv-android":
+                  raise SystemExit("Android physical-performance is bounded to StreamScapeTV/iptv-android")
+              if inputs:
+                  raise SystemExit("Android physical-performance accepts no semantic inputs")
+          elif profile == "screenshot-review":
               allowed_repository = {
                   "validation.apple": "StreamScapeTV/iptv-apple",
                   "validation.android": "StreamScapeTV/iptv-android",
@@ -704,7 +711,7 @@ jobs:
     if: ${{ needs.request.outputs.workflow_key == 'validation.android' }}
     concurrency:
       group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
-      cancel-in-progress: true
+      cancel-in-progress: ${{ needs.request.outputs.test_profile != 'physical-performance' }}
     uses: ./.github/workflows/android.yml
     with:
       repository: ${{ needs.request.outputs.repository }}
