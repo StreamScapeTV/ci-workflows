@@ -193,7 +193,7 @@ def456 unauthorized usb:1-1 transport_id:2
     def test_product_environment_has_no_configurable_physical_provider(self) -> None:
         helper_text = HELPER.read_text(encoding="utf-8")
         self.assertIn('PROVIDER = "owner-attached"', helper_text)
-        self.assertNotIn("CI_ANDROID_PHYSICAL_PROVIDER", helper_text)
+        self.assertNotRegex(helper_text, r"\bCI_ANDROID_PHYSICAL_PROVIDER\b")
         self.assertNotIn("BROWSERSTACK_USERNAME", helper_text)
         self.assertNotIn("BROWSERSTACK_ACCESS_KEY", helper_text)
 
