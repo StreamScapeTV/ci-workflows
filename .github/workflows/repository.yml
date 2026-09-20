@@ -128,6 +128,7 @@ jobs:
           path: central-ci
           fetch-depth: 1
           persist-credentials: false
+
       - name: Start bounded Central repository CI timeline
         shell: bash
         run: |
@@ -436,6 +437,7 @@ jobs:
             --phase private-capabilities \
             --log-path "${CI_LOG}" \
             --state-path "${timeline}"
+
       - name: Resolve trusted private infrastructure capabilities
         id: capabilities
         shell: bash
@@ -716,6 +718,7 @@ jobs:
             --state-path "${timeline}"
           cp -- "${CI_LOG}" "${seed}"
           chmod 600 "${seed}"
+
       - name: Seed stable private repository CI log object
         id: log_seed
         if: ${{ inputs.ci_run_id != '' || inputs.upload_private_log }}
