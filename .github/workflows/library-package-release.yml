@@ -1,0 +1,271 @@
+name: Library/package release transaction
+
+"on":
+  workflow_call:
+    inputs:
+      repository:
+        type: string
+        required: true
+      ref:
+        type: string
+        required: true
+      source_is_tag:
+        type: boolean
+        required: true
+      ci_run_id:
+        type: string
+        required: true
+    secrets:
+      SOURCE_APP_ID:
+        required: true
+      SOURCE_APP_PRIVATE_KEY:
+        required: true
+      AGENT_STATE_SUPABASE_URL:
+        required: true
+      AGENT_STATE_SUPABASE_SECRET_KEY:
+        required: true
+      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID:
+        required: false
+      GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID:
+        required: false
+      GOOGLE_DRIVE_CLIENT_ID:
+        required: false
+      GOOGLE_DRIVE_CLIENT_SECRET:
+        required: false
+      GOOGLE_DRIVE_REFRESH_TOKEN:
+        required: false
+      TS_OAUTH_CLIENT_ID:
+        required: false
+      TS_OAUTH_SECRET:
+        required: false
+      PACKAGE_PUBLISH_USERNAME:
+        required: false
+      PACKAGE_PUBLISH_TOKEN:
+        required: false
+      PACKAGE_READ_TOKEN:
+        required: false
+      MAVEN_PUBLISH_USERNAME:
+        required: false
+      MAVEN_PUBLISH_TOKEN:
+        required: false
+      MAVEN_READ_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      source_sha: ${{ steps.source_identity.outputs.source_sha }}
+    steps:
+      - name: Mark Agent State run as running
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: start
+          ci_run_id: ${{ inputs.ci_run_id }}
+
+      - name: Validate aggregate package release request
+        shell: bash
+        env:
+          SOURCE_REPOSITORY: ${{ inputs.repository }}
+          SOURCE_REF: ${{ inputs.ref }}
+          SOURCE_IS_TAG: ${{ inputs.source_is_tag }}
+        run: |
+          set -Eeuo pipefail
+          test "${SOURCE_IS_TAG}" = true || {
+            echo "library/package release requires an immutable Git tag" >&2
+            exit 2
+          }
+          [[ "${SOURCE_REPOSITORY}" =~ ^StreamScapeTV/[A-Za-z0-9_.-]+$ ]] || {
+            echo "library/package release requires one StreamScapeTV repository" >&2
+            exit 2
+          }
+          [[ "${SOURCE_REF}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]] || {
+            echo "library/package release requires one plain semantic-version tag" >&2
+            exit 2
+          }
+          git check-ref-format "refs/tags/${SOURCE_REF}" >/dev/null
+
+      - name: Prepare source token
+        id: source
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.SOURCE_APP_ID }}
+          private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          owner: StreamScapeTV
+          permission-contents: read
+          permission-metadata: read
+
+      - name: Check out exact tagged source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repository }}
+          ref: refs/tags/${{ inputs.ref }}
+          token: ${{ steps.source.outputs.token }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Resolve exact tagged source identity
+        id: source_identity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          source_sha="$(git -C source rev-parse HEAD)"
+          [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          test -z "$(git -C source status --porcelain=v1 --untracked-files=all)" || {
+            echo "library/package release source checkout is not clean" >&2
+            exit 2
+          }
+          printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Record observed source SHA
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: observe-source
+          ci_run_id: ${{ inputs.ci_run_id }}
+          observed_source_sha: ${{ steps.source_identity.outputs.source_sha }}
+
+  readiness_macos:
+    needs: plan
+    uses: ./.github/workflows/repository.yml
+    with:
+      repository: ${{ inputs.repository }}
+      ref: ${{ inputs.ref }}
+      source_is_tag: true
+      operation: full
+      host_os: macos
+      semantic_inputs_json: '{}'
+      expected_source_sha: ${{ needs.plan.outputs.source_sha }}
+      ci_run_id: ''
+      upload_private_log: true
+    secrets:
+      SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
+      SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+      GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+      GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+
+  readiness_linux:
+    needs: plan
+    uses: ./.github/workflows/repository.yml
+    with:
+      repository: ${{ inputs.repository }}
+      ref: ${{ inputs.ref }}
+      source_is_tag: true
+      operation: full
+      host_os: linux
+      semantic_inputs_json: '{}'
+      expected_source_sha: ${{ needs.plan.outputs.source_sha }}
+      ci_run_id: ''
+      upload_private_log: true
+    secrets:
+      SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
+      SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+      GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+      GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+
+  release_prepare:
+    needs: [plan, readiness_macos, readiness_linux]
+    uses: ./.github/workflows/repository.yml
+    with:
+      repository: ${{ inputs.repository }}
+      ref: ${{ inputs.ref }}
+      source_is_tag: true
+      operation: release
+      host_os: macos
+      semantic_inputs_json: ${{ format('{{"build_identity":"{0}","release_kind":"prepare"}}', inputs.ref) }}
+      release_authorized: true
+      expected_source_sha: ${{ needs.plan.outputs.source_sha }}
+      ci_run_id: ''
+      upload_private_log: true
+    secrets:
+      SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
+      SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+      GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+      GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+
+  apple_swiftpm:
+    needs: [plan, release_prepare]
+    uses: ./.github/workflows/apple-swiftpm.yml
+    with:
+      repository: ${{ inputs.repository }}
+      ref: ${{ inputs.ref }}
+      source_is_tag: true
+      expected_source_sha: ${{ needs.plan.outputs.source_sha }}
+      ci_run_id: ''
+      upload_private_log: true
+    secrets:
+      SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
+      SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+      GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+      GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+      PACKAGE_PUBLISH_USERNAME: ${{ secrets.PACKAGE_PUBLISH_USERNAME }}
+      PACKAGE_PUBLISH_TOKEN: ${{ secrets.PACKAGE_PUBLISH_TOKEN }}
+      PACKAGE_READ_TOKEN: ${{ secrets.PACKAGE_READ_TOKEN }}
+
+  maven:
+    needs: [plan, apple_swiftpm]
+    uses: ./.github/workflows/maven.yml
+    with:
+      repository: ${{ inputs.repository }}
+      ref: ${{ inputs.ref }}
+      source_is_tag: true
+      build_number: ${{ inputs.ref }}
+      expected_source_sha: ${{ needs.plan.outputs.source_sha }}
+      ci_run_id: ''
+      upload_private_log: true
+    secrets:
+      SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
+      SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+      GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+      GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+      GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+      MAVEN_PUBLISH_USERNAME: ${{ secrets.MAVEN_PUBLISH_USERNAME }}
+      MAVEN_PUBLISH_TOKEN: ${{ secrets.MAVEN_PUBLISH_TOKEN }}
+      MAVEN_READ_TOKEN: ${{ secrets.MAVEN_READ_TOKEN }}
+
+  finish:
+    needs: [plan, readiness_macos, readiness_linux, release_prepare, apple_swiftpm, maven]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Finish Agent State run
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: finish
+          ci_run_id: ${{ inputs.ci_run_id }}
+          status: >-
+            ${{ needs.plan.result == 'success'
+                && needs.readiness_macos.result == 'success'
+                && needs.readiness_linux.result == 'success'
+                && needs.release_prepare.result == 'success'
+                && needs.apple_swiftpm.result == 'success'
+                && needs.maven.result == 'success'
+                && 'succeeded' || 'failed' }}

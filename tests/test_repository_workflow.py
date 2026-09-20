@@ -198,6 +198,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
                 "repository",
                 "ref",
                 "source_is_tag",
+                "expected_source_sha",
                 "operation",
                 "host_os",
                 "semantic_inputs_json",
