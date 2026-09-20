@@ -97,6 +97,60 @@ class TagDrivenReleaseTests(unittest.TestCase):
         self.assertNotEqual(invalid_identity.returncode, 0)
         self.assertIn("build_identity", invalid_identity.stderr)
 
+    def test_generic_repository_release_route_is_separate_and_legacy_compatible(self) -> None:
+        jobs = self.workflow["jobs"]
+        validation = jobs["repository"]
+        self.assertEqual(
+            validation["if"],
+            "${{ needs.request.outputs.workflow_key == 'validation.repository' }}",
+        )
+        self.assertTrue(validation["concurrency"]["cancel-in-progress"])
+        self.assertNotIn("release_authorized", validation["with"])
+
+        release = jobs["repository_release"]
+        self.assertEqual(
+            release["if"],
+            "${{ needs.request.outputs.workflow_key == 'release.repository' }}",
+        )
+        self.assertEqual(release["uses"], "./.github/workflows/repository.yml")
+        self.assertEqual(release["with"]["operation"], "release")
+        self.assertTrue(release["with"]["release_authorized"])
+        self.assertFalse(release["concurrency"]["cancel-in-progress"])
+
+        legacy = jobs["android_release"]
+        self.assertEqual(
+            legacy["if"],
+            "${{ needs.request.outputs.workflow_key == 'release.android' && needs.request.outputs.test_profile == 'play' }}",
+        )
+        self.assertEqual(legacy["uses"], "./.github/workflows/android.yml")
+        self.assertNotIn("release.repository", str(legacy))
+
+        settlement = jobs["settle_cancelled"]
+        self.assertIn("repository", settlement["needs"])
+        self.assertIn("repository_release", settlement["needs"])
+        self.assertIn("needs.repository_release.result == 'cancelled'", settlement["if"])
+
+    def test_generic_repository_release_capability_binding_is_exact_and_tag_bound(self) -> None:
+        repository = yaml.safe_load(
+            (ROOT / ".github/workflows/repository.yml").read_text(encoding="utf-8")
+        )
+        step = next(
+            step
+            for step in repository["jobs"]["execute"]["steps"]
+            if step.get("name") == "Resolve trusted private infrastructure capabilities"
+        )
+        self.assertEqual(step["env"]["HOST_OS"], "${{ inputs.host_os }}")
+        script = step["run"]
+        for marker in (
+            "capability_context=repository_lifecycle",
+            'test "${run_workflow}" = release.repository',
+            'test "${run_profile}" = "${HOST_OS}"',
+            'test "${run_is_tag}" = true',
+            'test "${run_workflow}" = validation.repository',
+            'test "${run_profile}" = "${OPERATION}"',
+        ):
+            self.assertIn(marker, script)
+
     def test_android_mobile_tag_normalizes_build_and_version(self) -> None:
         completed, values, normalized = self.run_resolver(
             "release.android", "play", "1.0.0_257"
