@@ -915,8 +915,12 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertEqual(final_upload["with"]["file_name"], stable_name)
         self.assertEqual(
             seed["with"]["file_path"],
-            "${{ runner.temp }}/central-repository-ci.log",
+            "${{ runner.temp }}/central-repository-ci-log-checkpoint-seed.txt",
         )
+        init = by_name["Initialize private execution paths"]["run"]
+        self.assertIn('checkpoint_seed="${RUNNER_TEMP}/central-repository-ci-log-checkpoint-seed.txt"', init)
+        self.assertIn(': > "${checkpoint_seed}"', init)
+        self.assertNotEqual(seed["with"]["file_path"], "${{ runner.temp }}/central-repository-ci.log")
 
         env = execute["env"]
         self.assertEqual(env["CHECKPOINT_FILE_ID"], "${{ steps.log_seed.outputs.file_id }}")
@@ -939,6 +943,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         )
 
         cleanup = by_name["Cleanup ephemeral registry and repository evidence"]["run"]
+        self.assertIn("central-repository-ci-log-checkpoint-seed.txt", cleanup)
         self.assertIn("central-repository-ci-log-checkpoint-status.json", cleanup)
 
     def test_central_owns_log_paths_scrubbing_transport_and_cleanup(self) -> None:

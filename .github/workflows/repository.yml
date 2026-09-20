@@ -96,10 +96,12 @@ jobs:
           log_dir="${RUNNER_TEMP}/repository-ci-logs"
           artifact_dir="${RUNNER_TEMP}/repository-ci-artifacts"
           progress="${RUNNER_TEMP}/repository-ci-progress.txt"
+          checkpoint_seed="${RUNNER_TEMP}/central-repository-ci-log-checkpoint-seed.txt"
           mkdir -p "${log_dir}" "${artifact_dir}"
           : > "${log}"
           : > "${progress}"
-          chmod 600 "${log}" "${progress}"
+          : > "${checkpoint_seed}"
+          chmod 600 "${log}" "${progress}" "${checkpoint_seed}"
           chmod 700 "${log_dir}" "${artifact_dir}"
           {
             printf 'CI_LOG=%s\n' "${log}"
@@ -677,7 +679,7 @@ jobs:
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
-          file_path: ${{ runner.temp }}/central-repository-ci.log
+          file_path: ${{ runner.temp }}/central-repository-ci-log-checkpoint-seed.txt
           file_name: ${{ github.run_id }}-${{ github.run_attempt }}-repository-${{ inputs.operation }}.txt
           mime_type: text/plain
 
@@ -989,6 +991,7 @@ jobs:
           rm -f -- \
             "${RUNNER_TEMP}/repository-ci-progress.txt" \
             "${RUNNER_TEMP}/central-repository-ci.log" \
+            "${RUNNER_TEMP}/central-repository-ci-log-checkpoint-seed.txt" \
             "${RUNNER_TEMP}/central-repository-ci-log-checkpoint-status.json" \
             "${RUNNER_TEMP}/central-repository-ci-evidence.zip"
 
