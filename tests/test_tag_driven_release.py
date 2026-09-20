@@ -67,7 +67,7 @@ class TagDrivenReleaseTests(unittest.TestCase):
         )
         self.assertEqual(
             self.step["if"],
-            "${{\n  steps.claim.outputs.is_tag == 'true' &&\n  (\n    steps.claim.outputs.workflow_key == 'release.android' ||\n    steps.claim.outputs.workflow_key == 'release.apple' ||\n    steps.claim.outputs.workflow_key == 'release.maven'\n  )\n}}",
+            "${{\n  steps.claim.outputs.is_tag == 'true' &&\n  (\n    steps.claim.outputs.workflow_key == 'release.android' ||\n    steps.claim.outputs.workflow_key == 'release.apple' ||\n    steps.claim.outputs.workflow_key == 'release.maven' ||\n    steps.claim.outputs.workflow_key == 'release.library-package'\n  )\n}}",
         )
 
     def test_android_mobile_tag_normalizes_build_and_version(self) -> None:
@@ -455,6 +455,22 @@ printf 'changed\n' > "${CI_MOBILE_BUMP_WORKTREE}/other.txt"
                     )
                 finally:
                     temp.cleanup()
+
+    def test_library_package_tag_keeps_plain_semver_and_no_inputs(self) -> None:
+        completed, values, normalized = self.run_resolver(
+            "release.library-package", "publish", "2.4.1"
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(values["inputs_json"], "{}")
+        self.assertEqual(values["release_version"], "2.4.1")
+        self.assertEqual(normalized, "{}\n")
+
+        for tag in ("v2.4.1", "2.4", "2.4.1_7", "latest"):
+            with self.subTest(tag=tag):
+                rejected, _, _ = self.run_resolver(
+                    "release.library-package", "publish", tag
+                )
+                self.assertNotEqual(rejected.returncode, 0)
 
     def test_non_store_apple_package_profiles_keep_plain_tag_semantics(self) -> None:
         for profile in ("binary-package", "swiftpm-package"):

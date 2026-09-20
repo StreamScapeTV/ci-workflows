@@ -26,7 +26,7 @@ class MavenWorkflowTests(unittest.TestCase):
         call = self.workflow["on"]["workflow_call"]
         self.assertEqual(
             set(call["inputs"]),
-            {"repository", "ref", "source_is_tag", "build_number", "ci_run_id", "upload_private_log"},
+            {"repository", "ref", "source_is_tag", "expected_source_sha", "build_number", "ci_run_id", "upload_private_log"},
         )
         self.assertEqual(
             set(call["secrets"]),

@@ -23,7 +23,7 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
         call = workflow["on"]["workflow_call"]
         self.assertEqual(
             set(call["inputs"]),
-            {"repository", "ref", "source_is_tag", "ci_run_id", "upload_private_log"},
+            {"repository", "ref", "source_is_tag", "expected_source_sha", "ci_run_id", "upload_private_log"},
         )
         self.assertEqual(
             set(call["secrets"]),
