@@ -1099,6 +1099,96 @@ class RepositoryWorkflowTests(unittest.TestCase):
             )
             self.assertIn("output.write(path, arcname=name)", package)
 
+    def test_oversized_artifact_is_excluded_without_suppressing_timeout_diagnostics(self) -> None:
+        scrub = self.steps_by_name["Scrub configured CI secrets from private text evidence"]["run"]
+        package = self.steps_by_name["Package bounded repository CI evidence"]["run"]
+
+        artifact_guard = scrub.index(
+            "if path.stat().st_size > 16 * 1024 * 1024:",
+            scrub.index("resolved_artifact_root"),
+        )
+        artifact_read = scrub.index("data = path.read_bytes()", artifact_guard)
+        self.assertIn("continue", scrub[artifact_guard:artifact_read])
+
+        package_guard = package.index("if size > 16 * 1024 * 1024:")
+        package_append = package.index("total += size", package_guard)
+        self.assertIn('if prefix == "artifacts":', package[package_guard:package_append])
+        self.assertIn("continue", package[package_guard:package_append])
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log_dir = root / "logs"
+            artifact_dir = root / "artifacts"
+            log_dir.mkdir()
+            artifact_dir.mkdir()
+
+            secret = "registry-secret-value"
+            ci_log = root / "central.log"
+            ci_log.write_text(f"timeout {secret}\n", encoding="utf-8")
+            (log_dir / "tool.log").write_text("bounded tool log\n", encoding="utf-8")
+            progress = root / "progress.txt"
+            progress.write_text("timed-out\n", encoding="utf-8")
+
+            oversized = artifact_dir / "build.db"
+            oversized.write_bytes(b"oversized-artifact-prefix")
+            with oversized.open("r+b") as handle:
+                handle.truncate(16 * 1024 * 1024 + 1)
+            small = artifact_dir / "result.json"
+            small.write_text('{"status":"failed"}\n', encoding="utf-8")
+
+            github_output = root / "github-output"
+            github_output.write_text("", encoding="utf-8")
+            env = {
+                **os.environ,
+                "RUNNER_TEMP": str(root),
+                "CI_LOG": str(ci_log),
+                "CI_PROGRESS_FILE": str(progress),
+                "CI_LOG_DIR": str(log_dir),
+                "CI_ARTIFACT_DIR": str(artifact_dir),
+                "CI_SECRET_TEST": secret,
+                "GITHUB_OUTPUT": str(github_output),
+            }
+
+            scrubbed = subprocess.run(
+                ["bash", "-c", scrub],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(scrubbed.returncode, 0, scrubbed.stderr)
+            self.assertNotIn(secret, ci_log.read_text(encoding="utf-8"))
+            self.assertEqual(oversized.stat().st_size, 16 * 1024 * 1024 + 1)
+
+            packaged = subprocess.run(
+                ["bash", "-c", package],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(packaged.returncode, 0, packaged.stderr)
+
+            archive = root / "central-repository-ci-evidence.zip"
+            self.assertTrue(archive.is_file())
+            with zipfile.ZipFile(archive) as bundle:
+                names = set(bundle.namelist())
+                self.assertNotIn("artifacts/build.db", names)
+                self.assertIn("artifacts/result.json", names)
+                self.assertIn("logs/tool.log", names)
+                self.assertIn("progress.txt", names)
+                self.assertNotIn(
+                    b"oversized-artifact-prefix",
+                    b"".join(bundle.read(name) for name in names),
+                )
+
+            self.assertIn(
+                "steps.scrub.outcome == 'success'",
+                self.steps_by_name["Upload private repository CI log to Google Drive"]["if"],
+            )
+
     def test_artifact_symlink_escape_is_rejected_without_reading_outside_bytes(self) -> None:
         package = self.steps_by_name["Package bounded repository CI evidence"]["run"]
         with tempfile.TemporaryDirectory() as td:

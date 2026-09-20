@@ -760,7 +760,7 @@ jobs:
                   if os.path.commonpath((str(resolved), str(resolved_artifact_root))) != str(resolved_artifact_root):
                       raise SystemExit(f"repository CI artifact evidence escapes its Central-owned root: {path.name}")
                   if path.stat().st_size > 16 * 1024 * 1024:
-                      raise SystemExit(f"repository CI artifact evidence file exceeds 16 MiB before secret scan: {path.name}")
+                      continue
                   data = path.read_bytes()
               else:
                   continue
@@ -826,6 +826,8 @@ jobs:
                       raise SystemExit(f"repository CI {prefix} evidence escapes its Central-owned root")
                   size = path.stat().st_size
                   if size > 16 * 1024 * 1024:
+                      if prefix == "artifacts":
+                          continue
                       raise SystemExit(f"repository CI {prefix} evidence file exceeds 16 MiB")
                   total += size
                   entries.append((archive_name, path, None))
