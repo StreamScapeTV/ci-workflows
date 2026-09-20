@@ -37,7 +37,7 @@ class NativeTargetedProfileTests(unittest.TestCase):
                 "WORKFLOW_KEY": "validation.apple",
                 "TEST_PROFILE": "candidate",
                 "INPUTS_JSON": json.dumps(
-                    {"test_selectors": json.dumps(["streamscapetvTests/AppTourScreenLogicIntegrationTests"])}
+                    {"test_selectors": json.dumps(["ExampleAppTests/ScreenLogicIntegrationTests"])}
                 ),
             },
             text=True,
@@ -54,7 +54,7 @@ class NativeTargetedProfileTests(unittest.TestCase):
                 "TEST_PROFILE": "candidate",
                 "INPUTS_JSON": json.dumps(
                     {
-                        "test_selectors": json.dumps(["streamscapetvTests/AppTourScreenLogicIntegrationTests"]),
+                        "test_selectors": json.dumps(["ExampleAppTests/ScreenLogicIntegrationTests"]),
                         "test_platform": "macos",
                     }
                 ),
@@ -264,7 +264,7 @@ class NativeTargetedProfileTests(unittest.TestCase):
                     "TEST_PROFILE": "targeted-tests",
                     "TEST_PLATFORM": platform,
                     "TEST_SELECTORS": json.dumps(
-                        ["com.streamscapetv.testing.integration.ExampleInstrumentationTest#fails"]
+                        ["com.example.testing.integration.ExampleInstrumentationTest#fails"]
                     ),
                     "TEST_FILTER": "",
                     "ROOM_SCHEMA": "false",
@@ -277,7 +277,7 @@ class NativeTargetedProfileTests(unittest.TestCase):
             return result, log_path.read_text(encoding="utf-8", errors="replace")
 
     def test_android_instrumentation_failure_appends_private_machine_readable_result(self) -> None:
-        failure_xml = b'''<?xml version="1.0" encoding="UTF-8"?>\n<testsuite tests="1" failures="1">\n  <testcase classname="com.streamscapetv.testing.integration.ExampleInstrumentationTest" name="fails">\n    <failure message="expected true but was false" type="java.lang.AssertionError">java.lang.AssertionError: expected true but was false\n\tat com.streamscapetv.testing.integration.ExampleInstrumentationTest.fails(ExampleInstrumentationTest.kt:42)</failure>\n  </testcase>\n</testsuite>\n'''
+        failure_xml = b'''<?xml version="1.0" encoding="UTF-8"?>\n<testsuite tests="1" failures="1">\n  <testcase classname="com.example.testing.integration.ExampleInstrumentationTest" name="fails">\n    <failure message="expected true but was false" type="java.lang.AssertionError">java.lang.AssertionError: expected true but was false\n\tat com.example.testing.integration.ExampleInstrumentationTest.fails(ExampleInstrumentationTest.kt:42)</failure>\n  </testcase>\n</testsuite>\n'''
         result, private_log = self._run_android_targeted_command(
             platform="instrumentation",
             gradlew_body='printf "%s\\n" "There were failing tests. See the report at: ephemeral/index.html"\nexit 1\n',
@@ -429,8 +429,8 @@ class NativeTargetedProfileTests(unittest.TestCase):
         )
 
         selectors = [
-            "streamscapetvTests/AppTourScreenLogicIntegrationTests",
-            "streamscapetvTests/AppTourSettledHomePresentationIntegrationTests",
+            "ExampleAppTests/ScreenLogicIntegrationTests",
+            "ExampleAppTests/HomePresentationIntegrationTests",
         ]
         with tempfile.TemporaryDirectory() as temp_dir:
             output_path = Path(temp_dir) / "github-output"

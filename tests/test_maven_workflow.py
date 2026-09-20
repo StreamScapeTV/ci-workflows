@@ -51,15 +51,13 @@ class MavenWorkflowTests(unittest.TestCase):
         self.assertEqual(self.job["runs-on"], "ubuntu-24.04")
         self.assertEqual(set(self.workflow["on"]), {"workflow_call"})
 
+        self.assertNotRegex(self.text, r"(?:inputs\.repository|SOURCE_REPOSITORY).{0,120}(?:==|!=|=~)\s*[\'\"]StreamScapeTV/[A-Za-z0-9_.-]+")
+
         for forbidden in (
-            "Streamscape Media",
-            "streamscape-media",
-            "git.faruqi.dev",
             "Forgejo",
             "arguments_json",
             "publishAllPublications",
             "gradlew",
-            "com.streamscape",
             "runner_label",
             "registry_url",
             "script_path",
