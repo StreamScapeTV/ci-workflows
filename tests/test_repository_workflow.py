@@ -16,6 +16,8 @@ WORKFLOW = ROOT / ".github/workflows/repository.yml"
 DISPATCH = ROOT / ".github/workflows/central-ci-dispatch.yml"
 INVENTORY = ROOT / "INVENTORY.yaml"
 CONTRACT = ROOT / "contracts/repository-ci-v1.json"
+EVIDENCE_HELPER = ROOT / "scripts/ci/repository_evidence.py"
+COMMAND_HELPER = ROOT / "scripts/ci/repository_command.py"
 
 
 class RepositoryWorkflowTests(unittest.TestCase):
@@ -26,6 +28,8 @@ class RepositoryWorkflowTests(unittest.TestCase):
         cls.workflow_text = WORKFLOW.read_text(encoding="utf-8")
         cls.dispatch_text = DISPATCH.read_text(encoding="utf-8")
         cls.contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
+        cls.evidence_helper_text = EVIDENCE_HELPER.read_text(encoding="utf-8")
+        cls.command_helper_text = COMMAND_HELPER.read_text(encoding="utf-8")
 
     @property
     def steps_by_name(self):
@@ -77,7 +81,15 @@ class RepositoryWorkflowTests(unittest.TestCase):
             )
             return result, output.read_text(encoding="utf-8")
 
-    def run_dispatch_request(self, profile: str, inputs: dict):
+    def run_dispatch_request(
+        self,
+        profile: str,
+        inputs: dict,
+        *,
+        repository: str = "ExampleOrg/example-repository",
+        ref: str = "feature",
+        is_tag: str = "false",
+    ):
         steps = self.dispatch["jobs"]["request"]["steps"]
         script = next(
             step["run"]
@@ -91,6 +103,9 @@ class RepositoryWorkflowTests(unittest.TestCase):
                 **os.environ,
                 "TEST_PROFILE": profile,
                 "INPUTS_JSON": json.dumps(inputs),
+                "REQUEST_REPOSITORY": repository,
+                "REQUEST_REF": ref,
+                "REQUEST_IS_TAG": is_tag,
             },
             text=True,
             capture_output=True,
@@ -529,10 +544,11 @@ class RepositoryWorkflowTests(unittest.TestCase):
             'profile not in {"build", "test", "full", "ui-test"}',
             admission["run"],
         )
+        self.assertIn('profile == "acceptance"', admission["run"])
         job = self.dispatch["jobs"]["repository"]
         self.assertEqual(
             job["if"],
-            "${{ needs.request.outputs.workflow_key == 'validation.repository' }}",
+            "${{ needs.request.outputs.workflow_key == 'validation.repository' && needs.request.outputs.test_profile != 'acceptance' }}",
         )
         self.assertEqual(job["uses"], "./.github/workflows/repository.yml")
         self.assertEqual(
@@ -556,6 +572,13 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertIn('inputs.pop("provider_operation_id", None)', admission["run"])
         self.assertNotIn("provider_operation_id", str(job["with"]))
         self.assertNotIn("release", admission["run"].split("PY_VALIDATE_REPOSITORY", 1)[0])
+        acceptance = self.dispatch["jobs"]["repository_acceptance"]
+        self.assertEqual(
+            acceptance["if"],
+            "${{ needs.request.outputs.workflow_key == 'validation.repository' && needs.request.outputs.test_profile == 'acceptance' }}",
+        )
+        self.assertEqual(acceptance["uses"], "./.github/workflows/repository-acceptance.yml")
+        self.assertEqual(set(acceptance["with"]), {"ci_run_id"})
 
     def test_source_ref_namespace_is_exact_for_same_named_branch_and_tag(self) -> None:
         resolver = self.steps_by_name["Resolve exact repository source ref"]
@@ -954,15 +977,16 @@ class RepositoryWorkflowTests(unittest.TestCase):
 
         scrub = by_name["Scrub configured CI secrets from private text evidence"]
         self.assertEqual(scrub["if"], "${{ always() }}")
-        self.assertIn('log_root = Path(os.environ["CI_LOG_DIR"])', scrub["run"])
-        self.assertIn('artifact_root = Path(os.environ["CI_ARTIFACT_DIR"])', scrub["run"])
-        self.assertNotIn('for name in ("CI_LOG_DIR", "CI_ARTIFACT_DIR")', scrub["run"])
+        self.assertIn("repository_evidence.py", scrub["run"])
+        self.assertIn('ci_log, progress, log_root, artifact_root = _paths()', self.evidence_helper_text)
+        self.assertIn('artifact_root = Path(os.environ["CI_ARTIFACT_DIR"])', self.evidence_helper_text)
 
         package = by_name["Package bounded repository CI evidence"]
-        self.assertIn("evidence exceeds 256 files", package["run"])
-        self.assertIn("evidence exceeds 64 MiB", package["run"])
-        self.assertIn("artifact evidence symlink escapes its Central-owned root", package["run"])
-        self.assertIn("stat.S_IFLNK", package["run"])
+        self.assertIn("repository_evidence.py", package["run"])
+        self.assertIn("evidence exceeds 256 files", self.evidence_helper_text)
+        self.assertIn("evidence exceeds 64 MiB", self.evidence_helper_text)
+        self.assertIn("artifact evidence symlink escapes its Central-owned root", self.evidence_helper_text)
+        self.assertIn("stat.S_IFLNK", self.evidence_helper_text)
 
         upload = by_name["Upload private repository CI log to Google Drive"]
         self.assertEqual(
@@ -1163,23 +1187,24 @@ class RepositoryWorkflowTests(unittest.TestCase):
                 self.steps_by_name["Package bounded repository CI evidence"]["if"],
                 "${{ always() && steps.scrub.outcome == 'success' }}",
             )
-            self.assertIn("output.write(path, arcname=name)", package)
+            self.assertIn("output.write(path, arcname=name)", self.evidence_helper_text)
 
     def test_oversized_artifact_is_excluded_without_suppressing_timeout_diagnostics(self) -> None:
         scrub = self.steps_by_name["Scrub configured CI secrets from private text evidence"]["run"]
         package = self.steps_by_name["Package bounded repository CI evidence"]["run"]
 
-        artifact_guard = scrub.index(
-            "if path.stat().st_size > 16 * 1024 * 1024:",
-            scrub.index("resolved_artifact_root"),
+        helper = self.evidence_helper_text
+        artifact_guard = helper.index(
+            "if path.stat().st_size > ARTIFACT_FILE_MAX:",
+            helper.index("resolved_artifact_root"),
         )
-        artifact_read = scrub.index("data = path.read_bytes()", artifact_guard)
-        self.assertIn("continue", scrub[artifact_guard:artifact_read])
+        artifact_read = helper.index("data = path.read_bytes()", artifact_guard)
+        self.assertIn("continue", helper[artifact_guard:artifact_read])
 
-        package_guard = package.index("if size > 16 * 1024 * 1024:")
-        package_append = package.index("total += size", package_guard)
-        self.assertIn('if prefix == "artifacts":', package[package_guard:package_append])
-        self.assertIn("continue", package[package_guard:package_append])
+        package_guard = helper.index("if size > ARTIFACT_FILE_MAX:", artifact_read)
+        package_append = helper.index("total += size", package_guard)
+        self.assertIn('if prefix == "artifacts":', helper[package_guard:package_append])
+        self.assertIn("continue", helper[package_guard:package_append])
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
