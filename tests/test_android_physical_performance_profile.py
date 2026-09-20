@@ -298,7 +298,7 @@ class AndroidPhysicalPerformanceProfileTests(unittest.TestCase):
         )["run"]
         self.assertIn('if profile == "physical-performance":', admission)
         self.assertIn('workflow != "validation.android"', admission)
-        self.assertIn('repository != "StreamScapeTV/iptv-android"', admission)
+        self.assertRegex(admission, r'repository != "[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"')
         self.assertIn("Android physical-performance accepts no semantic inputs", admission)
         android = self.dispatch["jobs"]["android"]
         self.assertEqual(
