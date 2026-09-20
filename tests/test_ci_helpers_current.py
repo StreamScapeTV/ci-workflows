@@ -117,6 +117,7 @@ class CiHelperTests(_prior.CiHelperTests):
             "oci_reproducibility",
         )
         serialized_release_jobs = (
+            "repository_release",
             "apple_release",
             "android_release",
             "maven",

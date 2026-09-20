@@ -422,6 +422,7 @@ jobs:
           SOURCE_REF: ${{ inputs.ref }}
           SOURCE_IS_TAG: ${{ inputs.source_is_tag }}
           OPERATION: ${{ inputs.operation }}
+          HOST_OS: ${{ inputs.host_os }}
           CONTRACT: ${{ github.workspace }}/central-ci/contracts/repository-ci-v1.json
           AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
           AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
@@ -465,7 +466,7 @@ jobs:
           }
 
           capability_run_id="${LIFECYCLE_CI_RUN_ID}"
-          capability_context=validation_repository
+          capability_context=repository_lifecycle
           if test -n "${TRUSTED_CAPABILITY_CI_RUN_ID}"; then
             capability_run_id="${TRUSTED_CAPABILITY_CI_RUN_ID}"
             capability_context=library_package_parent
@@ -506,11 +507,21 @@ jobs:
               exit 1
             }
           case "${capability_context}" in
-            validation_repository)
-              test "${run_workflow}" = validation.repository && test "${run_profile}" = "${OPERATION}" || {
-                echo "repository CI trusted capability grant is not bound to the exact Agent State request" >&2
-                exit 1
-              }
+            repository_lifecycle)
+              if test "${OPERATION}" = release; then
+                test "${run_workflow}" = release.repository \
+                  && test "${run_profile}" = "${HOST_OS}" \
+                  && test "${run_is_tag}" = true || {
+                    echo "repository CI trusted release capability grant is not bound to the exact Agent State request" >&2
+                    exit 1
+                  }
+              else
+                test "${run_workflow}" = validation.repository \
+                  && test "${run_profile}" = "${OPERATION}" || {
+                    echo "repository CI trusted capability grant is not bound to the exact Agent State request" >&2
+                    exit 1
+                  }
+              fi
               ;;
             library_package_parent)
               test "${run_workflow}" = release.library-package && test "${run_profile}" = publish || {
