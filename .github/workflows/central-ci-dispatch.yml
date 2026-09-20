@@ -152,7 +152,14 @@ jobs:
           if profile != "native-component" and native_component not in (None, ""):
               raise SystemExit("native_component is accepted only by Apple native-component")
 
-          if profile == "screenshot-review":
+          if profile == "physical-performance":
+              if workflow != "validation.android":
+                  raise SystemExit("physical-performance is supported only by validation.android")
+              if repository != "StreamScapeTV/iptv-android":
+                  raise SystemExit("Android physical-performance is bounded to StreamScapeTV/iptv-android")
+              if inputs:
+                  raise SystemExit("Android physical-performance accepts no semantic inputs")
+          elif profile == "screenshot-review":
               allowed_repository = {
                   "validation.apple": "StreamScapeTV/iptv-apple",
                   "validation.android": "StreamScapeTV/iptv-android",
@@ -229,11 +236,6 @@ jobs:
                       raise SystemExit(f"Apple {profile} contains an invalid selector")
               else:
                   raise SystemExit("unsupported native targeted workflow")
-          elif workflow == "validation.android" and profile == "physical-performance":
-              if repository != "StreamScapeTV/iptv-android":
-                  raise SystemExit("Android physical-performance is bounded to StreamScapeTV/iptv-android")
-              if inputs:
-                  raise SystemExit("Android physical-performance accepts no semantic inputs")
           elif workflow == "validation.android" and profile == "targeted-unit":
               if selector_payload not in (None, "[]") or platform not in (None, ""):
                   raise SystemExit("legacy targeted-unit does not accept new targeted-tests inputs")
@@ -245,6 +247,90 @@ jobs:
               if legacy_filter not in (None, ""):
                   raise SystemExit("test_filter is accepted only by legacy Android targeted-unit")
           PY_VALIDATE_NATIVE_TARGETED
+
+      - name: Validate generic repository-owned CI request
+        if: ${{ steps.claim.outputs.workflow_key == 'validation.repository' }}
+        shell: bash
+        env:
+          TEST_PROFILE: ${{ steps.claim.outputs.test_profile }}
+          INPUTS_JSON: ${{ steps.claim.outputs.inputs_json }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY_VALIDATE_REPOSITORY'
+          import json
+          import os
+          import re
+
+          profile = os.environ.get("TEST_PROFILE", "")
+          try:
+              inputs = json.loads(os.environ.get("INPUTS_JSON", "{}"))
+          except json.JSONDecodeError as exc:
+              raise SystemExit("validation.repository inputs must be one JSON object") from exc
+          if not isinstance(inputs, dict):
+              raise SystemExit("validation.repository inputs must be one JSON object")
+          if profile not in {"build", "test", "full", "ui-test"}:
+              raise SystemExit("validation.repository supports only build, test, full, or ui-test")
+
+          provider_operation_id = inputs.pop("provider_operation_id", None)
+          if provider_operation_id is not None:
+              if not isinstance(provider_operation_id, str) or re.fullmatch(
+                  r"provider_[0-9a-f]{32}", provider_operation_id
+              ) is None:
+                  raise SystemExit(
+                      "validation.repository provider_operation_id must match provider_<32 lowercase hex>"
+                  )
+
+          if set(inputs) - {"host_os", "semantic_inputs"} or "host_os" not in inputs:
+              raise SystemExit("validation.repository accepts only host_os and semantic_inputs plus reserved provider_operation_id metadata")
+          if inputs["host_os"] not in {"linux", "macos"}:
+              raise SystemExit("validation.repository host_os must be linux or macos")
+
+          raw = inputs.get("semantic_inputs", "{}")
+          if not isinstance(raw, str) or len(raw.encode("utf-8")) > 2048:
+              raise SystemExit("validation.repository semantic_inputs must be one bounded JSON string")
+          def reject_duplicate_keys(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(f"duplicate semantic field: {key}")
+                  result[key] = value
+              return result
+
+          try:
+              semantic = json.loads(raw, object_pairs_hook=reject_duplicate_keys)
+          except (json.JSONDecodeError, ValueError) as exc:
+              raise SystemExit("validation.repository semantic_inputs must encode one unambiguous JSON object") from exc
+          if not isinstance(semantic, dict):
+              raise SystemExit("validation.repository semantic_inputs must encode one JSON object")
+
+          allowed = {
+              "build": {"product_target"},
+              "test": {"product_target", "test_selectors"},
+              "full": {"product_target"},
+              "ui-test": {"product_target", "ui_mode"},
+          }[profile]
+          if set(semantic) - allowed:
+              raise SystemExit("validation.repository semantic_inputs contains an unknown field")
+
+          target = semantic.get("product_target")
+          if target is not None:
+              if not isinstance(target, str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", target) is None:
+                  raise SystemExit("validation.repository product_target is outside the reviewed bound")
+
+          selectors = semantic.get("test_selectors")
+          if selectors is not None:
+              if profile != "test" or not isinstance(selectors, list) or len(selectors) > 64:
+                  raise SystemExit("validation.repository test_selectors must be one bounded list for test")
+              pattern = re.compile(r"[A-Za-z0-9_.$/:+-]{1,240}")
+              for selector in selectors:
+                  if not isinstance(selector, str) or selector.startswith("-") or pattern.fullmatch(selector) is None:
+                      raise SystemExit("validation.repository test_selectors contains an invalid selector")
+
+          ui_mode = semantic.get("ui_mode")
+          if ui_mode is not None:
+              if profile != "ui-test" or ui_mode not in {"smoke", "full-ordinary"}:
+                  raise SystemExit("validation.repository ui_mode must be smoke or full-ordinary for ui-test")
+          PY_VALIDATE_REPOSITORY
 
       - name: Validate Maven release request
         if: ${{ steps.claim.outputs.workflow_key == 'release.maven' }}
@@ -454,6 +540,35 @@ jobs:
           else:
               raise SystemExit("release.apple supports only testflight, binary-package and swiftpm-package profiles")
           PY_VALIDATE_APPLE_RELEASE
+
+  repository:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'validation.repository' }}
+    concurrency:
+      group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
+      cancel-in-progress: true
+    uses: ./.github/workflows/repository.yml
+    with:
+      repository: ${{ needs.request.outputs.repository }}
+      ref: ${{ needs.request.outputs.ref }}
+      source_is_tag: ${{ needs.request.outputs.is_tag == 'true' }}
+      operation: ${{ needs.request.outputs.test_profile }}
+      host_os: ${{ fromJSON(needs.request.outputs.inputs_json).host_os }}
+      semantic_inputs_json: ${{ fromJSON(needs.request.outputs.inputs_json).semantic_inputs || '{}' }}
+      ci_run_id: ${{ inputs.ci_run_id }}
+    secrets:
+      SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
+      SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+      AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+      AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+      GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+      GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+      REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+      REGISTRY_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
 
   apple:
     needs: request
@@ -1109,6 +1224,7 @@ jobs:
   settle_cancelled:
     needs:
       - request
+      - repository
       - apple
       - apple_release
       - android
@@ -1130,6 +1246,7 @@ jobs:
         always() &&
         (
           needs.request.result != 'success' ||
+          needs.repository.result == 'cancelled' ||
           needs.apple.result == 'cancelled' ||
           needs.apple_release.result == 'cancelled' ||
           needs.android.result == 'cancelled' ||
