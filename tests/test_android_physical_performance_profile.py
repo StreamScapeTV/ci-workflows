@@ -345,12 +345,29 @@ class AndroidPhysicalPerformanceProfileTests(unittest.TestCase):
             "android-physical-tv",
         ):
             self.assertNotIn(invented, serialized)
+        helper_checkout = next(
+            step
+            for step in job["steps"]
+            if step.get("name") == "Check out Central physical-performance helpers"
+        )
+        self.assertEqual(
+            helper_checkout["with"]["repository"],
+            "StreamScapeTV/ci-workflows",
+        )
+        self.assertEqual(helper_checkout["with"]["ref"], "main")
+        self.assertEqual(
+            helper_checkout["with"]["path"],
+            "central-physical-performance",
+        )
         run = next(
             step
             for step in job["steps"]
             if step.get("name") == "Run bounded BrowserStack physical-performance cohort"
         )
-        self.assertIn("android_physical_browserstack.py", run["run"])
+        self.assertIn(
+            "central-physical-performance/scripts/ci/android_physical_browserstack.py",
+            run["run"],
+        )
         self.assertEqual(
             run["env"]["BROWSERSTACK_USERNAME"],
             "${{ secrets.BROWSERSTACK_USERNAME }}",
