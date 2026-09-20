@@ -750,6 +750,26 @@ jobs:
                   if escaped != raw:
                       data = data.replace(escaped, b"[REDACTED]")
               path.write_bytes(data)
+
+          resolved_artifact_root = artifact_root.resolve(strict=True)
+          for path in sorted(artifact_root.rglob("*")):
+              if path.is_symlink():
+                  data = os.fsencode(os.readlink(path))
+              elif path.is_file():
+                  resolved = path.resolve(strict=True)
+                  if os.path.commonpath((str(resolved), str(resolved_artifact_root))) != str(resolved_artifact_root):
+                      raise SystemExit(f"repository CI artifact evidence escapes its Central-owned root: {path.name}")
+                  if path.stat().st_size > 16 * 1024 * 1024:
+                      raise SystemExit(f"repository CI artifact evidence file exceeds 16 MiB before secret scan: {path.name}")
+                  data = path.read_bytes()
+              else:
+                  continue
+              for raw in secrets:
+                  if raw in data:
+                      raise SystemExit(f"repository CI artifact evidence contains configured secret bytes: {path.name}")
+                  escaped = raw.replace(b"\n", b"\\n")
+                  if escaped != raw and escaped in data:
+                      raise SystemExit(f"repository CI artifact evidence contains escaped configured secret bytes: {path.name}")
           PY_REDACT
 
       - name: Package bounded repository CI evidence
