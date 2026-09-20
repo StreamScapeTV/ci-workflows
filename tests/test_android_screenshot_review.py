@@ -26,14 +26,14 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
         self.assertIn("mobile.* or tv.* canonical ids", script)
         self.assertNotIn("screenshot-review is supported only by validation.apple\n", script)
 
-    def test_android_profile_has_exactly_five_fixed_hosted_lanes(self) -> None:
+    def test_android_profile_keeps_fixed_screenshot_lanes_and_trusted_physical_runner(self) -> None:
         jobs = self.workflow["jobs"]
         self.assertEqual(
             jobs["ci"]["if"],
             "${{ inputs.test_profile != 'screenshot-review' && inputs.test_profile != 'physical-performance' }}",
         )
         physical = jobs["physical_performance"]
-        self.assertEqual(physical["runs-on"], "ubuntu-24.04")
+        self.assertEqual(physical["runs-on"], ["macOS", "ARM64"])
         self.assertNotIn("strategy", physical)
         for invented_runner in (
             "android-physical-phone",
