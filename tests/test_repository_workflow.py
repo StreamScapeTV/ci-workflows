@@ -2,9 +2,11 @@ from pathlib import Path
 import json
 import os
 import re
+import stat
 import subprocess
 import tempfile
 import unittest
+import zipfile
 
 import yaml
 
@@ -886,12 +888,15 @@ class RepositoryWorkflowTests(unittest.TestCase):
 
         scrub = by_name["Scrub configured CI secrets from private text evidence"]
         self.assertEqual(scrub["if"], "${{ always() }}")
-        self.assertIn('("CI_LOG_DIR", "CI_ARTIFACT_DIR")', scrub["run"])
+        self.assertIn('log_root = Path(os.environ["CI_LOG_DIR"])', scrub["run"])
+        self.assertIn('artifact_root = Path(os.environ["CI_ARTIFACT_DIR"])', scrub["run"])
+        self.assertNotIn('for name in ("CI_LOG_DIR", "CI_ARTIFACT_DIR")', scrub["run"])
 
         package = by_name["Package bounded repository CI evidence"]
         self.assertIn("evidence exceeds 256 files", package["run"])
         self.assertIn("evidence exceeds 64 MiB", package["run"])
-        self.assertIn("must not contain symlinks", package["run"])
+        self.assertIn("artifact evidence symlink escapes its Central-owned root", package["run"])
+        self.assertIn("stat.S_IFLNK", package["run"])
 
         upload = by_name["Upload private repository CI log to Google Drive"]
         self.assertEqual(
@@ -957,6 +962,125 @@ class RepositoryWorkflowTests(unittest.TestCase):
             self.assertEqual(archive, root / "central-repository-ci-evidence.zip")
             self.assertTrue(archive.is_file())
             self.assertFalse(archive.is_symlink())
+
+    def test_framework_style_artifact_symlinks_survive_scrub_and_package_without_dereference(self) -> None:
+        by_name = self.steps_by_name
+        scrub = by_name["Scrub configured CI secrets from private text evidence"]["run"]
+        package = by_name["Package bounded repository CI evidence"]["run"]
+        drive_if = by_name["Upload private repository CI log to Google Drive"]["if"]
+        evidence_if = by_name["Upload bounded repository CI evidence to Google Drive"]["if"]
+        self.assertNotIn("steps.execute_contract.outcome == 'success'", drive_if)
+        self.assertNotIn("steps.execute_contract.outcome == 'success'", evidence_if)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log_dir = root / "logs"
+            artifact_dir = root / "artifacts"
+            framework = artifact_dir / "Example.framework"
+            headers = framework / "Versions" / "A" / "Headers"
+            headers.mkdir(parents=True)
+            log_dir.mkdir()
+            (headers / "Example.h").write_bytes(b"binary-safe-header\n")
+            (framework / "Versions" / "Current").symlink_to("A", target_is_directory=True)
+            (framework / "Headers").symlink_to(
+                "Versions/Current/Headers",
+                target_is_directory=True,
+            )
+            secret = "registry-secret-value"
+            ci_log = root / "central.log"
+            ci_log.write_text(f"timeout {secret}\n", encoding="utf-8")
+            (log_dir / "tool.log").write_text(f"tool {secret}\n", encoding="utf-8")
+            progress = root / "progress.txt"
+            progress.write_text("timed-out\n", encoding="utf-8")
+            github_output = root / "github-output"
+            github_output.write_text("", encoding="utf-8")
+            env = {
+                **os.environ,
+                "RUNNER_TEMP": str(root),
+                "CI_LOG": str(ci_log),
+                "CI_PROGRESS_FILE": str(progress),
+                "CI_LOG_DIR": str(log_dir),
+                "CI_ARTIFACT_DIR": str(artifact_dir),
+                "CI_SECRET_TEST": secret,
+                "GITHUB_OUTPUT": str(github_output),
+            }
+
+            scrubbed = subprocess.run(
+                ["bash", "-c", scrub],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(scrubbed.returncode, 0, scrubbed.stderr)
+            self.assertTrue((framework / "Headers").is_symlink())
+            self.assertNotIn(secret, ci_log.read_text(encoding="utf-8"))
+            self.assertNotIn(secret, (log_dir / "tool.log").read_text(encoding="utf-8"))
+
+            packaged = subprocess.run(
+                ["bash", "-c", package],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(packaged.returncode, 0, packaged.stderr)
+            archive = root / "central-repository-ci-evidence.zip"
+            self.assertTrue(archive.is_file())
+            with zipfile.ZipFile(archive) as bundle:
+                for name, target in (
+                    ("artifacts/Example.framework/Headers", b"Versions/Current/Headers"),
+                    ("artifacts/Example.framework/Versions/Current", b"A"),
+                ):
+                    info = bundle.getinfo(name)
+                    self.assertEqual((info.external_attr >> 16) & 0o170000, stat.S_IFLNK)
+                    self.assertEqual(bundle.read(name), target)
+                self.assertEqual(
+                    bundle.read("artifacts/Example.framework/Versions/A/Headers/Example.h"),
+                    b"binary-safe-header\n",
+                )
+
+    def test_artifact_symlink_escape_is_rejected_without_reading_outside_bytes(self) -> None:
+        package = self.steps_by_name["Package bounded repository CI evidence"]["run"]
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log_dir = root / "logs"
+            artifact_dir = root / "artifacts"
+            log_dir.mkdir()
+            artifact_dir.mkdir()
+            (log_dir / "tool.log").write_text("bounded log\n", encoding="utf-8")
+            outside = root / "outside-secret.bin"
+            outside_bytes = b"must-never-enter-archive"
+            outside.write_bytes(outside_bytes)
+            (artifact_dir / "Headers").symlink_to(outside)
+            progress = root / "progress.txt"
+            progress.write_text("failed\n", encoding="utf-8")
+            github_output = root / "github-output"
+            github_output.write_text("", encoding="utf-8")
+
+            result = subprocess.run(
+                ["bash", "-c", package],
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "RUNNER_TEMP": str(root),
+                    "CI_LOG_DIR": str(log_dir),
+                    "CI_ARTIFACT_DIR": str(artifact_dir),
+                    "CI_PROGRESS_FILE": str(progress),
+                    "GITHUB_OUTPUT": str(github_output),
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("artifact evidence symlink escapes its Central-owned root", result.stderr)
+            self.assertEqual(outside.read_bytes(), outside_bytes)
+            archive = root / "central-repository-ci-evidence.zip"
+            self.assertFalse(archive.exists())
+            self.assertEqual(github_output.read_text(encoding="utf-8"), "")
 
     def test_text_evidence_scrub_fails_closed_on_oversize_or_symlink_and_redacts_normal_log(self) -> None:
         by_name = self.steps_by_name

@@ -722,20 +722,21 @@ jobs:
           from pathlib import Path
 
           paths = [Path(os.environ["CI_LOG"]), Path(os.environ["CI_PROGRESS_FILE"])]
-          for name in ("CI_LOG_DIR", "CI_ARTIFACT_DIR"):
-              root = Path(os.environ[name])
+          log_root = Path(os.environ["CI_LOG_DIR"])
+          artifact_root = Path(os.environ["CI_ARTIFACT_DIR"])
+          for name, root in (("CI_LOG_DIR", log_root), ("CI_ARTIFACT_DIR", artifact_root)):
               if root.is_symlink() or not root.is_dir():
                   raise SystemExit(f"repository CI {name} must remain one real directory before scrub")
-              resolved_root = root.resolve(strict=True)
-              for path in sorted(root.rglob("*")):
-                  if path.is_symlink():
-                      raise SystemExit(f"repository CI text evidence must not contain symlinks: {path.name}")
-                  if not path.is_file():
-                      continue
-                  resolved = path.resolve(strict=True)
-                  if os.path.commonpath((str(resolved), str(resolved_root))) != str(resolved_root):
-                      raise SystemExit(f"repository CI text evidence escapes its Central-owned root: {path.name}")
-                  paths.append(path)
+          resolved_log_root = log_root.resolve(strict=True)
+          for path in sorted(log_root.rglob("*")):
+              if path.is_symlink():
+                  raise SystemExit(f"repository CI text evidence must not contain symlinks: {path.name}")
+              if not path.is_file():
+                  continue
+              resolved = path.resolve(strict=True)
+              if os.path.commonpath((str(resolved), str(resolved_log_root))) != str(resolved_log_root):
+                  raise SystemExit(f"repository CI text evidence escapes its Central-owned root: {path.name}")
+              paths.append(path)
           secrets = [value.encode() for name, value in os.environ.items() if name.startswith("CI_SECRET_") and value]
           for path in paths:
               if path.is_symlink() or not path.is_file():
@@ -762,6 +763,7 @@ jobs:
           python3 - "${archive}" <<'PY_EVIDENCE'
           from pathlib import Path
           import os
+          import stat
           import sys
           import zipfile
 
@@ -770,15 +772,33 @@ jobs:
               ("logs", Path(os.environ["CI_LOG_DIR"])),
               ("artifacts", Path(os.environ["CI_ARTIFACT_DIR"])),
           )
-          files: list[tuple[str, Path]] = []
+          entries: list[tuple[str, Path, bytes | None]] = []
           total = 0
           for prefix, root in roots:
               if root.is_symlink() or not root.is_dir():
                   raise SystemExit(f"repository CI {prefix} root must remain one real directory")
               resolved_root = root.resolve(strict=True)
               for path in sorted(root.rglob("*")):
+                  archive_name = f"{prefix}/{path.relative_to(root).as_posix()}"
                   if path.is_symlink():
-                      raise SystemExit(f"repository CI {prefix} evidence must not contain symlinks")
+                      if prefix != "artifacts":
+                          raise SystemExit(f"repository CI {prefix} evidence must not contain symlinks")
+                      raw_target = os.readlink(path)
+                      target_bytes = os.fsencode(raw_target)
+                      if not target_bytes or len(target_bytes) > 4096:
+                          raise SystemExit("repository CI artifact evidence symlink target is outside the reviewed bound")
+                      lexical_target = Path(raw_target)
+                      if not lexical_target.is_absolute():
+                          lexical_target = path.parent / lexical_target
+                      lexical_target = Path(os.path.abspath(lexical_target))
+                      if os.path.commonpath((str(lexical_target), str(resolved_root))) != str(resolved_root):
+                          raise SystemExit("repository CI artifact evidence symlink escapes its Central-owned root")
+                      resolved_target = path.resolve(strict=False)
+                      if os.path.commonpath((str(resolved_target), str(resolved_root))) != str(resolved_root):
+                          raise SystemExit("repository CI artifact evidence symlink escapes its Central-owned root")
+                      total += len(target_bytes)
+                      entries.append((archive_name, path, target_bytes))
+                      continue
                   if not path.is_file():
                       continue
                   resolved = path.resolve(strict=True)
@@ -788,19 +808,26 @@ jobs:
                   if size > 16 * 1024 * 1024:
                       raise SystemExit(f"repository CI {prefix} evidence file exceeds 16 MiB")
                   total += size
-                  files.append((f"{prefix}/{path.relative_to(root).as_posix()}", path))
+                  entries.append((archive_name, path, None))
           progress = Path(os.environ["CI_PROGRESS_FILE"])
           if progress.is_symlink() or not progress.is_file():
               raise SystemExit("repository CI progress evidence must remain one regular file")
           total += progress.stat().st_size
-          files.append(("progress.txt", progress))
-          if len(files) > 256:
+          entries.append(("progress.txt", progress, None))
+          if len(entries) > 256:
               raise SystemExit("repository CI evidence exceeds 256 files")
           if total > 64 * 1024 * 1024:
               raise SystemExit("repository CI evidence exceeds 64 MiB")
           with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as output:
-              for name, path in files:
-                  output.write(path, arcname=name)
+              for name, path, symlink_target in entries:
+                  if symlink_target is None:
+                      output.write(path, arcname=name)
+                      continue
+                  info = zipfile.ZipInfo(name)
+                  info.create_system = 3
+                  info.external_attr = (stat.S_IFLNK | 0o777) << 16
+                  info.compress_type = zipfile.ZIP_STORED
+                  output.writestr(info, symlink_target)
           PY_EVIDENCE
           test -f "${archive}"
           printf 'archive=%s\n' "${archive}" >> "${GITHUB_OUTPUT}"
