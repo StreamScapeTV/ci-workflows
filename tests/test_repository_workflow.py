@@ -932,6 +932,8 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertIn("central-ci/scripts/ci/repository_log_checkpoint.py", script)
         self.assertIn('--file-id "${CHECKPOINT_FILE_ID}"', script)
         self.assertIn('--seed-sha256 "${CHECKPOINT_SEED_SHA256}"', script)
+        self.assertIn('--timeline-state-path "${RUNNER_TEMP}/central-repository-ci-timeline.json"', script)
+        self.assertIn('--progress-path "${CI_PROGRESS_FILE}"', script)
         self.assertNotIn("--repository", script)
         self.assertNotIn("--file-name", script)
         self.assertNotIn("--folder-id", script)
@@ -942,9 +944,53 @@ class RepositoryWorkflowTests(unittest.TestCase):
             script.index("printf 'exit_code=%s"),
         )
 
+        timeline_seed = by_name["Record private-capabilities completion and start repository entrypoint"]["run"]
+        self.assertIn('cp -- "${CI_LOG}" "${seed}"', timeline_seed)
+        self.assertLess(
+            [step.get("name") for step in self.workflow["jobs"]["execute"]["steps"]].index(
+                "Record private-capabilities completion and start repository entrypoint"
+            ),
+            [step.get("name") for step in self.workflow["jobs"]["execute"]["steps"]].index(
+                "Seed stable private repository CI log object"
+            ),
+        )
+
         cleanup = by_name["Cleanup ephemeral registry and repository evidence"]["run"]
         self.assertIn("central-repository-ci-log-checkpoint-seed.txt", cleanup)
         self.assertIn("central-repository-ci-log-checkpoint-status.json", cleanup)
+        self.assertIn("central-repository-ci-timeline.json", cleanup)
+
+    def test_repository_timeline_has_fixed_central_phases_and_terminal_entrypoint_states(self) -> None:
+        by_name = self.steps_by_name
+        names = [step.get("name") for step in self.workflow["jobs"]["execute"]["steps"]]
+        self.assertLess(names.index("Check out reviewed repository CI contract"), names.index("Start bounded Central repository CI timeline"))
+        self.assertLess(names.index("Record observed source SHA"), names.index("Record source-admission completion"))
+        self.assertLess(names.index("Configure ephemeral generic package-manager authentication"), names.index("Record private-capabilities completion and start repository entrypoint"))
+        self.assertLess(names.index("Record private-capabilities completion and start repository entrypoint"), names.index("Execute fixed repository-owned entrypoint"))
+
+        start = by_name["Start bounded Central repository CI timeline"]["run"]
+        source = by_name["Record source-admission completion"]["run"]
+        capabilities = by_name["Record private-capabilities completion and start repository entrypoint"]["run"]
+        execute = by_name["Execute fixed repository-owned entrypoint"]["run"]
+        reconcile = by_name["Reconcile bounded Central timeline after early exit"]
+        self.assertEqual(reconcile["if"], "${{ always() }}")
+        self.assertEqual(
+            reconcile["env"]["TIMELINE_STATUS"],
+            "${{ cancelled() && 'cancelled' || 'failed' }}",
+        )
+        self.assertIn("finish-active", reconcile["run"])
+        self.assertLess(names.index("Execute fixed repository-owned entrypoint"), names.index("Reconcile bounded Central timeline after early exit"))
+        self.assertLess(names.index("Reconcile bounded Central timeline after early exit"), names.index("Scrub configured CI secrets from private text evidence"))
+        self.assertIn("--phase source-admission", start)
+        self.assertIn("--phase source-admission", source)
+        self.assertIn("--phase private-capabilities", source)
+        self.assertIn("--phase private-capabilities", capabilities)
+        self.assertIn("--phase repository-entrypoint", capabilities)
+        self.assertIn("finish_entrypoint_timeline complete", execute)
+        self.assertIn("finish_entrypoint_timeline failed", execute)
+        self.assertIn("finish_entrypoint_timeline cancelled", execute)
+        for forbidden in ("inputs.timeline", "inputs.phase", "phase_name", "metadata_json"):
+            self.assertNotIn(forbidden, start + source + capabilities + execute)
 
     def test_central_owns_log_paths_scrubbing_transport_and_cleanup(self) -> None:
         by_name = self.steps_by_name
@@ -1402,6 +1448,10 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertEqual(
             inventory["contracts"]["repository_ci_v1"],
             "contracts/repository-ci-v1.json",
+        )
+        self.assertEqual(
+            inventory["scripts"]["repository_log_timeline"],
+            "scripts/ci/repository_log_timeline.py",
         )
         self.assertFalse(
             (ROOT / ".github/workflows/repository-build.yml").exists()

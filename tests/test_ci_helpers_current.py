@@ -30,7 +30,7 @@ class CiHelperTests(_prior.CiHelperTests):
             {"apple", "repository", "apple_binary", "apple_swiftpm", "library_package_release", "android", "python", "node", "flutter", "maven", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "source_snapshot_delete", "source_snapshot", "source_checkpoint_publish", "central_dispatch", "ci_log_retention", "self_check", "runner_images"},
         )
         self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git", "source_snapshot"})
-        self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility", "ci_log_reconcile", "repository_log_checkpoint", "source_snapshot_delete", "source_snapshot_lifecycle", "source_checkpoint_publish", "swiftpm_binary"})
+        self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility", "ci_log_reconcile", "repository_log_checkpoint", "repository_log_timeline", "source_snapshot_delete", "source_snapshot_lifecycle", "source_checkpoint_publish", "swiftpm_binary"})
         self.assertEqual(set(inventory["contracts"]), {"repository_ci_v1"})
         self.assertEqual(inventory["contracts"]["repository_ci_v1"], "contracts/repository-ci-v1.json")
         self.assertEqual(set(inventory["services"]), {"runner_images"})

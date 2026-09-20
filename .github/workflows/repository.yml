@@ -129,6 +129,15 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Start bounded Central repository CI timeline
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 central-ci/scripts/ci/repository_log_timeline.py start \
+            --phase source-admission \
+            --log-path "${CI_LOG}" \
+            --state-path "${RUNNER_TEMP}/central-repository-ci-timeline.json"
+
       - name: Validate bounded repository operation
         id: request
         shell: bash
@@ -414,6 +423,21 @@ jobs:
           ci_run_id: ${{ inputs.ci_run_id }}
           observed_source_sha: ${{ steps.source_identity.outputs.source_sha }}
 
+      - name: Record source-admission completion
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          timeline="${RUNNER_TEMP}/central-repository-ci-timeline.json"
+          python3 central-ci/scripts/ci/repository_log_timeline.py finish \
+            --phase source-admission \
+            --status complete \
+            --log-path "${CI_LOG}" \
+            --state-path "${timeline}"
+          python3 central-ci/scripts/ci/repository_log_timeline.py start \
+            --phase private-capabilities \
+            --log-path "${CI_LOG}" \
+            --state-path "${timeline}"
+
       - name: Resolve trusted private infrastructure capabilities
         id: capabilities
         shell: bash
@@ -677,6 +701,24 @@ jobs:
             printf 'git_config=%s\n' "${git_config}"
           } >> "${GITHUB_OUTPUT}"
 
+      - name: Record private-capabilities completion and start repository entrypoint
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          timeline="${RUNNER_TEMP}/central-repository-ci-timeline.json"
+          seed="${RUNNER_TEMP}/central-repository-ci-log-checkpoint-seed.txt"
+          python3 central-ci/scripts/ci/repository_log_timeline.py finish \
+            --phase private-capabilities \
+            --status complete \
+            --log-path "${CI_LOG}" \
+            --state-path "${timeline}"
+          python3 central-ci/scripts/ci/repository_log_timeline.py start \
+            --phase repository-entrypoint \
+            --log-path "${CI_LOG}" \
+            --state-path "${timeline}"
+          cp -- "${CI_LOG}" "${seed}"
+          chmod 600 "${seed}"
+
       - name: Seed stable private repository CI log object
         id: log_seed
         if: ${{ inputs.ci_run_id != '' || inputs.upload_private_log }}
@@ -750,7 +792,19 @@ jobs:
             fi
             checkpoint_pid=""
           }
+          finish_entrypoint_timeline() {
+            local phase_status="$1"
+            if ! python3 central-ci/scripts/ci/repository_log_timeline.py finish \
+              --phase repository-entrypoint \
+              --status "${phase_status}" \
+              --log-path "${CI_LOG}" \
+              --state-path "${RUNNER_TEMP}/central-repository-ci-timeline.json" \
+              --progress-path "${CI_PROGRESS_FILE}"; then
+              echo "::warning::repository CI timeline finalization failed; product result is preserved" >&2
+            fi
+          }
           terminate_with_checkpoint() {
+            finish_entrypoint_timeline cancelled
             stop_checkpoint
             exit 143
           }
@@ -765,7 +819,9 @@ jobs:
               --log-path "${CI_LOG}" \
               --file-id "${CHECKPOINT_FILE_ID}" \
               --seed-sha256 "${CHECKPOINT_SEED_SHA256}" \
-              --status-path "${RUNNER_TEMP}/central-repository-ci-log-checkpoint-status.json" &
+              --status-path "${RUNNER_TEMP}/central-repository-ci-log-checkpoint-status.json" \
+              --timeline-state-path "${RUNNER_TEMP}/central-repository-ci-timeline.json" \
+              --progress-path "${CI_PROGRESS_FILE}" &
             checkpoint_pid=$!
           fi
 
@@ -793,12 +849,35 @@ jobs:
           ) >> "${CI_LOG}" 2>&1
           status=$?
           set -e
+          if test "${status}" -eq 0; then
+            finish_entrypoint_timeline complete
+          else
+            finish_entrypoint_timeline failed
+          fi
           stop_checkpoint
           trap - TERM INT EXIT
           printf 'exit_code=%s\n' "${status}" >> "${GITHUB_OUTPUT}"
           if test "${status}" -ne 0; then
             echo "repository-owned ${OPERATION} operation failed; inspect the private CI log" >&2
             exit "${status}"
+          fi
+
+      - name: Reconcile bounded Central timeline after early exit
+        if: ${{ always() }}
+        shell: bash
+        env:
+          TIMELINE_STATUS: ${{ cancelled() && 'cancelled' || 'failed' }}
+        run: |
+          set -Eeuo pipefail
+          timeline="${RUNNER_TEMP}/central-repository-ci-timeline.json"
+          if test -f "${timeline}"; then
+            if ! python3 central-ci/scripts/ci/repository_log_timeline.py finish-active \
+              --status "${TIMELINE_STATUS}" \
+              --log-path "${CI_LOG}" \
+              --state-path "${timeline}" \
+              --progress-path "${CI_PROGRESS_FILE}"; then
+              echo "::warning::repository CI timeline reconciliation failed; evidence handling continues" >&2
+            fi
           fi
 
       - name: Scrub configured CI secrets from private text evidence
@@ -1004,6 +1083,7 @@ jobs:
             "${RUNNER_TEMP}/central-repository-ci.log" \
             "${RUNNER_TEMP}/central-repository-ci-log-checkpoint-seed.txt" \
             "${RUNNER_TEMP}/central-repository-ci-log-checkpoint-status.json" \
+            "${RUNNER_TEMP}/central-repository-ci-timeline.json" \
             "${RUNNER_TEMP}/central-repository-ci-evidence.zip"
 
       - name: Finish Agent State run
