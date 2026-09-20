@@ -445,7 +445,6 @@ def run_profile(
                 "providerSessionId": device["providerSessionId"],
             }
             product_env = os.environ.copy()
-            product_env.pop("CI_ANDROID_PHYSICAL_PROVIDER", None)
             product_env.update(
                 {
                     "ANDROID_SERIAL": str(device["serial"]),
