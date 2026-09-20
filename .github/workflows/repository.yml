@@ -28,6 +28,10 @@ name: Repository-owned CI
         type: string
         required: false
         default: ""
+      trusted_capability_ci_run_id:
+        type: string
+        required: false
+        default: ""
       operation:
         type: string
         required: true
@@ -132,6 +136,8 @@ jobs:
           RAW_SEMANTIC_INPUTS: ${{ inputs.semantic_inputs_json }}
           RELEASE_AUTHORIZED: ${{ inputs.release_authorized }}
           SOURCE_IS_TAG: ${{ inputs.source_is_tag }}
+          LIFECYCLE_CI_RUN_ID: ${{ inputs.ci_run_id }}
+          TRUSTED_CAPABILITY_CI_RUN_ID: ${{ inputs.trusted_capability_ci_run_id }}
           CALLER_REPOSITORY: ${{ github.repository }}
           CALLER_REF: ${{ github.ref }}
           CONTRACT: ${{ github.workspace }}/central-ci/contracts/repository-ci-v1.json
@@ -141,6 +147,24 @@ jobs:
             linux|macos) ;;
             *) echo "repository operation host_os must be linux or macos" >&2; exit 2 ;;
           esac
+          if test -n "${TRUSTED_CAPABILITY_CI_RUN_ID}"; then
+            test -z "${LIFECYCLE_CI_RUN_ID}" || {
+              echo "repository trusted aggregate capability context cannot also own Agent State lifecycle" >&2
+              exit 2
+            }
+            test "${CALLER_REPOSITORY}" = StreamScapeTV/ci-workflows && test "${CALLER_REF}" = refs/heads/main || {
+              echo "repository trusted aggregate capability context requires reviewed Central main" >&2
+              exit 2
+            }
+            test "${SOURCE_IS_TAG}" = true || {
+              echo "repository trusted aggregate capability context requires an immutable tag source" >&2
+              exit 2
+            }
+            case "${OPERATION}" in
+              full|release) ;;
+              *) echo "repository trusted aggregate capability context is accepted only by full/release operations" >&2; exit 2 ;;
+            esac
+          fi
           case "${OPERATION}" in
             build) entrypoint=.ci/build.sh ;;
             test) entrypoint=.ci/test.sh ;;
@@ -392,7 +416,8 @@ jobs:
         id: capabilities
         shell: bash
         env:
-          CI_RUN_ID: ${{ inputs.ci_run_id }}
+          LIFECYCLE_CI_RUN_ID: ${{ inputs.ci_run_id }}
+          TRUSTED_CAPABILITY_CI_RUN_ID: ${{ inputs.trusted_capability_ci_run_id }}
           SOURCE_REPOSITORY: ${{ inputs.repository }}
           SOURCE_REF: ${{ inputs.ref }}
           SOURCE_IS_TAG: ${{ inputs.source_is_tag }}
@@ -439,7 +464,13 @@ jobs:
           PY_NONE
           }
 
-          if test -z "${CI_RUN_ID}"; then
+          capability_run_id="${LIFECYCLE_CI_RUN_ID}"
+          capability_context=validation_repository
+          if test -n "${TRUSTED_CAPABILITY_CI_RUN_ID}"; then
+            capability_run_id="${TRUSTED_CAPABILITY_CI_RUN_ID}"
+            capability_context=library_package_parent
+          fi
+          if test -z "${capability_run_id}"; then
             emit_none
             exit 0
           fi
@@ -457,7 +488,7 @@ jobs:
             curl --fail --silent --show-error               "${headers[@]}"               --data "$2"               "${AGENT_STATE_SUPABASE_URL%/}/rest/v1/rpc/$1"
           }
 
-          claim_response="$(rpc claim_ci_run "$(jq -cn --arg id "${CI_RUN_ID}" '{p_ci_run_id:$id}')")"
+          claim_response="$(rpc claim_ci_run "$(jq -cn --arg id "${capability_run_id}" '{p_ci_run_id:$id}')")"
           test "$(jq -r '.ok' <<<"${claim_response}")" = true || {
             echo "repository CI could not replay the trusted Agent State CI claim" >&2
             exit 1
@@ -470,10 +501,25 @@ jobs:
           run_workflow="$(jq -r '.workflow_key // empty' <<<"${run}")"
           run_profile="$(jq -r '.test_profile // empty' <<<"${run}")"
 
-          test -n "${project_key}"             && test "${run_repository}" = "${SOURCE_REPOSITORY}"             && test "${run_ref}" = "${SOURCE_REF}"             && test "${run_is_tag}" = "${SOURCE_IS_TAG}"             && test "${run_workflow}" = validation.repository             && test "${run_profile}" = "${OPERATION}" || {
+          test -n "${project_key}"             && test "${run_repository}" = "${SOURCE_REPOSITORY}"             && test "${run_ref}" = "${SOURCE_REF}"             && test "${run_is_tag}" = "${SOURCE_IS_TAG}" || {
               echo "repository CI trusted capability grant is not bound to the exact Agent State request" >&2
               exit 1
             }
+          case "${capability_context}" in
+            validation_repository)
+              test "${run_workflow}" = validation.repository && test "${run_profile}" = "${OPERATION}" || {
+                echo "repository CI trusted capability grant is not bound to the exact Agent State request" >&2
+                exit 1
+              }
+              ;;
+            library_package_parent)
+              test "${run_workflow}" = release.library-package && test "${run_profile}" = publish || {
+                echo "repository CI trusted aggregate capability parent is not release.library-package/publish" >&2
+                exit 1
+              }
+              ;;
+            *) echo "repository CI trusted capability context is invalid" >&2; exit 1 ;;
+          esac
 
           project_response="$(rpc get_project_state "$(jq -cn --arg project "${project_key}" '{p_project_key:$project}')")"
           project_state="$(jq -c '.state // {}' <<<"${project_response}")"
