@@ -46,7 +46,8 @@ jobs:
             (
               steps.claim.outputs.workflow_key == 'release.android' ||
               steps.claim.outputs.workflow_key == 'release.apple' ||
-              steps.claim.outputs.workflow_key == 'release.maven'
+              steps.claim.outputs.workflow_key == 'release.maven' ||
+              steps.claim.outputs.workflow_key == 'release.library-package'
             )
           }}
         shell: bash
@@ -111,6 +112,18 @@ jobs:
                   raise SystemExit("release.maven tag must be one non-empty bounded release version")
               release_version = ref
               normalized_inputs = {"build_number": ref}
+          elif workflow == "release.library-package":
+              if profile != "publish":
+                  raise SystemExit("release.library-package supports only the publish profile")
+              if re.fullmatch(
+                  r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
+                  r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+                  r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?",
+                  ref,
+              ) is None:
+                  raise SystemExit("release.library-package requires one plain semantic-version tag")
+              release_version = ref
+              normalized_inputs = {}
           else:
               raise SystemExit("unsupported tag-driven release workflow")
 
@@ -659,6 +672,39 @@ jobs:
       PACKAGE_PUBLISH_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
       PACKAGE_PUBLISH_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
       PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+
+  library_package_release:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'release.library-package' && needs.request.outputs.test_profile == 'publish' }}
+    concurrency:
+      group: central-release-${{ needs.request.outputs.repository }}-${{ needs.request.outputs.workflow_key }}-${{ needs.request.outputs.test_profile }}
+      cancel-in-progress: false
+    uses: ./.github/workflows/library-package-release.yml
+    with:
+      repository: ${{ needs.request.outputs.repository }}
+      ref: ${{ needs.request.outputs.ref }}
+      source_is_tag: ${{ needs.request.outputs.is_tag == 'true' }}
+      ci_run_id: ${{ inputs.ci_run_id }}
+    secrets:
+      SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
+      SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+      AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+      AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+      GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+      GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+      GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+      REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+      REGISTRY_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+      PACKAGE_PUBLISH_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+      PACKAGE_PUBLISH_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
+      PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+      MAVEN_PUBLISH_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+      MAVEN_PUBLISH_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
+      MAVEN_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
 
   android:
     needs: request
@@ -1236,6 +1282,7 @@ jobs:
       - maven
       - apple_binary
       - apple_swiftpm
+      - library_package_release
       - container_service
       - public_native_image_chart
       - oci_reproducibility
@@ -1258,6 +1305,7 @@ jobs:
           needs.maven.result == 'cancelled' ||
           needs.apple_binary.result == 'cancelled' ||
           needs.apple_swiftpm.result == 'cancelled' ||
+          needs.library_package_release.result == 'cancelled' ||
           needs.container_service.result == 'cancelled' ||
           needs.public_native_image_chart.result == 'cancelled' ||
           needs.oci_reproducibility.result == 'cancelled' ||
