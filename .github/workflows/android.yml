@@ -2538,13 +2538,14 @@ jobs:
 
       - name: Classify public-safe Android product failure
         id: product_failure
-        if: ${{ always() && inputs.ci_run_id != '' && steps.scrub.outcome == 'success' && (steps.commands.outcome == 'failure' || steps.commands.outcome == 'cancelled') }}
+        if: ${{ always() && inputs.ci_run_id != '' && steps.scrub.outcome == 'success' && (steps.commands.outcome == 'failure' || steps.commands.outcome == 'cancelled' || steps.commands.outcome == 'skipped') }}
         shell: bash
         env:
           TEST_PROFILE: ${{ inputs.test_profile }}
           TEST_PLATFORM: ${{ inputs.test_platform }}
           ROOM_SCHEMA: ${{ inputs.room_schema }}
           COMMANDS_OUTCOME: ${{ steps.commands.outcome }}
+          ANDROID_EMULATOR_OUTCOME: ${{ steps.android_emulator.outcome }}
         run: |
           set -Eeuo pipefail
           python3 - <<'PY_ANDROID_FAILURE_SUMMARY'
@@ -2569,6 +2570,7 @@ jobs:
           platform = os.environ.get("TEST_PLATFORM", "").strip()
           room_schema = os.environ.get("ROOM_SCHEMA", "false").strip().lower() == "true"
           commands_outcome = os.environ.get("COMMANDS_OUTCOME", "").strip()
+          android_emulator_outcome = os.environ.get("ANDROID_EMULATOR_OUTCOME", "").strip()
 
           def contains_any(values: tuple[str, ...]) -> bool:
               return any(value in lower for value in values)
@@ -2646,7 +2648,17 @@ jobs:
               or "room-schema-json-integrity" in lower
           )
 
-          if dependency_resolution:
+          if commands_outcome == "skipped":
+              if android_emulator_outcome in {"failure", "cancelled"} and (
+                  profile == "emulator"
+                  or (profile == "targeted-tests" and platform == "instrumentation")
+              ):
+                  classification = "instrumentation_bootstrap_failure"
+                  remediation = "Android instrumentation/emulator bootstrap failed before product test execution; repair device/test bootstrap and rerun."
+              else:
+                  classification = "infrastructure_failure"
+                  remediation = "a mandatory Central pre-command step prevented Android product execution after exact source observation; repair the CI prerequisite and retry."
+          elif dependency_resolution:
               classification = "dependency_resolution_failure"
               remediation = "Gradle could not resolve required dependencies; verify declared dependency/version availability and retry."
           elif selector_failure:
@@ -2775,7 +2787,7 @@ jobs:
               error_summary="Android source checkout failed before product source identity could be recorded."
             elif test "${SOURCE_IDENTITY_OUTCOME}" != success || test "${SOURCE_OBSERVE_OUTCOME}" != success; then
               error_summary="Android source checkout succeeded, but exact product source observation failed."
-            elif test "${COMMANDS_OUTCOME}" = failure || test "${COMMANDS_OUTCOME}" = cancelled; then
+            elif test "${COMMANDS_OUTCOME}" = failure || test "${COMMANDS_OUTCOME}" = cancelled || test "${COMMANDS_OUTCOME}" = skipped; then
               if test "${PRODUCT_FAILURE_OUTCOME}" = success && test -n "${PRODUCT_FAILURE_CLASS}" && test -n "${PRODUCT_ERROR_SUMMARY}"; then
                 error_summary="${PRODUCT_ERROR_SUMMARY}"
               elif test "${SCRUB_OUTCOME}" != success; then

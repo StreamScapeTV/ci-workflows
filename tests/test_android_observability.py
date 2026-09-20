@@ -34,6 +34,7 @@ class AndroidObservabilityTests(unittest.TestCase):
         platform: str = "",
         room_schema: bool = False,
         commands_outcome: str = "failure",
+        android_emulator_outcome: str = "skipped",
     ) -> dict[str, str]:
         steps = self._ordinary_steps()
         classifier = next(
@@ -58,6 +59,7 @@ class AndroidObservabilityTests(unittest.TestCase):
                     "TEST_PLATFORM": platform,
                     "ROOM_SCHEMA": "true" if room_schema else "false",
                     "COMMANDS_OUTCOME": commands_outcome,
+                    "ANDROID_EMULATOR_OUTCOME": android_emulator_outcome,
                 },
                 text=True,
                 capture_output=True,
@@ -105,6 +107,11 @@ class AndroidObservabilityTests(unittest.TestCase):
         self.assertIn("steps.scrub.outcome == 'success'", classifier["if"])
         self.assertIn("steps.commands.outcome == 'failure'", classifier["if"])
         self.assertIn("steps.commands.outcome == 'cancelled'", classifier["if"])
+        self.assertIn("steps.commands.outcome == 'skipped'", classifier["if"])
+        self.assertEqual(
+            classifier["env"]["ANDROID_EMULATOR_OUTCOME"],
+            "${{ steps.android_emulator.outcome }}",
+        )
         self.assertIn('max_scan_bytes = 8 * 1024 * 1024', classifier["run"])
         self.assertNotIn("CI_SECRET_", classifier["env"])
 
@@ -130,6 +137,7 @@ class AndroidObservabilityTests(unittest.TestCase):
         self.assertIn("DRIVE_OUTCOME", diagnostic["env"])
         self.assertIn("source checkout failed before product source identity", script)
         self.assertIn('error_summary="${PRODUCT_ERROR_SUMMARY}"', script)
+        self.assertIn('test "${COMMANDS_OUTCOME}" = skipped', script)
         self.assertIn("failure [product_validation]", script)
         self.assertIn('diagnostic_key="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.txt"', script)
         self.assertIn('diagnostic_status="available"', script)
@@ -195,6 +203,41 @@ class AndroidObservabilityTests(unittest.TestCase):
         )
         self.assertEqual(assertion["failure_class"], "assertion_test_failure")
         self.assertNotIn("private", assertion["error_summary"])
+
+    def test_real_precommand_failure_states_are_publicly_actionable(self) -> None:
+        instrumentation_bootstrap = self._run_public_failure_classifier(
+            "private emulator setup detail that must not be exposed\n",
+            profile="targeted-tests",
+            platform="instrumentation",
+            commands_outcome="skipped",
+            android_emulator_outcome="failure",
+        )
+        self.assertEqual(
+            instrumentation_bootstrap["failure_class"],
+            "instrumentation_bootstrap_failure",
+        )
+        self.assertIn(
+            "[instrumentation_bootstrap]",
+            instrumentation_bootstrap["error_summary"],
+        )
+        self.assertNotIn(
+            "private emulator setup detail",
+            instrumentation_bootstrap["error_summary"],
+        )
+
+        infrastructure = self._run_public_failure_classifier(
+            "private setup detail that must not be exposed\n",
+            profile="full",
+            commands_outcome="skipped",
+            android_emulator_outcome="skipped",
+        )
+        self.assertEqual(infrastructure["failure_class"], "infrastructure_failure")
+        self.assertIn("[infrastructure]", infrastructure["error_summary"])
+        self.assertIn("pre-command", infrastructure["error_summary"])
+        self.assertNotIn(
+            "private setup detail",
+            infrastructure["error_summary"],
+        )
 
     def test_dependency_timeout_and_infrastructure_signatures_are_distinct(self) -> None:
         dependency = self._run_public_failure_classifier(
