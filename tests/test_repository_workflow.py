@@ -43,6 +43,8 @@ class RepositoryWorkflowTests(unittest.TestCase):
         source_is_tag: str = "false",
         caller_repository: str = "StreamScapeTV/ci-workflows",
         caller_ref: str = "refs/heads/main",
+        lifecycle_ci_run_id: str = "",
+        trusted_capability_ci_run_id: str = "",
     ):
         script = self.steps_by_name["Validate bounded repository operation"]["run"]
         raw = semantic if isinstance(semantic, str) else json.dumps(semantic or {})
@@ -56,6 +58,8 @@ class RepositoryWorkflowTests(unittest.TestCase):
                 "RAW_SEMANTIC_INPUTS": raw,
                 "RELEASE_AUTHORIZED": release_authorized,
                 "SOURCE_IS_TAG": source_is_tag,
+                "LIFECYCLE_CI_RUN_ID": lifecycle_ci_run_id,
+                "TRUSTED_CAPABILITY_CI_RUN_ID": trusted_capability_ci_run_id,
                 "CALLER_REPOSITORY": caller_repository,
                 "CALLER_REF": caller_ref,
                 "CONTRACT": str(CONTRACT),
@@ -102,8 +106,10 @@ class RepositoryWorkflowTests(unittest.TestCase):
         source_is_tag: str | None = None,
         operation: str = "build",
         run_profile: str | None = None,
+        run_workflow: str = "validation.repository",
         project_state: dict | None = None,
         ci_run_id: str = "11111111-1111-4111-8111-111111111111",
+        trusted_capability_ci_run_id: str = "",
     ):
         script = self.steps_by_name[
             "Resolve trusted private infrastructure capabilities"
@@ -130,7 +136,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
                 "repository": run_repository,
                 "ref": run_ref,
                 "is_tag": run_is_tag,
-                "workflow_key": "validation.repository",
+                "workflow_key": run_workflow,
                 "test_profile": run_profile,
             },
         }
@@ -170,7 +176,8 @@ class RepositoryWorkflowTests(unittest.TestCase):
                 env={
                     **os.environ,
                     "PATH": f"{fake_bin}:{os.environ['PATH']}",
-                    "CI_RUN_ID": ci_run_id,
+                    "LIFECYCLE_CI_RUN_ID": ci_run_id,
+                    "TRUSTED_CAPABILITY_CI_RUN_ID": trusted_capability_ci_run_id,
                     "SOURCE_REPOSITORY": source_repository,
                     "SOURCE_REF": source_ref,
                     "SOURCE_IS_TAG": source_is_tag,
@@ -199,6 +206,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
                 "ref",
                 "source_is_tag",
                 "expected_source_sha",
+                "trusted_capability_ci_run_id",
                 "operation",
                 "host_os",
                 "semantic_inputs_json",
@@ -757,6 +765,93 @@ class RepositoryWorkflowTests(unittest.TestCase):
         )
         self.assertNotEqual(duplicate_capability.returncode, 0)
         self.assertIn("unique list", duplicate_capability.stderr)
+
+
+    def test_trusted_aggregate_capability_context_is_parent_bound_and_lifecycle_separate(self) -> None:
+        trusted_id = "22222222-2222-4222-8222-222222222222"
+
+        accepted, _ = self.run_repository_request(
+            operation="full",
+            source_is_tag="true",
+            trusted_capability_ci_run_id=trusted_id,
+        )
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
+        product_caller, _ = self.run_repository_request(
+            operation="full",
+            source_is_tag="true",
+            caller_repository="ExampleOrg/library-package",
+            caller_ref="refs/tags/2.4.1",
+            trusted_capability_ci_run_id=trusted_id,
+        )
+        self.assertNotEqual(product_caller.returncode, 0)
+        self.assertIn("requires reviewed Central main", product_caller.stderr)
+
+        dual_lifecycle, _ = self.run_repository_request(
+            operation="full",
+            source_is_tag="true",
+            lifecycle_ci_run_id="11111111-1111-4111-8111-111111111111",
+            trusted_capability_ci_run_id=trusted_id,
+        )
+        self.assertNotEqual(dual_lifecycle.returncode, 0)
+        self.assertIn("cannot also own Agent State lifecycle", dual_lifecycle.stderr)
+
+        wrong_operation, _ = self.run_repository_request(
+            operation="build",
+            source_is_tag="true",
+            trusted_capability_ci_run_id=trusted_id,
+        )
+        self.assertNotEqual(wrong_operation.returncode, 0)
+        self.assertIn("accepted only by full/release operations", wrong_operation.stderr)
+
+        parent, values = self.run_capability_resolver(
+            run_repository="ExampleOrg/library-package",
+            source_repository="ExampleOrg/library-package",
+            run_ref="2.4.1",
+            source_ref="2.4.1",
+            run_is_tag=True,
+            source_is_tag="true",
+            operation="full",
+            run_profile="publish",
+            run_workflow="release.library-package",
+            ci_run_id="",
+            trusted_capability_ci_run_id=trusted_id,
+            project_state={
+                "repository_ci": {
+                    "schemaVersion": 1,
+                    "repository": "ExampleOrg/library-package",
+                    "capabilities": [
+                        "private_network",
+                        "github_git",
+                        "registry_netrc",
+                        "gradle_maven",
+                    ],
+                }
+            },
+        )
+        self.assertEqual(parent.returncode, 0, parent.stderr)
+        for capability in self.contract["capabilityTypes"]:
+            self.assertEqual(values[capability], "true")
+        self.assertEqual(values["auth_enabled"], "true")
+
+        wrong_parent, _ = self.run_capability_resolver(
+            run_repository="ExampleOrg/library-package",
+            source_repository="ExampleOrg/library-package",
+            run_ref="2.4.1",
+            source_ref="2.4.1",
+            run_is_tag=True,
+            source_is_tag="true",
+            operation="full",
+            run_profile="publish",
+            run_workflow="release.maven",
+            ci_run_id="",
+            trusted_capability_ci_run_id=trusted_id,
+        )
+        self.assertNotEqual(wrong_parent.returncode, 0)
+        self.assertIn(
+            "trusted aggregate capability parent is not release.library-package/publish",
+            wrong_parent.stderr,
+        )
 
     def test_package_auth_is_generic_file_configuration_not_product_secret_env(self) -> None:
         auth = self.steps_by_name[
