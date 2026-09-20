@@ -145,6 +145,39 @@ class RepositoryLogCheckpointTests(unittest.TestCase):
             self.assertIn(b"last_activity=", snapshot)
             self.assertIn(b"log_bytes=", snapshot)
 
+    def test_reconcile_active_early_phase_marks_failure_terminal(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log = root / "log.txt"
+            state = root / "timeline.json"
+            log.write_text("", encoding="utf-8")
+            timeline_mod.start_phase(
+                log_path=log,
+                state_path=state,
+                phase="source-admission",
+                wall_time_ns=lambda: 1_700_000_000_000_000_000,
+                monotonic_ns=lambda: 1_000_000_000,
+            )
+            changed = timeline_mod.finish_active_phase(
+                log_path=log,
+                state_path=state,
+                status="failed",
+                wall_time_ns=lambda: 1_700_000_002_000_000_000,
+                monotonic_ns=lambda: 3_000_000_000,
+            )
+            self.assertTrue(changed)
+            self.assertIn(
+                "CENTRAL phase=01 name=source-admission status=failed",
+                log.read_text(encoding="utf-8"),
+            )
+            self.assertFalse(
+                timeline_mod.finish_active_phase(
+                    log_path=log,
+                    state_path=state,
+                    status="failed",
+                )
+            )
+
     def test_cancelled_entrypoint_marker_is_terminal_and_bounded(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

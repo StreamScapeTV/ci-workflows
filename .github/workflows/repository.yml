@@ -862,6 +862,24 @@ jobs:
             exit "${status}"
           fi
 
+      - name: Reconcile bounded Central timeline after early exit
+        if: ${{ always() }}
+        shell: bash
+        env:
+          TIMELINE_STATUS: ${{ cancelled() && 'cancelled' || 'failed' }}
+        run: |
+          set -Eeuo pipefail
+          timeline="${RUNNER_TEMP}/central-repository-ci-timeline.json"
+          if test -f "${timeline}"; then
+            if ! python3 central-ci/scripts/ci/repository_log_timeline.py finish-active \
+              --status "${TIMELINE_STATUS}" \
+              --log-path "${CI_LOG}" \
+              --state-path "${timeline}" \
+              --progress-path "${CI_PROGRESS_FILE}"; then
+              echo "::warning::repository CI timeline reconciliation failed; evidence handling continues" >&2
+            fi
+          fi
+
       - name: Scrub configured CI secrets from private text evidence
         id: scrub
         if: ${{ always() }}

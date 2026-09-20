@@ -972,6 +972,15 @@ class RepositoryWorkflowTests(unittest.TestCase):
         source = by_name["Record source-admission completion"]["run"]
         capabilities = by_name["Record private-capabilities completion and start repository entrypoint"]["run"]
         execute = by_name["Execute fixed repository-owned entrypoint"]["run"]
+        reconcile = by_name["Reconcile bounded Central timeline after early exit"]
+        self.assertEqual(reconcile["if"], "${{ always() }}")
+        self.assertEqual(
+            reconcile["env"]["TIMELINE_STATUS"],
+            "${{ cancelled() && 'cancelled' || 'failed' }}",
+        )
+        self.assertIn("finish-active", reconcile["run"])
+        self.assertLess(names.index("Execute fixed repository-owned entrypoint"), names.index("Reconcile bounded Central timeline after early exit"))
+        self.assertLess(names.index("Reconcile bounded Central timeline after early exit"), names.index("Scrub configured CI secrets from private text evidence"))
         self.assertIn("--phase source-admission", start)
         self.assertIn("--phase source-admission", source)
         self.assertIn("--phase private-capabilities", source)

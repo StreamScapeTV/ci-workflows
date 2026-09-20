@@ -162,8 +162,6 @@ def finish_phase(
         raise TimelineError("unsupported_phase")
     if status not in TERMINAL_STATUSES:
         raise TimelineError("unsupported_status")
-    if phase != "repository-entrypoint" and status != "complete":
-        raise TimelineError("non_entrypoint_terminal_status")
     state = _load_state(state_path)
     active = state.get("active")
     if not isinstance(active, dict) or active.get("name") != phase or active.get("ordinal") != ordinal:
@@ -182,6 +180,37 @@ def finish_phase(
     state["active"] = None
     state["last_completed_ordinal"] = ordinal
     _write_state(state_path, state)
+
+
+def finish_active_phase(
+    *,
+    log_path: Path,
+    state_path: Path,
+    status: str,
+    progress_path: Path | None = None,
+    wall_time_ns: Callable[[], int] = time.time_ns,
+    monotonic_ns: Callable[[], int] = time.monotonic_ns,
+) -> bool:
+    if status not in {"failed", "cancelled"}:
+        raise TimelineError("unsupported_reconciliation_status")
+    if not state_path.exists():
+        return False
+    state = _load_state(state_path)
+    active = state.get("active")
+    if active is None:
+        return False
+    if not isinstance(active, dict) or not isinstance(active.get("name"), str):
+        raise TimelineError("invalid_active_phase")
+    finish_phase(
+        log_path=log_path,
+        state_path=state_path,
+        phase=active["name"],
+        status=status,
+        progress_path=progress_path,
+        wall_time_ns=wall_time_ns,
+        monotonic_ns=monotonic_ns,
+    )
+    return True
 
 
 def active_entrypoint_marker(
@@ -226,6 +255,12 @@ def main() -> int:
     finish.add_argument("--state-path", required=True)
     finish.add_argument("--progress-path")
 
+    reconcile = subparsers.add_parser("finish-active")
+    reconcile.add_argument("--status", choices=("cancelled", "failed"), required=True)
+    reconcile.add_argument("--log-path", required=True)
+    reconcile.add_argument("--state-path", required=True)
+    reconcile.add_argument("--progress-path")
+
     args = parser.parse_args()
     try:
         if args.command == "start":
@@ -234,11 +269,18 @@ def main() -> int:
                 state_path=Path(args.state_path),
                 phase=args.phase,
             )
-        else:
+        elif args.command == "finish":
             finish_phase(
                 log_path=Path(args.log_path),
                 state_path=Path(args.state_path),
                 phase=args.phase,
+                status=args.status,
+                progress_path=Path(args.progress_path) if args.progress_path else None,
+            )
+        else:
+            finish_active_phase(
+                log_path=Path(args.log_path),
+                state_path=Path(args.state_path),
                 status=args.status,
                 progress_path=Path(args.progress_path) if args.progress_path else None,
             )
