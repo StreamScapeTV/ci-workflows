@@ -1,3 +1,4 @@
+# LEGACY_MIGRATION_RESIDUE: This file verifies still-live compatibility whose source currently contains concrete consumer identity; do not extend that identity coupling.
 from pathlib import Path
 import os
 import subprocess
@@ -319,7 +320,8 @@ class AndroidGenericHostedProfileContractTest(unittest.TestCase):
         self.assertIn('export CI_ANDROID_HOSTED_PROFILE="${TEST_PROFILE}"', script)
         self.assertIn('run_logged "android-${TEST_PROFILE}" bash "${wrapper}"', script)
         self.assertLess(script.index('build|test|emulator)'), script.index('test -x gradlew'))
-        self.assertNotIn("streamscape-media", script.lower())
+        self.assertNotIn(".xcworkspace", script.lower())
+        self.assertNotIn(".xcodeproj", script.lower())
 
     def test_generic_hosted_profiles_keep_cache_scope_bounded_and_emulator_gets_private_maven_network(self) -> None:
         private_git = self.by_name["Connect to private Git service"]

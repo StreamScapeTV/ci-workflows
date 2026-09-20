@@ -192,7 +192,7 @@ class NodeFlutterObservedSourceTests(unittest.TestCase):
                 env = os.environ.copy()
                 env.update(
                     {
-                        "SOURCE_REPOSITORY": "StreamScapeTV/StreamScapeWeb",
+                        "SOURCE_REPOSITORY": "StreamScapeTV/example-web",
                         "REQUESTED_REF": ref,
                         "TEST_PROFILE": profile,
                         "SOURCE_TOKEN": "token",
@@ -211,7 +211,7 @@ class NodeFlutterObservedSourceTests(unittest.TestCase):
 
             main = flags("main", "main")
             self.assertEqual((main["restore_enabled"], main["save_enabled"]), ("true", "true"))
-            self.assertIn("StreamScapeTV-StreamScapeWeb", main["key"])
+            self.assertIn("StreamScapeTV-example-web", main["key"])
             self.assertIn("npm", main["key"])
 
             subprocess.run(["git", "switch", "-c", "feature/cache"], cwd=root, check=True, capture_output=True)

@@ -1,3 +1,4 @@
+# LEGACY_MIGRATION_RESIDUE: This file verifies still-live compatibility whose source currently contains concrete consumer identity; do not extend that identity coupling.
 from __future__ import annotations
 
 import json
@@ -254,20 +255,14 @@ class AppleBinaryWorkflowTests(unittest.TestCase):
         self.assertEqual(job["secrets"]["PACKAGE_READ_TOKEN"], "${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}")
         self.assertFalse(job["concurrency"]["cancel-in-progress"])
 
-    def test_inventory_and_self_check_have_only_generic_apple_binary_surface(self) -> None:
+    def test_inventory_and_self_check_expose_only_the_canonical_apple_binary_surface(self) -> None:
         inventory = yaml.safe_load((ROOT / "INVENTORY.yaml").read_text(encoding="utf-8"))
         self.assertEqual(inventory["workflows"]["apple_binary"], ".github/workflows/apple-binary.yml")
-        self.assertNotIn("streamscape_media_release", inventory["workflows"])
-        self.assertNotIn("streamscape_media_apple_binary", inventory["workflows"])
-        self.assertNotIn("streamscape_media_release", inventory["scripts"])
-        self.assertFalse((ROOT / ".github/workflows/streamscape-media-release.yml").exists())
-        self.assertFalse((ROOT / ".github/workflows/streamscape-media-apple-binary.yml").exists())
-        self.assertFalse((ROOT / "scripts/ci/streamscape_media_release.py").exists())
-        self.assertFalse((ROOT / "tests/test_streamscape_media_release.py").exists())
-
-        dispatch_text = DISPATCH.read_text(encoding="utf-8")
-        self.assertNotIn("release.streamscape-media", dispatch_text)
-        self.assertNotIn("streamscape_media_release", dispatch_text)
+        self.assertEqual(
+            [path for path in inventory["workflows"].values() if path.endswith("apple-binary.yml")],
+            [".github/workflows/apple-binary.yml"],
+        )
+        self.assertFalse(any("apple_binary" in key for key in inventory["scripts"]))
         self.assertIn("tests.test_apple_binary_workflow", (ROOT / ".github/workflows/self-check.yml").read_text())
 
 

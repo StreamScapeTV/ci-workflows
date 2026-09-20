@@ -116,7 +116,7 @@ class PythonWorkflowTests(unittest.TestCase):
                 {
                     "PATH": f"{fake_bin}:{env['PATH']}",
                     "TEST_PROFILE": "backend-postgres",
-                    "SOURCE_REPOSITORY": "StreamScapeTV/iptv-backend",
+                    "SOURCE_REPOSITORY": "StreamScapeTV/example-python",
                     "SOURCE_REF": "fixture",
                     "GITHUB_RUN_ID": "1",
                     "GITHUB_RUN_ATTEMPT": "1",

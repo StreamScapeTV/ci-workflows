@@ -48,8 +48,8 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
         self.assertNotIn("CI_APPLE_SWIFTPM_VERSION", text)
         self.assertNotIn("CI_APPLE_SWIFTPM_SDK_SOURCE_SHA", text)
         self.assertNotIn("CI_APPLE_SWIFTPM_TOOLING_SHA", text)
-        self.assertNotIn("streamscape-media-2.1.5-apple-binary.zip", text)
-        self.assertNotIn("https://git.faruqi.dev/mimranfaruqi/streamscape-media.git", text)
+        self.assertNotRegex(text, r"[A-Za-z0-9_.-]+-[0-9]+\.[0-9]+\.[0-9]+-apple-binary\.zip")
+        self.assertNotRegex(text, r"https://(?!github\.com/)[^/]+/[^\s\"\']+\.git")
         self.assertNotIn("Vendor/", text)
         self.assertFalse({"package_url", "artifact_base_url", "package_host", "runner", "command"} & set(call["inputs"]))
 
@@ -66,9 +66,9 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
             'self.run(["git", "commit"',
             "ci@git.faruqi.dev",
             "gitea-askpass",
-            "git.faruqi.dev/mimranfaruqi/streamscape-media.git",
         ):
             self.assertNotIn(forbidden, combined)
+        self.assertNotRegex(combined, r"git\.faruqi\.dev/[^\s\"\']+\.git")
         self.assertNotIn("PublicationRepository", combined)
         self.assertNotIn("PackageRepository", combined)
 
