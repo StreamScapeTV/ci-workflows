@@ -190,11 +190,12 @@ def456 unauthorized usb:1-1 transport_id:2
         self.assertIn("android_physical_attached.py", serialized)
         self.assertIn("owner-attached physical-performance", serialized)
 
-    def test_product_environment_strips_provider_cloud_credentials(self) -> None:
+    def test_product_environment_has_no_configurable_physical_provider(self) -> None:
         helper_text = HELPER.read_text(encoding="utf-8")
-        self.assertIn('product_env.pop("BROWSERSTACK_USERNAME", None)', helper_text)
-        self.assertIn('product_env.pop("BROWSERSTACK_ACCESS_KEY", None)', helper_text)
-        self.assertIn('"CI_ANDROID_PHYSICAL_PROVIDER": PROVIDER', helper_text)
+        self.assertIn('PROVIDER = "owner-attached"', helper_text)
+        self.assertNotRegex(helper_text, r"\bCI_ANDROID_PHYSICAL_PROVIDER\b")
+        self.assertNotIn("BROWSERSTACK_USERNAME", helper_text)
+        self.assertNotIn("BROWSERSTACK_ACCESS_KEY", helper_text)
 
     def test_dispatch_remains_android_only_and_zero_input(self) -> None:
         request_steps = self.dispatch["jobs"]["request"]["steps"]
