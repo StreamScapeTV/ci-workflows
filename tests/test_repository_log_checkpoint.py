@@ -13,11 +13,13 @@ import urllib.error
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/repository_log_checkpoint.py"
+sys.path.insert(0, str(SCRIPT.parent))
 SPEC = importlib.util.spec_from_file_location("repository_log_checkpoint", SCRIPT)
 assert SPEC and SPEC.loader
 mod = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = mod
 SPEC.loader.exec_module(mod)
+import repository_log_timeline as timeline_mod
 
 
 class FakeUpdater:
@@ -32,6 +34,140 @@ class FakeUpdater:
 
 
 class RepositoryLogCheckpointTests(unittest.TestCase):
+
+    def test_timeline_uses_fixed_ordered_phases_and_elapsed_terminal_markers(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log = root / "log.txt"
+            state = root / "timeline.json"
+            progress = root / "progress.txt"
+            log.write_text("", encoding="utf-8")
+            progress.write_text("", encoding="utf-8")
+
+            timeline_mod.start_phase(
+                log_path=log,
+                state_path=state,
+                phase="source-admission",
+                wall_time_ns=lambda: 1_700_000_000_000_000_000,
+                monotonic_ns=lambda: 1_000_000_000,
+            )
+            timeline_mod.finish_phase(
+                log_path=log,
+                state_path=state,
+                phase="source-admission",
+                status="complete",
+                wall_time_ns=lambda: 1_700_000_001_500_000_000,
+                monotonic_ns=lambda: 2_500_000_000,
+            )
+            timeline_mod.start_phase(
+                log_path=log,
+                state_path=state,
+                phase="private-capabilities",
+                wall_time_ns=lambda: 1_700_000_002_000_000_000,
+                monotonic_ns=lambda: 3_000_000_000,
+            )
+            timeline_mod.finish_phase(
+                log_path=log,
+                state_path=state,
+                phase="private-capabilities",
+                status="complete",
+                wall_time_ns=lambda: 1_700_000_004_000_000_000,
+                monotonic_ns=lambda: 5_000_000_000,
+            )
+            timeline_mod.start_phase(
+                log_path=log,
+                state_path=state,
+                phase="repository-entrypoint",
+                wall_time_ns=lambda: 1_700_000_005_000_000_000,
+                monotonic_ns=lambda: 6_000_000_000,
+            )
+            timeline_mod.finish_phase(
+                log_path=log,
+                state_path=state,
+                phase="repository-entrypoint",
+                status="failed",
+                progress_path=progress,
+                wall_time_ns=lambda: 1_700_000_008_000_000_000,
+                monotonic_ns=lambda: 9_000_000_000,
+            )
+
+            text = log.read_text(encoding="utf-8")
+            self.assertIn("CENTRAL phase=01 name=source-admission status=running", text)
+            self.assertIn("CENTRAL phase=01 name=source-admission status=complete", text)
+            self.assertIn("elapsed_ms=1500", text)
+            self.assertIn("CENTRAL phase=02 name=private-capabilities status=complete", text)
+            self.assertIn("elapsed_ms=2000", text)
+            self.assertIn("CENTRAL phase=03 name=repository-entrypoint status=failed", text)
+            self.assertIn("elapsed_ms=3000", text)
+            self.assertIn("last_activity=", text)
+            self.assertIn("log_bytes=", text)
+            final_state = json.loads(state.read_text(encoding="utf-8"))
+            self.assertIsNone(final_state["active"])
+            self.assertEqual(final_state["last_completed_ordinal"], 3)
+
+    def test_timeline_rejects_unknown_or_out_of_order_phase_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log = root / "log.txt"
+            state = root / "timeline.json"
+            log.write_text("", encoding="utf-8")
+            with self.assertRaises(timeline_mod.TimelineError):
+                timeline_mod.start_phase(log_path=log, state_path=state, phase="product-build")
+            with self.assertRaises(timeline_mod.TimelineError):
+                timeline_mod.start_phase(log_path=log, state_path=state, phase="private-capabilities")
+
+    def test_active_entrypoint_checkpoint_reports_activity_without_mutating_source_log(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log = root / "log.txt"
+            state = root / "timeline.json"
+            progress = root / "progress.txt"
+            log.write_text("", encoding="utf-8")
+            progress.write_text("", encoding="utf-8")
+            for phase in ("source-admission", "private-capabilities"):
+                timeline_mod.start_phase(log_path=log, state_path=state, phase=phase)
+                timeline_mod.finish_phase(log_path=log, state_path=state, phase=phase, status="complete")
+            timeline_mod.start_phase(log_path=log, state_path=state, phase="repository-entrypoint")
+            log.write_text(log.read_text(encoding="utf-8") + "product secret-value output\n", encoding="utf-8")
+            before = log.read_bytes()
+
+            snapshot = mod.scrubbed_snapshot(
+                log,
+                {"CI_SECRET_TEST": "secret-value"},
+                timeline_state_path=state,
+                progress_path=progress,
+            )
+
+            self.assertEqual(log.read_bytes(), before)
+            self.assertNotIn(b"secret-value", snapshot)
+            self.assertIn(b"[REDACTED]", snapshot)
+            self.assertIn(b"CENTRAL phase=03 name=repository-entrypoint status=running", snapshot)
+            self.assertIn(b"last_activity=", snapshot)
+            self.assertIn(b"log_bytes=", snapshot)
+
+    def test_cancelled_entrypoint_marker_is_terminal_and_bounded(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log = root / "log.txt"
+            state = root / "timeline.json"
+            progress = root / "progress.txt"
+            log.write_text("", encoding="utf-8")
+            progress.write_text("heartbeat\n", encoding="utf-8")
+            for phase in ("source-admission", "private-capabilities"):
+                timeline_mod.start_phase(log_path=log, state_path=state, phase=phase)
+                timeline_mod.finish_phase(log_path=log, state_path=state, phase=phase, status="complete")
+            timeline_mod.start_phase(log_path=log, state_path=state, phase="repository-entrypoint")
+            timeline_mod.finish_phase(
+                log_path=log,
+                state_path=state,
+                phase="repository-entrypoint",
+                status="cancelled",
+                progress_path=progress,
+            )
+            terminal = log.read_text(encoding="utf-8").splitlines()[-1]
+            self.assertIn("status=cancelled", terminal)
+            self.assertLessEqual(len((terminal + "\n").encode("utf-8")), timeline_mod.MAX_MARKER_BYTES)
+
     def test_checkpoint_interval_is_fixed_to_three_minutes(self) -> None:
         self.assertEqual(mod.INTERVAL_SECONDS, 180)
         self.assertLessEqual(mod.INTERVAL_SECONDS, 300)

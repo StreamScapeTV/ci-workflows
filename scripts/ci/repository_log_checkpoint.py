@@ -22,6 +22,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Callable, Mapping, Protocol
 
+import repository_log_timeline as timeline
+
 MAX_LOG_BYTES = 16 * 1024 * 1024
 INTERVAL_SECONDS = 180
 HTTP_TIMEOUT_SECONDS = 30
@@ -56,7 +58,13 @@ def _scrub_values(environ: Mapping[str, str]) -> tuple[bytes, ...]:
     return tuple(values)
 
 
-def scrubbed_snapshot(log_path: Path, environ: Mapping[str, str]) -> bytes:
+def scrubbed_snapshot(
+    log_path: Path,
+    environ: Mapping[str, str],
+    *,
+    timeline_state_path: Path | None = None,
+    progress_path: Path | None = None,
+) -> bytes:
     if log_path.is_symlink() or not log_path.is_file():
         raise CheckpointError("invalid_log_path")
     size = log_path.stat().st_size
@@ -67,6 +75,20 @@ def scrubbed_snapshot(log_path: Path, environ: Mapping[str, str]) -> bytes:
         raise CheckpointError("log_too_large")
     for raw in _scrub_values(environ):
         data = data.replace(raw, b"[REDACTED]")
+    if timeline_state_path is not None and timeline_state_path.exists():
+        try:
+            marker = timeline.active_entrypoint_marker(
+                log_path=log_path,
+                state_path=timeline_state_path,
+                progress_path=progress_path,
+            )
+        except timeline.TimelineError as exc:
+            print(
+                f"repository log checkpoint timeline warning: {exc}",
+                file=__import__("sys").stderr,
+            )
+        else:
+            data += marker
     return data
 
 
@@ -130,9 +152,16 @@ def checkpoint_once(
     updater: DriveUpdater,
     environ: Mapping[str, str],
     sleep_fn: Callable[[float], None] = time.sleep,
+    timeline_state_path: Path | None = None,
+    progress_path: Path | None = None,
 ) -> str:
     state.attempts += 1
-    data = scrubbed_snapshot(log_path, environ)
+    data = scrubbed_snapshot(
+        log_path,
+        environ,
+        timeline_state_path=timeline_state_path,
+        progress_path=progress_path,
+    )
     digest = hashlib.sha256(data).hexdigest()
     if digest == state.last_sha256:
         state.unchanged += 1
@@ -253,6 +282,8 @@ def run_loop(
     stop_event: threading.Event,
     interval_seconds: float = INTERVAL_SECONDS,
     sleep_fn: Callable[[float], None] = time.sleep,
+    timeline_state_path: Path | None = None,
+    progress_path: Path | None = None,
 ) -> CheckpointState:
     if SHA256_PATTERN.fullmatch(seed_sha256) is None:
         raise CheckpointError("invalid_seed_sha256")
@@ -272,6 +303,8 @@ def run_loop(
                 updater=updater,
                 environ=environ,
                 sleep_fn=sleep_fn,
+                timeline_state_path=timeline_state_path,
+                progress_path=progress_path,
             )
         except CheckpointError as exc:
             print(
@@ -292,6 +325,8 @@ def run_loop(
                 updater=updater,
                 environ=environ,
                 sleep_fn=sleep_fn,
+                timeline_state_path=timeline_state_path,
+                progress_path=progress_path,
             )
         except CheckpointError as exc:
             print(
@@ -316,6 +351,8 @@ def main() -> int:
     parser.add_argument("--file-id", required=True)
     parser.add_argument("--seed-sha256", required=True)
     parser.add_argument("--status-path", required=True)
+    parser.add_argument("--timeline-state-path")
+    parser.add_argument("--progress-path")
     args = parser.parse_args()
 
     log_path = Path(args.log_path)
@@ -352,6 +389,8 @@ def main() -> int:
             updater=updater,
             environ=os.environ,
             stop_event=stop_event,
+            timeline_state_path=Path(args.timeline_state_path) if args.timeline_state_path else None,
+            progress_path=Path(args.progress_path) if args.progress_path else None,
         )
     except CheckpointError as exc:
         print(f"repository log checkpoint failed: {exc.category}", file=__import__("sys").stderr)

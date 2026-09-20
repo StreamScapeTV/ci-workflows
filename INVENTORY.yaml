@@ -31,6 +31,7 @@ scripts:
   oci_reproducibility: scripts/ci/oci_reproducibility.py
   ci_log_reconcile: scripts/ci/ci_log_reconcile.py
   repository_log_checkpoint: scripts/ci/repository_log_checkpoint.py
+  repository_log_timeline: scripts/ci/repository_log_timeline.py
   source_snapshot_delete: scripts/ci/source_snapshot_delete.py
   source_checkpoint_publish: scripts/ci/source_checkpoint_publish.py
   source_snapshot_lifecycle: scripts/ci/source_snapshot_lifecycle.py
