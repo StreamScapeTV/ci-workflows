@@ -50,12 +50,39 @@ class LibraryPackageReleaseWorkflowTests(unittest.TestCase):
             self.assertEqual(job["with"]["host_os"], host)
             self.assertEqual(job["with"]["semantic_inputs_json"], "{}")
             self.assertEqual(job["with"]["ci_run_id"], "")
+            self.assertEqual(
+                job["with"]["trusted_capability_ci_run_id"],
+                "${{ inputs.ci_run_id }}",
+            )
             self.assertEqual(job["with"]["expected_source_sha"], "${{ needs.plan.outputs.source_sha }}")
+            for secret in (
+                "AGENT_STATE_SUPABASE_URL",
+                "AGENT_STATE_SUPABASE_SECRET_KEY",
+                "TS_OAUTH_CLIENT_ID",
+                "TS_OAUTH_SECRET",
+                "REGISTRY_USERNAME",
+                "REGISTRY_READ_TOKEN",
+            ):
+                self.assertIn(secret, job["secrets"])
         prepare = jobs["release_prepare"]
         self.assertEqual(set(prepare["needs"]), {"plan", "readiness_macos", "readiness_linux"})
         self.assertEqual(prepare["with"]["operation"], "release")
         self.assertEqual(prepare["with"]["host_os"], "macos")
         self.assertTrue(prepare["with"]["release_authorized"])
+        self.assertEqual(
+            prepare["with"]["trusted_capability_ci_run_id"],
+            "${{ inputs.ci_run_id }}",
+        )
+        self.assertEqual(prepare["with"]["ci_run_id"], "")
+        for secret in (
+            "AGENT_STATE_SUPABASE_URL",
+            "AGENT_STATE_SUPABASE_SECRET_KEY",
+            "TS_OAUTH_CLIENT_ID",
+            "TS_OAUTH_SECRET",
+            "REGISTRY_USERNAME",
+            "REGISTRY_READ_TOKEN",
+        ):
+            self.assertIn(secret, prepare["secrets"])
         self.assertIn('"release_kind":"prepare"', prepare["with"]["semantic_inputs_json"])
         self.assertIn("inputs.ref", prepare["with"]["semantic_inputs_json"])
         apple = jobs["apple_swiftpm"]
@@ -96,6 +123,23 @@ class LibraryPackageReleaseWorkflowTests(unittest.TestCase):
         settle = jobs["settle_cancelled"]
         self.assertIn("library_package_release", settle["needs"])
         self.assertIn("needs.library_package_release.result == 'cancelled'", settle["if"])
+
+    def test_aggregate_dispatch_uses_only_fixed_generic_read_credentials(self) -> None:
+        call_secrets = self.workflow["on"]["workflow_call"]["secrets"]
+        self.assertIn("REGISTRY_USERNAME", call_secrets)
+        self.assertIn("REGISTRY_READ_TOKEN", call_secrets)
+
+        aggregate = self.dispatch["jobs"]["library_package_release"]
+        self.assertEqual(
+            aggregate["secrets"]["REGISTRY_USERNAME"],
+            "${{ secrets.FORGEJO_REGISTRY_USERNAME }}",
+        )
+        self.assertEqual(
+            aggregate["secrets"]["REGISTRY_READ_TOKEN"],
+            "${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}",
+        )
+        self.assertNotIn("capabilities", aggregate["with"])
+        self.assertNotIn("secret_name", str(aggregate).lower())
 
     def test_existing_manual_publication_routes_still_own_their_rows(self) -> None:
         jobs = self.dispatch["jobs"]
