@@ -1103,14 +1103,17 @@ class RepositoryWorkflowTests(unittest.TestCase):
         scrub = self.steps_by_name["Scrub configured CI secrets from private text evidence"]["run"]
         package = self.steps_by_name["Package bounded repository CI evidence"]["run"]
 
-        self.assertIn(
-            "if path.stat().st_size > 16 * 1024 * 1024:\n                      continue",
-            scrub,
+        artifact_guard = scrub.index(
+            "if path.stat().st_size > 16 * 1024 * 1024:",
+            scrub.index("resolved_artifact_root"),
         )
-        self.assertIn(
-            'if prefix == "artifacts":\n                          continue',
-            package,
-        )
+        artifact_read = scrub.index("data = path.read_bytes()", artifact_guard)
+        self.assertIn("continue", scrub[artifact_guard:artifact_read])
+
+        package_guard = package.index("if size > 16 * 1024 * 1024:")
+        package_append = package.index("total += size", package_guard)
+        self.assertIn('if prefix == "artifacts":', package[package_guard:package_append])
+        self.assertIn("continue", package[package_guard:package_append])
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
