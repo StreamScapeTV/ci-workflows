@@ -85,7 +85,9 @@ name: Android CI
         required: false
       ANDROID_PLAY_UPLOAD_KEY_PASSWORD:
         required: false
-      ANDROID_PHYSICAL_PERFORMANCE_AUTHORIZATION:
+      BROWSERSTACK_USERNAME:
+        required: false
+      BROWSERSTACK_ACCESS_KEY:
         required: false
       STREAMSCAPE_API_BASE:
         required: false
@@ -982,16 +984,30 @@ jobs:
           ci_run_id: ${{ inputs.ci_run_id }}
           status: ${{ (needs.screenshot_plan.result == 'cancelled' || needs.screenshot_cache.result == 'cancelled' || needs.screenshot.result == 'cancelled') && 'cancelled' || (needs.screenshot_plan.result == 'success' && needs.screenshot_cache.result == 'success' && needs.screenshot.result == 'success') && 'succeeded' || 'failed' }}
 
-
-  physical_performance_plan:
+  physical_performance:
     if: ${{ inputs.test_profile == 'physical-performance' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    outputs:
-      source_sha: ${{ steps.source_identity.outputs.source_sha }}
-      lab_authorized: ${{ steps.lab_authorization.outputs.authorized }}
-      wrapper_available: ${{ steps.source_identity.outputs.wrapper_available }}
+    timeout-minutes: 300
+    concurrency:
+      group: central-android-physical-performance
+      cancel-in-progress: false
     steps:
+      - name: Initialize Android physical-performance evidence paths
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          log="$RUNNER_TEMP/central-android-physical-performance.log"
+          evidence="$RUNNER_TEMP/central-android-physical-performance-evidence"
+          rm -rf -- "$evidence" "$RUNNER_TEMP/central-browserstack-physical"
+          mkdir -p "$evidence"
+          : > "$log"
+          chmod 600 "$log"
+          chmod 700 "$evidence"
+          {
+            printf 'CI_LOG=%s\n' "$log"
+            printf 'PHYSICAL_EVIDENCE_DIR=%s\n' "$evidence"
+          } >> "$GITHUB_ENV"
+
       - name: Mark Agent State run as running
         if: ${{ inputs.ci_run_id != '' }}
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
@@ -1002,12 +1018,11 @@ jobs:
           phase: start
           ci_run_id: ${{ inputs.ci_run_id }}
 
-      - name: Validate fixed Android physical-performance request
+      - name: Validate fixed BrowserStack physical-performance request
         shell: bash
         env:
           SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
           SOURCE_REF: ${{ inputs.ref }}
-          SOURCE_IS_TAG: ${{ inputs.source_is_tag }}
           PROJECT_DIRECTORY: ${{ inputs.project_directory }}
           TEST_FILTER: ${{ inputs.test_filter }}
           TEST_SELECTORS: ${{ inputs.test_selectors }}
@@ -1017,16 +1032,15 @@ jobs:
           BUILD_NUMBER: ${{ inputs.build_number }}
         run: |
           set -Eeuo pipefail
-          test "${SOURCE_REPOSITORY}" = StreamScapeTV/iptv-android || { echo "Android physical-performance is bounded to StreamScapeTV/iptv-android" >&2; exit 2; }
-          test -n "${SOURCE_REF}" || { echo "Android physical-performance requires an explicit product ref" >&2; exit 2; }
-          test "${SOURCE_IS_TAG}" = false || { echo "Android physical-performance accepts branch/commit source, not a release tag" >&2; exit 2; }
-          test "${PROJECT_DIRECTORY}" = . || { echo "Android physical-performance does not accept project_directory" >&2; exit 2; }
-          test -z "${TEST_FILTER}" || { echo "Android physical-performance does not accept test_filter" >&2; exit 2; }
-          test "${TEST_SELECTORS}" = '[]' || { echo "Android physical-performance does not accept test_selectors" >&2; exit 2; }
-          test -z "${TEST_PLATFORM}" || { echo "Android physical-performance does not accept test_platform" >&2; exit 2; }
-          test "${ROOM_SCHEMA}" = false || { echo "Android physical-performance does not accept room_schema" >&2; exit 2; }
-          test -z "${RELEASE_VERSION}" || { echo "Android physical-performance does not accept release_version" >&2; exit 2; }
-          test -z "${BUILD_NUMBER}" || { echo "Android physical-performance does not accept build_number" >&2; exit 2; }
+          test "$SOURCE_REPOSITORY" = StreamScapeTV/iptv-android || { echo "Android physical-performance is bounded to StreamScapeTV/iptv-android" >&2; exit 2; }
+          test -n "$SOURCE_REF" || { echo "Android physical-performance requires an explicit product ref" >&2; exit 2; }
+          test "$PROJECT_DIRECTORY" = . || { echo "Android physical-performance does not accept project_directory" >&2; exit 2; }
+          test -z "$TEST_FILTER" || { echo "Android physical-performance does not accept test_filter" >&2; exit 2; }
+          test "$TEST_SELECTORS" = '[]' || { echo "Android physical-performance does not accept test_selectors" >&2; exit 2; }
+          test -z "$TEST_PLATFORM" || { echo "Android physical-performance does not accept test_platform" >&2; exit 2; }
+          test "$ROOM_SCHEMA" = false || { echo "Android physical-performance does not accept room_schema" >&2; exit 2; }
+          test -z "$RELEASE_VERSION" || { echo "Android physical-performance does not accept release_version" >&2; exit 2; }
+          test -z "$BUILD_NUMBER" || { echo "Android physical-performance does not accept build_number" >&2; exit 2; }
 
       - name: Prepare Android physical-performance source token
         id: source
@@ -1042,7 +1056,7 @@ jobs:
           repository: StreamScapeTV/iptv-android
           ref: ${{ inputs.ref }}
           token: ${{ steps.source.outputs.token }}
-          path: physical-performance-source-plan
+          path: physical-performance-source
           fetch-depth: 1
           persist-credentials: false
 
@@ -1051,21 +1065,10 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          source_root="${GITHUB_WORKSPACE}/physical-performance-source-plan"
-          source_sha="$(git -C "${source_root}" rev-parse HEAD)"
-          [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]]
-          test -z "$(git -C "${source_root}" status --porcelain --untracked-files=all)"
-          wrapper='scripts/ci/run-android-physical-performance.sh'
-          wrapper_available=false
-          if git -C "${source_root}" ls-files --error-unmatch "${wrapper}" >/dev/null 2>&1 \
-            && test -f "${source_root}/${wrapper}" \
-            && test ! -L "${source_root}/${wrapper}"; then
-            wrapper_available=true
-          fi
-          {
-            printf 'source_sha=%s\n' "${source_sha}"
-            printf 'wrapper_available=%s\n' "${wrapper_available}"
-          } >> "${GITHUB_OUTPUT}"
+          source_sha="$(git -C physical-performance-source rev-parse HEAD)"
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
+          test -z "$(git -C physical-performance-source status --porcelain --untracked-files=all)"
+          printf 'source_sha=%s\n' "$source_sha" >> "$GITHUB_OUTPUT"
 
       - name: Record Android physical-performance source SHA
         if: ${{ inputs.ci_run_id != '' }}
@@ -1078,421 +1081,101 @@ jobs:
           ci_run_id: ${{ inputs.ci_run_id }}
           observed_source_sha: ${{ steps.source_identity.outputs.source_sha }}
 
-      - name: Resolve operator physical-lab authorization
-        id: lab_authorization
+      - name: Run bounded BrowserStack physical-performance cohort
+        id: physical
         shell: bash
         env:
-          AUTHORIZATION: ${{ secrets.ANDROID_PHYSICAL_PERFORMANCE_AUTHORIZATION }}
+          BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+          BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+          SOURCE_SHA: ${{ steps.source_identity.outputs.source_sha }}
         run: |
           set -Eeuo pipefail
-          authorized=false
-          if test "${AUTHORIZATION}" = android-physical-performance-v1; then
-            authorized=true
-          fi
-          printf 'authorized=%s\n' "${authorized}" >> "${GITHUB_OUTPUT}"
+          python3 scripts/ci/android_physical_browserstack.py \
+            --source-dir physical-performance-source \
+            --source-sha "$SOURCE_SHA" \
+            --evidence-dir "$PHYSICAL_EVIDENCE_DIR" \
+            --private-log "$CI_LOG"
 
-      - name: Remove Android physical-performance planning checkout
-        if: always()
-        shell: bash
-        run: rm -rf -- "${GITHUB_WORKSPACE}/physical-performance-source-plan"
-
-  physical_performance:
-    needs: physical_performance_plan
-    if: >-
-      ${{
-        inputs.test_profile == 'physical-performance'
-        && needs.physical_performance_plan.outputs.lab_authorized == 'true'
-        && needs.physical_performance_plan.outputs.wrapper_available == 'true'
-      }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - device_class: phone
-            runner_label: android-physical-phone
-          - device_class: tablet
-            runner_label: android-physical-tablet
-          - device_class: television
-            runner_label: android-physical-tv
-    runs-on: [linux, x64, "${{ matrix.runner_label }}"]
-    timeout-minutes: 240
-    concurrency:
-      group: central-android-physical-performance-${{ matrix.device_class }}
-      cancel-in-progress: false
-    steps:
-      - name: Initialize Android physical-performance private log
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          log="${RUNNER_TEMP}/central-android-physical-${{ matrix.device_class }}.log"
-          : > "${log}"
-          chmod 600 "${log}"
-          printf 'CI_LOG=%s\n' "${log}" >> "${GITHUB_ENV}"
-
-      - name: Prepare Android physical-performance source token
-        id: source
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ secrets.SOURCE_APP_ID }}
-          private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-          owner: StreamScapeTV
-
-      - name: Check out exact Android physical-performance source
-        uses: actions/checkout@v4
-        with:
-          repository: StreamScapeTV/iptv-android
-          ref: ${{ needs.physical_performance_plan.outputs.source_sha }}
-          token: ${{ steps.source.outputs.token }}
-          path: source
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Verify exact Android physical-performance source
-        shell: bash
-        env:
-          EXPECTED_SHA: ${{ needs.physical_performance_plan.outputs.source_sha }}
-        run: |
-          set -Eeuo pipefail
-          test "$(git -C source rev-parse HEAD)" = "${EXPECTED_SHA}"
-          test -z "$(git -C source status --porcelain --untracked-files=all)"
-          git -C source ls-files --error-unmatch scripts/ci/run-android-physical-performance.sh >/dev/null
-          test -f source/scripts/ci/run-android-physical-performance.sh
-          test ! -L source/scripts/ci/run-android-physical-performance.sh
-
-      - name: Discover one representative physical Android device
-        id: discover
-        continue-on-error: true
-        shell: bash
-        env:
-          EXPECTED_CLASS: ${{ matrix.device_class }}
-        run: |
-          set -Eeuo pipefail
-          python3 - <<'PY_ANDROID_PHYSICAL_DISCOVER'
-          import hashlib
-          import json
-          import os
-          import re
-          import subprocess
-          from pathlib import Path
-
-          expected = os.environ["EXPECTED_CLASS"]
-          if expected not in {"phone", "tablet", "television"}:
-              raise SystemExit("invalid Central Android physical device class")
-          output_path = Path(os.environ["GITHUB_OUTPUT"])
-          private_path = Path(os.environ["RUNNER_TEMP"]) / "android-physical-device.json"
-
-          def emit_failure(code: str) -> None:
-              with output_path.open("a", encoding="utf-8") as out:
-                  out.write(f"failure_code={code}\n")
-              raise SystemExit(1)
-
-          try:
-              subprocess.run(["adb", "version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=15)
-              raw = subprocess.run(["adb", "devices"], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, timeout=30).stdout
-          except (OSError, subprocess.SubprocessError):
-              emit_failure("adb_unavailable")
-
-          ready = []
-          unavailable = False
-          for line in raw.splitlines()[1:]:
-              fields = line.strip().split()
-              if len(fields) < 2:
-                  continue
-              if fields[1] == "device":
-                  ready.append(fields[0])
-              elif fields[1] in {"offline", "unauthorized"}:
-                  unavailable = True
-          if not ready:
-              emit_failure("device_offline_or_unauthorized" if unavailable else "device_class_unavailable")
-
-          def adb(serial: str, *args: str) -> str:
-              try:
-                  return subprocess.run(
-                      ["adb", "-s", serial, *args], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                      check=True, timeout=30,
-                  ).stdout.strip().replace("\r", "")
-              except (OSError, subprocess.SubprocessError):
-                  return ""
-
-          def classify(serial: str):
-              if serial.startswith("emulator-") or adb(serial, "shell", "getprop", "ro.kernel.qemu") == "1":
-                  return None
-              sdk_raw = adb(serial, "shell", "getprop", "ro.build.version.sdk")
-              if re.fullmatch(r"[1-9][0-9]{0,2}", sdk_raw or "") is None:
-                  return None
-              api = int(sdk_raw)
-              if api < 24:
-                  return None
-              characteristics = adb(serial, "shell", "getprop", "ro.build.characteristics").casefold()
-              if "tv" in characteristics or "television" in characteristics:
-                  device_class = "television"
-              else:
-                  size = adb(serial, "shell", "wm", "size")
-                  density = adb(serial, "shell", "wm", "density")
-                  size_match = re.search(r"(?:Physical size|Override size):\s*([0-9]+)x([0-9]+)", size)
-                  density_match = re.search(r"(?:Physical density|Override density):\s*([0-9]+)", density)
-                  if not size_match or not density_match:
-                      return None
-                  width, height = int(size_match.group(1)), int(size_match.group(2))
-                  dpi = int(density_match.group(1))
-                  if not (1 <= dpi <= 2000):
-                      return None
-                  smallest_width_dp = min(width, height) * 160.0 / dpi
-                  device_class = "tablet" if smallest_width_dp >= 600.0 else "phone"
-              model = adb(serial, "shell", "getprop", "ro.product.model") or "unknown"
-              model = re.sub(r"[^A-Za-z0-9 ._()+-]", "_", model)[:120]
-              return device_class, api, model
-
-          candidates = []
-          for serial in ready:
-              details = classify(serial)
-              if details is not None and details[0] == expected:
-                  candidates.append((serial, *details[1:]))
-          if len(candidates) == 0:
-              emit_failure("device_class_unavailable")
-          if len(candidates) != 1:
-              emit_failure("device_class_ambiguous")
-
-          serial, api, model = candidates[0]
-          identity = hashlib.sha256(serial.encode("utf-8")).hexdigest()
-          payload = {"serial": serial, "deviceClass": expected, "androidApiLevel": api, "deviceModel": model, "deviceIdentitySha256": identity}
-          private_path.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
-          private_path.chmod(0o600)
-          with output_path.open("a", encoding="utf-8") as out:
-              out.write("failure_code=\n")
-              out.write(f"android_api_level={api}\n")
-              out.write(f"device_model={model}\n")
-              out.write(f"device_identity_sha256={identity}\n")
-          PY_ANDROID_PHYSICAL_DISCOVER
-
-      - name: Run fixed product physical-performance wrapper
-        id: product
-        if: ${{ steps.discover.outcome == 'success' }}
-        shell: bash
-        env:
-          DEVICE_CLASS: ${{ matrix.device_class }}
-          SOURCE_SHA: ${{ needs.physical_performance_plan.outputs.source_sha }}
-          ANDROID_API_LEVEL: ${{ steps.discover.outputs.android_api_level }}
-        run: |
-          set -Eeuo pipefail
-          private_device="${RUNNER_TEMP}/android-physical-device.json"
-          result_file="${RUNNER_TEMP}/android-physical-product-result.json"
-          evidence_dir="${RUNNER_TEMP}/android-physical-product-evidence"
-          serial="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["serial"])' "${private_device}")"
-          mkdir -p "${evidence_dir}"
-          chmod 700 "${evidence_dir}"
-          set +e
-          (
-            export ANDROID_SERIAL="${serial}"
-            export CI_ANDROID_PHYSICAL_PROFILE=performance
-            export CI_ANDROID_PHYSICAL_DEVICE_CLASS="${DEVICE_CLASS}"
-            export CI_ANDROID_PHYSICAL_SOURCE_SHA="${SOURCE_SHA}"
-            export CI_ANDROID_PHYSICAL_ANDROID_API_LEVEL="${ANDROID_API_LEVEL}"
-            export CI_ANDROID_PHYSICAL_EVIDENCE_DIR="${evidence_dir}"
-            export CI_ANDROID_PHYSICAL_RESULT_FILE="${result_file}"
-            cd source
-            bash scripts/ci/run-android-physical-performance.sh
-          ) >> "${CI_LOG}" 2>&1
-          status=$?
-          set -e
-          printf 'exit_code=%s\n' "${status}" >> "${GITHUB_OUTPUT}"
-
-      - name: Build bounded physical-performance evidence
-        id: evidence
-        if: always()
-        shell: bash
-        env:
-          DEVICE_CLASS: ${{ matrix.device_class }}
-          SOURCE_SHA: ${{ needs.physical_performance_plan.outputs.source_sha }}
-          DISCOVER_OUTCOME: ${{ steps.discover.outcome }}
-          DISCOVER_FAILURE: ${{ steps.discover.outputs.failure_code }}
-          PRODUCT_EXIT_CODE: ${{ steps.product.outputs.exit_code }}
-        run: |
-          set -Eeuo pipefail
-          python3 - <<'PY_ANDROID_PHYSICAL_EVIDENCE'
-          import json
-          import math
-          import os
-          import re
-          from pathlib import Path
-
-          device_class = os.environ["DEVICE_CLASS"]
-          source_sha = os.environ["SOURCE_SHA"]
-          temp = Path(os.environ["RUNNER_TEMP"])
-          device_path = temp / "android-physical-device.json"
-          product_path = temp / "android-physical-product-result.json"
-          evidence_path = temp / f"central-android-physical-{device_class}.json"
-          success = False
-          failure_code = ""
-          device = None
-          product = None
-          safe_product = None
-
-          if os.environ.get("DISCOVER_OUTCOME") != "success":
-              failure_code = os.environ.get("DISCOVER_FAILURE") or "device_class_unavailable"
-          else:
-              try:
-                  device = json.loads(device_path.read_text(encoding="utf-8"))
-              except Exception:
-                  failure_code = "device_identity_invalid"
-              if not failure_code:
-                  try:
-                      if not product_path.is_file() or product_path.is_symlink() or not 1 <= product_path.stat().st_size <= 65536:
-                          raise ValueError("bounded product result is unavailable")
-                      product = json.loads(product_path.read_text(encoding="utf-8"))
-                  except Exception:
-                      failure_code = "product_result_missing"
-
-          def valid_id(value):
-              return isinstance(value, str) and re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,95}", value) is not None
-
-          if product is not None and not failure_code:
-              expected_keys = {"schemaVersion", "sourceSha", "deviceClass", "androidApiLevel", "buildMode", "artifactFile", "artifactSha256", "status", "measurements", "scenarios"}
-              if not isinstance(product, dict) or set(product) != expected_keys:
-                  failure_code = "product_result_invalid"
-              elif product["schemaVersion"] != 1 or product["sourceSha"] != source_sha or product["deviceClass"] != device_class:
-                  failure_code = "product_result_invalid"
-              elif type(product["androidApiLevel"]) is not int or product["androidApiLevel"] != device["androidApiLevel"]:
-                  failure_code = "product_result_invalid"
-              elif product["buildMode"] != "release" or product["status"] not in {"passed", "failed"}:
-                  failure_code = "product_result_invalid"
-              elif (
-                  not isinstance(product["artifactFile"], str)
-                  or len(product["artifactFile"]) > 240
-                  or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,239}", product["artifactFile"]) is None
-                  or product["artifactFile"].startswith("/")
-                  or ".." in product["artifactFile"].split("/")
-              ):
-                  failure_code = "product_result_invalid"
-              elif not isinstance(product["artifactSha256"], str) or re.fullmatch(r"[0-9a-f]{64}", product["artifactSha256"]) is None:
-                  failure_code = "product_result_invalid"
-              else:
-                  artifact_root = temp / "android-physical-product-evidence"
-                  artifact = artifact_root.joinpath(*product["artifactFile"].split("/"))
-                  if not artifact_root.is_dir() or artifact_root.is_symlink():
-                      failure_code = "product_artifact_invalid"
-                  current = artifact_root
-                  for part in product["artifactFile"].split("/"):
-                      current = current / part
-                      if current.is_symlink():
-                          failure_code = "product_artifact_invalid"; break
-                  if not failure_code and (not artifact.is_file() or artifact.is_symlink()):
-                      failure_code = "product_artifact_invalid"
-                  if not failure_code and not 1 <= artifact.stat().st_size <= 1073741824:
-                      failure_code = "product_artifact_invalid"
-                  if not failure_code:
-                      import hashlib
-                      hasher = hashlib.sha256()
-                      with artifact.open("rb") as stream:
-                          for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                              hasher.update(chunk)
-                      digest = hasher.hexdigest()
-                      if digest != product["artifactSha256"]:
-                          failure_code = "product_artifact_mismatch"
-                  measurements = product["measurements"]
-                  scenarios = product["scenarios"]
-                  if not isinstance(measurements, list) or not 1 <= len(measurements) <= 128:
-                      failure_code = "product_result_invalid"
-                  elif not isinstance(scenarios, list) or not 1 <= len(scenarios) <= 64:
-                      failure_code = "product_result_invalid"
-                  else:
-                      for item in measurements:
-                          if not isinstance(item, dict) or set(item) != {"id", "value", "unit", "status"}:
-                              failure_code = "product_result_invalid"; break
-                          value = item.get("value")
-                          if not valid_id(item.get("id")) or type(value) not in {int, float} or not math.isfinite(float(value)):
-                              failure_code = "product_result_invalid"; break
-                          if item.get("unit") not in {"ms", "bytes", "bytes_delta", "count", "fraction", "percent"}:
-                              failure_code = "product_result_invalid"; break
-                          if item.get("status") not in {"passed", "failed", "observed"}:
-                              failure_code = "product_result_invalid"; break
-                      if not failure_code:
-                          for item in scenarios:
-                              if not isinstance(item, dict) or set(item) != {"id", "status"} or not valid_id(item.get("id")) or item.get("status") not in {"passed", "failed", "observed"}:
-                                  failure_code = "product_result_invalid"; break
-              if not failure_code:
-                  safe_product = product
-                  exit_code = os.environ.get("PRODUCT_EXIT_CODE", "")
-                  if exit_code != "0":
-                      failure_code = "product_wrapper_failed"
-                  elif product["status"] != "passed" or any(x["status"] == "failed" for x in [*product["measurements"], *product["scenarios"]]):
-                      failure_code = "product_gate_failed"
-                  else:
-                      success = True
-
-          evidence = {
-              "schemaVersion": 1,
-              "profile": "physical-performance",
-              "sourceSha": source_sha,
-              "deviceClass": device_class,
-              "status": "passed" if success else "failed",
-              "failureCode": failure_code,
-              "device": None if device is None else {
-                  "model": device["deviceModel"],
-                  "androidApiLevel": device["androidApiLevel"],
-                  "identitySha256": device["deviceIdentitySha256"],
-              },
-              "productResult": safe_product,
-          }
-          evidence_path.write_text(json.dumps(evidence, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
-          evidence_path.chmod(0o600)
-          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as out:
-              out.write(f"success={'true' if success else 'false'}\n")
-              out.write(f"failure_code={failure_code}\n")
-          PY_ANDROID_PHYSICAL_EVIDENCE
-
-      - name: Scrub Android physical-performance private log
+      - name: Scrub BrowserStack physical-performance evidence
         id: scrub
-        if: always()
+        if: ${{ always() }}
         shell: bash
         env:
+          CI_SECRET_BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+          CI_SECRET_BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+          CI_SECRET_SOURCE_TOKEN: ${{ steps.source.outputs.token }}
+          CI_SECRET_GITHUB_TOKEN: ${{ github.token }}
           CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-          CI_SECRET_AGENT_STATE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-          CI_SECRET_AGENT_STATE_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
           CI_SECRET_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
           CI_SECRET_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
           CI_SECRET_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
         run: |
           set -Eeuo pipefail
-          if test -f "${RUNNER_TEMP}/android-physical-device.json"; then
-            CI_SECRET_DEVICE_SERIAL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["serial"])' "${RUNNER_TEMP}/android-physical-device.json")"
-            export CI_SECRET_DEVICE_SERIAL
-          fi
-          python3 - <<'PY_ANDROID_PHYSICAL_REDACT'
-          import os
+          python3 - "$CI_LOG" "$PHYSICAL_EVIDENCE_DIR" <<'PY_ANDROID_PHYSICAL_REDACT'
           from pathlib import Path
-          path = Path(os.environ["CI_LOG"])
-          data = path.read_bytes()
-          for name, value in os.environ.items():
-              if not name.startswith("CI_SECRET_") or not value:
-                  continue
-              raw = value.encode()
-              data = data.replace(raw, b"[REDACTED]")
-              escaped = value.replace("\n", "\\n").encode()
-              if escaped != raw:
-                  data = data.replace(escaped, b"[REDACTED]")
-          path.write_bytes(data)
+          import os
+          import sys
+
+          log = Path(sys.argv[1])
+          root = Path(sys.argv[2])
+          paths = [log]
+          if root.is_dir() and not root.is_symlink():
+              paths.extend(sorted(path for path in root.iterdir() if path.is_file() and not path.is_symlink()))
+          secrets = [value.encode() for name, value in os.environ.items() if name.startswith("CI_SECRET_") and value]
+          for path in paths:
+              if path.is_symlink() or not path.is_file():
+                  raise SystemExit("Android physical-performance evidence must be regular non-symlink files")
+              if path.stat().st_size > 16 * 1024 * 1024:
+                  raise SystemExit("Android physical-performance evidence exceeds the pre-scrub bound")
+              data = path.read_bytes()
+              for raw in secrets:
+                  data = data.replace(raw, b"[REDACTED]")
+                  escaped = raw.replace(b"\n", b"\\n")
+                  if escaped != raw:
+                      data = data.replace(escaped, b"[REDACTED]")
+              path.write_bytes(data)
           PY_ANDROID_PHYSICAL_REDACT
 
-      - name: Upload Android physical-performance evidence
-        id: evidence_upload
-        if: ${{ always() && steps.evidence.outcome == 'success' }}
-        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
-        env:
-          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
-          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
-        with:
-          repository: StreamScapeTV/iptv-android
-          ref: ${{ inputs.ref }}
-          file_path: ${{ runner.temp }}/central-android-physical-${{ matrix.device_class }}.json
-          file_name: ${{ github.run_id }}-${{ github.run_attempt }}-physical-${{ matrix.device_class }}.json
-          mime_type: application/json
+      - name: Package bounded Android physical-performance evidence
+        id: evidence
+        if: ${{ always() && steps.scrub.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          archive="$RUNNER_TEMP/central-android-physical-performance-evidence.zip"
+          rm -f -- "$archive"
+          python3 - "$PHYSICAL_EVIDENCE_DIR" "$archive" <<'PY_ANDROID_PHYSICAL_EVIDENCE'
+          from pathlib import Path
+          import sys
+          import zipfile
+
+          root = Path(sys.argv[1])
+          archive = Path(sys.argv[2])
+          if not root.is_dir() or root.is_symlink():
+              raise SystemExit("Android physical-performance evidence root is invalid")
+          files = []
+          total = 0
+          for path in sorted(root.iterdir()):
+              if path.is_symlink() or not path.is_file():
+                  raise SystemExit("Android physical-performance evidence contains an unsupported entry")
+              size = path.stat().st_size
+              if size > 4 * 1024 * 1024:
+                  raise SystemExit("Android physical-performance evidence file exceeds 4 MiB")
+              total += size
+              files.append(path)
+          if not 1 <= len(files) <= 8 or total > 16 * 1024 * 1024:
+              raise SystemExit("Android physical-performance evidence set is outside the reviewed bound")
+          with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+              for path in files:
+                  bundle.write(path, arcname=path.name)
+          print(archive)
+          PY_ANDROID_PHYSICAL_EVIDENCE
+          test -f "$archive" && test ! -L "$archive"
+          printf 'archive=%s\n' "$archive" >> "$GITHUB_OUTPUT"
 
       - name: Upload Android physical-performance private log
-        id: log_upload
-        if: ${{ always() && steps.scrub.outcome == 'success' }}
+        id: drive
+        if: ${{ always() && steps.scrub.outcome == 'success' && (inputs.ci_run_id != '' || inputs.upload_private_log) }}
         uses: StreamScapeTV/ci-workflows/actions/google-drive@main
         env:
           GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
@@ -1502,113 +1185,13 @@ jobs:
         with:
           repository: StreamScapeTV/iptv-android
           ref: ${{ inputs.ref }}
-          file_path: ${{ runner.temp }}/central-android-physical-${{ matrix.device_class }}.log
-          file_name: ${{ github.run_id }}-${{ github.run_attempt }}-physical-${{ matrix.device_class }}.txt
+          file_path: ${{ runner.temp }}/central-android-physical-performance.log
+          file_name: ${{ github.run_id }}-${{ github.run_attempt }}-android-physical-performance.txt
           mime_type: text/plain
 
-      - name: Remove Android physical-performance local state
-        if: always()
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          rm -rf -- \
-            "${GITHUB_WORKSPACE}/source" \
-            "${RUNNER_TEMP}/android-physical-device.json" \
-            "${RUNNER_TEMP}/android-physical-product-result.json" \
-            "${RUNNER_TEMP}/android-physical-product-evidence" \
-            "${RUNNER_TEMP}/central-android-physical-${{ matrix.device_class }}.json"
-
-      - name: Project Android physical-performance class result
-        if: always()
-        shell: bash
-        env:
-          SUCCESS: ${{ steps.evidence.outputs.success }}
-          EVIDENCE_UPLOAD: ${{ steps.evidence_upload.outcome }}
-          LOG_UPLOAD: ${{ steps.log_upload.outcome }}
-          SCRUB: ${{ steps.scrub.outcome }}
-        run: |
-          set -Eeuo pipefail
-          test "${SUCCESS}" = true
-          test "${SCRUB}" = success
-          test "${EVIDENCE_UPLOAD}" = success
-          test "${LOG_UPLOAD}" = success
-
-  physical_performance_finish:
-    needs:
-      - physical_performance_plan
-      - physical_performance
-    if: ${{ always() && inputs.test_profile == 'physical-performance' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - name: Build Android physical-performance terminal summary
-        id: summary
-        shell: bash
-        env:
-          PLAN_RESULT: ${{ needs.physical_performance_plan.result }}
-          MATRIX_RESULT: ${{ needs.physical_performance.result }}
-          SOURCE_SHA: ${{ needs.physical_performance_plan.outputs.source_sha }}
-          LAB_AUTHORIZED: ${{ needs.physical_performance_plan.outputs.lab_authorized }}
-          WRAPPER_AVAILABLE: ${{ needs.physical_performance_plan.outputs.wrapper_available }}
-        run: |
-          set -Eeuo pipefail
-          python3 - <<'PY_ANDROID_PHYSICAL_SUMMARY'
-          import json
-          import os
-          from pathlib import Path
-
-          plan = os.environ.get("PLAN_RESULT", "")
-          matrix = os.environ.get("MATRIX_RESULT", "")
-          authorized = os.environ.get("LAB_AUTHORIZED") == "true"
-          wrapper = os.environ.get("WRAPPER_AVAILABLE") == "true"
-          if plan != "success":
-              status, reason = "failed", "source_or_request_admission_failed"
-          elif not authorized:
-              status, reason = "unavailable", "operator_lab_authorization_missing"
-          elif not wrapper:
-              status, reason = "unavailable", "product_wrapper_missing"
-          elif matrix == "success":
-              status, reason = "passed", ""
-          elif matrix == "cancelled":
-              status, reason = "cancelled", "physical_execution_cancelled"
-          else:
-              status, reason = "failed", "device_or_product_failure"
-          run_id = os.environ["GITHUB_RUN_ID"]
-          attempt = os.environ["GITHUB_RUN_ATTEMPT"]
-          classes = [
-              ("phone", "android-physical-phone"),
-              ("tablet", "android-physical-tablet"),
-              ("television", "android-physical-tv"),
-          ]
-          summary = {
-              "schemaVersion": 1,
-              "profile": "physical-performance",
-              "sourceSha": os.environ.get("SOURCE_SHA", ""),
-              "status": status,
-              "reason": reason,
-              "labAuthorized": authorized,
-              "productWrapperAvailable": wrapper,
-              "requiredAuthorization": "ANDROID_PHYSICAL_PERFORMANCE_AUTHORIZATION=android-physical-performance-v1",
-              "deviceClasses": [
-                  {
-                      "deviceClass": cls,
-                      "runnerLabels": ["linux", "x64", label],
-                      "evidenceKey": f"{run_id}-{attempt}-physical-{cls}.json",
-                      "logKey": f"{run_id}-{attempt}-physical-{cls}.txt",
-                  }
-                  for cls, label in classes
-              ],
-          }
-          path = Path(os.environ["RUNNER_TEMP"]) / "central-android-physical-performance-summary.json"
-          path.write_text(json.dumps(summary, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
-          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as out:
-              out.write(f"status={status}\n")
-              out.write(f"reason={reason}\n")
-          PY_ANDROID_PHYSICAL_SUMMARY
-
-      - name: Upload Android physical-performance terminal summary
-        id: summary_upload
-        if: ${{ steps.summary.outcome == 'success' && inputs.ref != '' }}
+      - name: Upload bounded Android physical-performance evidence
+        id: evidence_drive
+        if: ${{ always() && steps.evidence.outcome == 'success' && (inputs.ci_run_id != '' || inputs.upload_private_log) }}
         uses: StreamScapeTV/ci-workflows/actions/google-drive@main
         env:
           GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
@@ -1618,11 +1201,62 @@ jobs:
         with:
           repository: StreamScapeTV/iptv-android
           ref: ${{ inputs.ref }}
-          file_path: ${{ runner.temp }}/central-android-physical-performance-summary.json
-          file_name: ${{ github.run_id }}-${{ github.run_attempt }}-physical-performance.json
-          mime_type: application/json
+          file_path: ${{ steps.evidence.outputs.archive }}
+          file_name: ${{ github.run_id }}-${{ github.run_attempt }}-android-physical-performance-evidence.zip
+          mime_type: application/zip
 
-      - name: Finish Agent State physical-performance run
+      - name: Cleanup Android physical-performance state
+        id: cleanup
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          rm -rf -- \
+            "$GITHUB_WORKSPACE/physical-performance-source" \
+            "$RUNNER_TEMP/central-browserstack-physical" \
+            "$RUNNER_TEMP/central-android-physical-performance-evidence" \
+            "$RUNNER_TEMP/central-android-physical-performance-evidence.zip"
+
+      - name: Classify Android physical-performance terminal diagnostic
+        id: terminal
+        if: ${{ always() }}
+        shell: bash
+        env:
+          PHYSICAL_OUTCOME: ${{ steps.physical.outcome }}
+          PHYSICAL_SUCCESS: ${{ steps.physical.outputs.success }}
+          FAILURE_CODE: ${{ steps.physical.outputs.failure_code }}
+          SCRUB_OUTCOME: ${{ steps.scrub.outcome }}
+          EVIDENCE_OUTCOME: ${{ steps.evidence.outcome }}
+          DRIVE_OUTCOME: ${{ steps.drive.outcome }}
+          EVIDENCE_DRIVE_OUTCOME: ${{ steps.evidence_drive.outcome }}
+          CLEANUP_OUTCOME: ${{ steps.cleanup.outcome }}
+        run: |
+          set -Eeuo pipefail
+          success=false
+          error_summary=""
+          if test "$PHYSICAL_OUTCOME" = success && test "$PHYSICAL_SUCCESS" = true \
+            && test "$SCRUB_OUTCOME" = success && test "$EVIDENCE_OUTCOME" = success \
+            && test "$DRIVE_OUTCOME" = success && test "$EVIDENCE_DRIVE_OUTCOME" = success \
+            && test "$CLEANUP_OUTCOME" = success; then
+            success=true
+          else
+            code="$FAILURE_CODE"
+            test -n "$code" || code=central_post_processing_failed
+            error_summary="Android BrowserStack physical-performance failed closed: $code"
+          fi
+          diagnostic_key=""
+          diagnostic_status="unavailable"
+          if test "$DRIVE_OUTCOME" = success; then
+            diagnostic_key="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-android-physical-performance.txt"
+            diagnostic_status="available"
+          fi
+          {
+            printf 'success=%s\n' "$success"
+            printf 'error_summary=%s\n' "$error_summary"
+            printf 'diagnostic_key=%s\n' "$diagnostic_key"
+            printf 'diagnostic_status=%s\n' "$diagnostic_status"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Finish Agent State run
         if: ${{ always() && inputs.ci_run_id != '' }}
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
         env:
@@ -1631,21 +1265,21 @@ jobs:
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}
-          status: ${{ steps.summary.outputs.status == 'passed' && steps.summary_upload.outcome == 'success' && 'succeeded' || steps.summary.outputs.status == 'cancelled' && 'cancelled' || 'failed' }}
-          error_summary: ${{ steps.summary.outputs.status == 'passed' && steps.summary_upload.outcome == 'success' && '' || format('Android physical-performance did not produce a complete phone/tablet/TV PASS ({0}). See the private terminal summary when available.', steps.summary.outputs.reason) }}
-          diagnostic_key: ${{ steps.summary_upload.outcome == 'success' && format('{0}-{1}-physical-performance.json', github.run_id, github.run_attempt) || '' }}
-          diagnostic_status: ${{ steps.summary_upload.outcome == 'success' && 'available' || 'unavailable' }}
+          status: ${{ steps.terminal.outputs.success == 'true' && 'succeeded' || 'failed' }}
+          error_summary: ${{ steps.terminal.outputs.error_summary }}
+          diagnostic_key: ${{ steps.terminal.outputs.diagnostic_key }}
+          diagnostic_status: ${{ steps.terminal.outputs.diagnostic_status }}
 
-      - name: Project Android physical-performance terminal result
-        if: always()
+      - name: Require Android physical-performance acceptance
+        if: ${{ always() }}
         shell: bash
         env:
-          STATUS: ${{ steps.summary.outputs.status }}
-          SUMMARY_UPLOAD: ${{ steps.summary_upload.outcome }}
+          SUCCESS: ${{ steps.terminal.outputs.success }}
         run: |
-          set -Eeuo pipefail
-          test "${STATUS}" = passed
-          test "${SUMMARY_UPLOAD}" = success
+          test "$SUCCESS" = true || {
+            echo "Android BrowserStack physical-performance did not complete with three physical-device PASS results; inspect the private diagnostic." >&2
+            exit 1
+          }
 
   ci:
     if: ${{ inputs.test_profile != 'screenshot-review' && inputs.test_profile != 'physical-performance' }}
