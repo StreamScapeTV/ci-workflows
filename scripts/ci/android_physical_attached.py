@@ -445,13 +445,11 @@ def run_profile(
                 "providerSessionId": device["providerSessionId"],
             }
             product_env = os.environ.copy()
-            product_env.pop("BROWSERSTACK_USERNAME", None)
-            product_env.pop("BROWSERSTACK_ACCESS_KEY", None)
+            product_env.pop("CI_ANDROID_PHYSICAL_PROVIDER", None)
             product_env.update(
                 {
                     "ANDROID_SERIAL": str(device["serial"]),
                     "CI_ANDROID_PHYSICAL_PROFILE": "performance",
-                    "CI_ANDROID_PHYSICAL_PROVIDER": PROVIDER,
                     "CI_ANDROID_PHYSICAL_DEVICE_CLASS": str(device["deviceClass"]),
                     "CI_ANDROID_PHYSICAL_DEVICE_MODEL": str(device["deviceModel"]),
                     "CI_ANDROID_PHYSICAL_OS_VERSION": str(device["osVersion"]),
