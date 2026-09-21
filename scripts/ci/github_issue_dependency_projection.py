@@ -246,7 +246,8 @@ class GitHubApi:
         number = value.get("number")
         if isinstance(issue_id, bool) or not isinstance(issue_id, int) or issue_id <= 0:
             raise ProjectionError("server_error", retryable=True)
-        if number != identity.issue_number:
+        expected_repository_url = f"{GITHUB_API}/repos/{identity.repository_full_name}"
+        if number != identity.issue_number or value.get("repository_url") != expected_repository_url:
             raise ProjectionError("validation_failed", retryable=False)
         return issue_id
 
@@ -347,6 +348,13 @@ def claim_command() -> int:
         encoding="utf-8",
     )
     CLAIM_FILE.chmod(0o600)
+    repositories = sorted(
+        {
+            projection.dependent.repository_full_name.split("/", 1)[1],
+            projection.blocker.repository_full_name.split("/", 1)[1],
+        }
+    )
+    _write_output("repositories", ",".join(repositories))
     _write_output("has_work", "true")
     return 0
 
