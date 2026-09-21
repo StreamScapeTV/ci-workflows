@@ -1,4 +1,5 @@
 from pathlib import Path
+import hashlib
 import json
 import os
 import re
@@ -34,6 +35,17 @@ class RepositoryWorkflowTests(unittest.TestCase):
             for step in self.workflow["jobs"]["execute"]["steps"]
             if step.get("name")
         }
+
+    def bind_artifact_selection_digest(self, env: dict[str, str], github_output: Path) -> str:
+        digests = [
+            line.split("=", 1)[1]
+            for line in github_output.read_text(encoding="utf-8").splitlines()
+            if line.startswith("artifact_selection_sha256=")
+        ]
+        self.assertEqual(len(digests), 1)
+        self.assertRegex(digests[0], r"^[0-9a-f]{64}$")
+        env["ARTIFACT_SELECTION_SHA256"] = digests[0]
+        return digests[0]
 
     def run_repository_request(
         self,
@@ -1032,11 +1044,20 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertIn('log_root = Path(os.environ["CI_LOG_DIR"])', scrub["run"])
         self.assertIn('artifact_root = Path(os.environ["CI_ARTIFACT_DIR"])', scrub["run"])
         self.assertIn("central-repository-ci-artifact-selection.json", scrub["run"])
+        self.assertIn("artifact_selection_sha256=", scrub["run"])
         self.assertNotIn('for name in ("CI_LOG_DIR", "CI_ARTIFACT_DIR")', scrub["run"])
 
         package = by_name["Package bounded repository CI evidence"]
+        self.assertEqual(
+            package["env"]["ARTIFACT_SELECTION_SHA256"],
+            "${{ steps.scrub.outputs.artifact_selection_sha256 }}",
+        )
         self.assertIn("central-repository-ci-artifact-selection.json", package["run"])
         self.assertIn("artifact selection changed after scrub", package["run"])
+        self.assertLess(
+            package["run"].index("hashlib.sha256(artifact_selection_bytes)"),
+            package["run"].index("json.loads(artifact_selection_bytes.decode"),
+        )
         self.assertNotIn('for path in sorted(artifact_root.rglob("*"))', package["run"])
         self.assertIn("evidence exceeds 256 files", package["run"])
         self.assertIn("evidence exceeds 64 MiB", package["run"])
@@ -1104,6 +1125,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(scrubbed.returncode, 0, scrubbed.stderr)
+            self.bind_artifact_selection_digest(env, github_output)
             result = subprocess.run(
                 ["bash", "-c", package["run"]],
                 cwd=ROOT,
@@ -1114,9 +1136,9 @@ class RepositoryWorkflowTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             output_lines = github_output.read_text(encoding="utf-8").splitlines()
-            self.assertEqual(len(output_lines), 1)
-            self.assertTrue(output_lines[0].startswith("archive="))
-            archive_value = output_lines[0].split("=", 1)[1]
+            archive_lines = [line for line in output_lines if line.startswith("archive=")]
+            self.assertEqual(len(archive_lines), 1)
+            archive_value = archive_lines[0].split("=", 1)[1]
             self.assertNotIn("\\n", archive_value)
             archive = Path(archive_value)
             self.assertEqual(archive, root / "central-repository-ci-evidence.zip")
@@ -1174,6 +1196,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(scrubbed.returncode, 0, scrubbed.stderr)
+            self.bind_artifact_selection_digest(env, github_output)
             self.assertTrue((framework / "Headers").is_symlink())
             self.assertNotIn(secret, ci_log.read_text(encoding="utf-8"))
             self.assertNotIn(secret, (log_dir / "tool.log").read_text(encoding="utf-8"))
@@ -1252,6 +1275,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(scrubbed.returncode, 0, scrubbed.stderr)
+            self.bind_artifact_selection_digest(env, github_output)
             selection_path = root / "central-repository-ci-artifact-selection.json"
             selection = json.loads(selection_path.read_text(encoding="utf-8"))
             retained = [item["path"] for item in selection["artifacts"]]
@@ -1333,6 +1357,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(scrubbed.returncode, 0, scrubbed.stderr)
+            self.bind_artifact_selection_digest(env, github_output)
             artifact.write_bytes(secret.encode())
 
             packaged = subprocess.run(
@@ -1346,7 +1371,84 @@ class RepositoryWorkflowTests(unittest.TestCase):
             self.assertNotEqual(packaged.returncode, 0)
             self.assertIn("artifact selection changed after scrub", packaged.stderr)
             self.assertFalse((root / "central-repository-ci-evidence.zip").exists())
-            self.assertEqual(github_output.read_text(encoding="utf-8"), "")
+            self.assertNotIn("archive=", github_output.read_text(encoding="utf-8"))
+
+    def test_artifact_selection_manifest_tamper_is_rejected_before_parse(self) -> None:
+        scrub = self.steps_by_name["Scrub configured CI secrets from private text evidence"]["run"]
+        package = self.steps_by_name["Package bounded repository CI evidence"]["run"]
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log_dir = root / "logs"
+            artifact_dir = root / "artifacts"
+            log_dir.mkdir()
+            artifact_dir.mkdir()
+            secret = "registry-secret-value"
+            ci_log = root / "central.log"
+            ci_log.write_text("bounded diagnostics\n", encoding="utf-8")
+            (log_dir / "tool.log").write_text("bounded tool log\n", encoding="utf-8")
+            unsafe = artifact_dir / "arm64-apple-macos.abi.json"
+            unsafe_bytes = b'{"credential":"' + secret.encode() + b'"}\n'
+            unsafe.write_bytes(unsafe_bytes)
+            safe = artifact_dir / "result.json"
+            safe.write_text('{"status":"cancelled"}\n', encoding="utf-8")
+            progress = root / "progress.txt"
+            progress.write_text("cancelled\n", encoding="utf-8")
+            github_output = root / "github-output"
+            github_output.write_text("", encoding="utf-8")
+            env = {
+                **os.environ,
+                "RUNNER_TEMP": str(root),
+                "CI_LOG": str(ci_log),
+                "CI_PROGRESS_FILE": str(progress),
+                "CI_LOG_DIR": str(log_dir),
+                "CI_ARTIFACT_DIR": str(artifact_dir),
+                "CI_SECRET_TEST": secret,
+                "GITHUB_OUTPUT": str(github_output),
+            }
+
+            scrubbed = subprocess.run(
+                ["bash", "-c", scrub],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(scrubbed.returncode, 0, scrubbed.stderr)
+            original_digest = self.bind_artifact_selection_digest(env, github_output)
+            selection_path = root / "central-repository-ci-artifact-selection.json"
+            selection = json.loads(selection_path.read_text(encoding="utf-8"))
+            self.assertNotIn(unsafe.name, [item["path"] for item in selection["artifacts"]])
+            selection["artifacts"].append(
+                {
+                    "kind": "file",
+                    "path": unsafe.name,
+                    "sha256": hashlib.sha256(unsafe_bytes).hexdigest(),
+                    "size": len(unsafe_bytes),
+                }
+            )
+            selection["artifacts"] = sorted(selection["artifacts"], key=lambda item: item["path"])
+            selection_path.write_text(
+                json.dumps(selection, sort_keys=True, separators=(",", ":")) + "\n",
+                encoding="utf-8",
+            )
+            self.assertNotEqual(
+                hashlib.sha256(selection_path.read_bytes()).hexdigest(),
+                original_digest,
+            )
+
+            packaged = subprocess.run(
+                ["bash", "-c", package],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(packaged.returncode, 0)
+            self.assertIn("artifact selection changed after scrub", packaged.stderr)
+            self.assertFalse((root / "central-repository-ci-evidence.zip").exists())
+            self.assertNotIn("archive=", github_output.read_text(encoding="utf-8"))
 
     def test_oversized_artifact_is_excluded_without_suppressing_timeout_diagnostics(self) -> None:
         scrub = self.steps_by_name["Scrub configured CI secrets from private text evidence"]["run"]
@@ -1407,6 +1509,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(scrubbed.returncode, 0, scrubbed.stderr)
+            self.bind_artifact_selection_digest(env, github_output)
             self.assertNotIn(secret, ci_log.read_text(encoding="utf-8"))
             self.assertEqual(oversized.stat().st_size, 16 * 1024 * 1024 + 1)
 
@@ -1529,6 +1632,8 @@ class RepositoryWorkflowTests(unittest.TestCase):
                 if oversized_progress:
                     with progress.open("r+b") as handle:
                         handle.truncate(16 * 1024 * 1024 + 1)
+                github_output = root / "github-output"
+                github_output.write_text("", encoding="utf-8")
                 env = {
                     **os.environ,
                     "RUNNER_TEMP": str(root),
@@ -1537,6 +1642,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
                     "CI_LOG_DIR": str(log_dir),
                     "CI_ARTIFACT_DIR": str(artifact_dir),
                     "CI_SECRET_TEST": secret,
+                    "GITHUB_OUTPUT": str(github_output),
                 }
                 result = subprocess.run(
                     ["bash", "-c", script],

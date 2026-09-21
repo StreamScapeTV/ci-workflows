@@ -1148,15 +1148,20 @@ jobs:
                   }
               )
 
-          artifact_selection_path.write_text(
+          artifact_selection_bytes = (
               json.dumps(
                   {"schema_version": 1, "artifacts": retained_artifacts},
                   sort_keys=True,
                   separators=(",", ":"),
-              ) + "\n",
-              encoding="utf-8",
-          )
+              ) + "\n"
+          ).encode("utf-8")
+          artifact_selection_path.write_bytes(artifact_selection_bytes)
           os.chmod(artifact_selection_path, 0o600)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(
+                  "artifact_selection_sha256="
+                  f"{hashlib.sha256(artifact_selection_bytes).hexdigest()}\n"
+              )
           print(
               "repository CI artifact selection retained "
               f"{len(retained_artifacts)} artifact(s); quarantined "
@@ -1169,6 +1174,8 @@ jobs:
         id: evidence
         if: ${{ always() && steps.scrub.outcome == 'success' }}
         shell: bash
+        env:
+          ARTIFACT_SELECTION_SHA256: ${{ steps.scrub.outputs.artifact_selection_sha256 }}
         run: |
           set -Eeuo pipefail
           archive="${RUNNER_TEMP}/central-repository-ci-evidence.zip"
@@ -1188,9 +1195,21 @@ jobs:
           artifact_selection_path = Path(os.environ["RUNNER_TEMP"]) / "central-repository-ci-artifact-selection.json"
           if artifact_selection_path.is_symlink() or not artifact_selection_path.is_file():
               raise SystemExit("repository CI artifact selection must remain one regular non-symlink file")
+          expected_selection_sha256 = os.environ.get("ARTIFACT_SELECTION_SHA256", "")
+          if (
+              len(expected_selection_sha256) != 64
+              or any(ch not in "0123456789abcdef" for ch in expected_selection_sha256)
+          ):
+              raise SystemExit("repository CI artifact selection digest is invalid")
           try:
-              artifact_selection = json.loads(artifact_selection_path.read_text(encoding="utf-8"))
-          except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+              artifact_selection_bytes = artifact_selection_path.read_bytes()
+          except OSError as exc:
+              raise SystemExit("repository CI artifact selection is unreadable") from exc
+          if hashlib.sha256(artifact_selection_bytes).hexdigest() != expected_selection_sha256:
+              raise SystemExit("repository CI artifact selection changed after scrub")
+          try:
+              artifact_selection = json.loads(artifact_selection_bytes.decode("utf-8"))
+          except (UnicodeDecodeError, json.JSONDecodeError) as exc:
               raise SystemExit("repository CI artifact selection is unreadable") from exc
           if (
               not isinstance(artifact_selection, dict)
