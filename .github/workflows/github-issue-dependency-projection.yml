@@ -37,6 +37,7 @@ jobs:
           app-id: ${{ secrets.SOURCE_APP_ID }}
           private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
           owner: StreamScapeTV
+          repositories: ${{ steps.claim.outputs.repositories }}
           permission-issues: write
 
       - name: Apply native blocked-by projection and read back
