@@ -89,10 +89,25 @@ class PublicIdentityBoundaryTests(unittest.TestCase):
             ROOT / "contracts/repository-ci-v1.json",
             ROOT / "INVENTORY.yaml",
             ROOT / "README.md",
+            ROOT / "docs/repository-ci-capability-audit.md",
         )
         for path in generic_surfaces:
             text = path.read_text(encoding="utf-8")
             self.assertFalse(concrete_consumer_repositories(text), path.as_posix())
+
+    def test_repository_ci_capability_audit_freezes_consumer_neutral_v1_boundary(self) -> None:
+        path = ROOT / "docs/repository-ci-capability-audit.md"
+        text = path.read_text(encoding="utf-8")
+        self.assertFalse(concrete_consumer_repositories(text), path.as_posix())
+        for capability in ("private_network", "github_git", "registry_netrc", "gradle_maven"):
+            self.assertIn(f"`{capability}`", text)
+        self.assertIn("exactly these non-host optional capability types", text)
+        self.assertIn("No generic cache capability is required", text)
+        self.assertIn("Release and publication migration plan", text)
+        self.assertIn("legacy release lane only after its private live-caller count reaches", text)
+        self.assertIn("caller-provided secret names", text)
+        self.assertIn("arbitrary environment metadata", text)
+        self.assertIn("runner labels", text)
 
     def test_unmarked_tests_use_only_shared_or_non_identifying_repository_fixtures(self) -> None:
         for path in sorted((ROOT / "tests").glob("test_*.py")):
