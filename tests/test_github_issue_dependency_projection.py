@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 import sys
 import unittest
@@ -48,8 +49,8 @@ class FakeGitHub:
 def projection(
     operation: str = "add",
     *,
-    dependent_repository: str = "StreamScapeTV/a",
-    blocker_repository: str = "StreamScapeTV/a",
+    dependent_repository: str = "StreamScapeTV/example",
+    blocker_repository: str = "StreamScapeTV/example",
 ) -> mod.Projection:
     return mod.Projection(
         projection_id="11111111-1111-4111-8111-111111111111",
@@ -76,8 +77,8 @@ class ProjectionBehaviorTests(unittest.TestCase):
     def test_cross_repository_remove_is_bounded_to_claimed_pair(self) -> None:
         item = projection(
             "remove",
-            dependent_repository="StreamScapeTV/dependent",
-            blocker_repository="StreamScapeTV/blocker",
+            dependent_repository="StreamScapeTV/example",
+            blocker_repository="StreamScapeTV/other",
         )
         github = FakeGitHub()
         github.ids[item.dependent] = 303
@@ -127,25 +128,80 @@ class ProjectionBehaviorTests(unittest.TestCase):
             "dependent": {
                 "project_key": "one",
                 "issue_number": 1,
-                "repository_full_name": "StreamScapeTV/one",
+                "repository_full_name": "StreamScapeTV/example",
             },
             "blocker": {
                 "project_key": "two",
                 "issue_number": 2,
-                "repository_full_name": "StreamScapeTV/two",
+                "repository_full_name": "StreamScapeTV/other",
             },
         }
         parsed = mod.parse_projection(raw)
-        self.assertEqual(parsed.dependent.repository_full_name, "StreamScapeTV/one")
-        self.assertEqual(parsed.blocker.repository_full_name, "StreamScapeTV/two")
+        self.assertEqual(parsed.dependent.repository_full_name, "StreamScapeTV/example")
+        self.assertEqual(parsed.blocker.repository_full_name, "StreamScapeTV/other")
         raw["dependent"]["repository_full_name"] = "outside/example"
         with self.assertRaises(mod.ProjectionError):
             mod.parse_projection(raw)
 
-        raw["dependent"]["repository_full_name"] = "StreamScapeTV/one"
+        raw["dependent"]["repository_full_name"] = "StreamScapeTV/example"
         raw["operation"] = []
         with self.assertRaises(mod.ProjectionError):
             mod.parse_projection(raw)
+
+
+class FakeResponse:
+    def __init__(self, value: object) -> None:
+        self.body = json.dumps(value).encode("utf-8")
+        self.headers: dict[str, str] = {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+    def read(self) -> bytes:
+        return self.body
+
+
+class FakeOpener:
+    def __init__(self, value: object) -> None:
+        self.response = FakeResponse(value)
+
+    def urlopen(self, request, timeout: int):
+        return self.response
+
+
+class ProjectionIdentityBoundaryTests(unittest.TestCase):
+    def test_closed_and_stale_issue_identities_fail_closed(self) -> None:
+        identity = mod.IssueIdentity("example", 10, "StreamScapeTV/example")
+        closed = mod.GitHubApi(
+            "token",
+            opener=FakeOpener(
+                {
+                    "id": 101,
+                    "number": 10,
+                    "state": "closed",
+                    "repository_url": "https://api.github.com/repos/StreamScapeTV/example",
+                }
+            ),
+        )
+        with self.assertRaisesRegex(mod.ProjectionError, "gone"):
+            closed.resolve_open_issue(identity)
+
+        stale = mod.GitHubApi(
+            "token",
+            opener=FakeOpener(
+                {
+                    "id": 101,
+                    "number": 10,
+                    "state": "open",
+                    "repository_url": "https://api.github.com/repos/StreamScapeTV/other",
+                }
+            ),
+        )
+        with self.assertRaisesRegex(mod.ProjectionError, "validation_failed"):
+            stale.resolve_open_issue(identity)
 
 
 class ProjectionSourceContractTests(unittest.TestCase):
@@ -160,8 +216,9 @@ class ProjectionSourceContractTests(unittest.TestCase):
         self.assertEqual(token["uses"], "actions/create-github-app-token@v2")
         self.assertEqual(token["with"]["owner"], "StreamScapeTV")
         self.assertEqual(token["with"]["permission-issues"], "write")
-        self.assertNotIn("repositories", token["with"])
+        self.assertEqual(token["with"]["repositories"], "${{ steps.claim.outputs.repositories }}")
         self.assertNotIn("permission-contents", token["with"])
+        self.assertIn('_write_output("repositories", ",".join(repositories))', SCRIPT.read_text(encoding="utf-8"))
         self.assertNotIn("inputs", workflow["on"]["workflow_dispatch"] or {})
 
     def test_script_exposes_only_claim_and_apply_commands_and_fixed_native_endpoints(self) -> None:
