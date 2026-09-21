@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "name": "StreamScapeTV repository-owned CI contract",
-  "summary": "Central selects one fixed repository entrypoint on a bounded host OS and supplies only reviewed infrastructure plus a versioned structured semantic input document. Product commands and toolchain behavior stay in the repository.",
+  "summary": "Central selects one fixed repository entrypoint on a reviewed generic host class resolved from trusted Agent State policy and supplies only reviewed infrastructure plus a versioned structured semantic input document. Product commands and toolchain behavior stay in the repository.",
   "adoption": {
     "fixedEntrypoints": {
       "build": ".ci/build.sh",
@@ -12,10 +12,10 @@
     },
     "hostExecution": {
       "linux": {
-        "runner": "ubuntu-24.04"
+        "defaultHostClass": "linux-hosted"
       },
       "macos": {
-        "runner": "macos-latest"
+        "defaultHostClass": "macos-hosted"
       }
     },
     "scriptEnvironment": {
@@ -24,7 +24,8 @@
       "CI_INPUTS_JSON": "Canonical JSON object with schemaVersion=1 and an inputs object validated against the operation schema.",
       "CI_LOG_DIR": "Central-owned optional text evidence directory.",
       "CI_ARTIFACT_DIR": "Central-owned optional bounded artifact evidence directory.",
-      "CI_PROGRESS_FILE": "Central-owned optional progress text file."
+      "CI_PROGRESS_FILE": "Central-owned optional progress text file.",
+      "CI_HOST_CLASS": "Resolved reviewed generic host class; informational and read-only for repository scripts."
     },
     "adoptionSteps": [
       "Add tracked executable fixed entrypoints under .ci/; unsupported operations must fail closed explicitly.",
@@ -45,7 +46,32 @@
       "xcode_arguments",
       "gradle_arguments",
       "callback_command"
-    ]
+    ],
+    "hostClasses": {
+      "linux-hosted": {
+        "hostOs": "linux",
+        "capacity": "standard",
+        "ownership": "Central hosted execution"
+      },
+      "macos-hosted": {
+        "hostOs": "macos",
+        "capacity": "standard",
+        "ownership": "Central hosted execution"
+      },
+      "macos-high-capacity": {
+        "hostOs": "macos",
+        "capacity": "high",
+        "ownership": "Central reviewed high-capacity execution"
+      }
+    },
+    "hostSelection": {
+      "source": "Agent State repository_ci host policy",
+      "resolver": "resolve_repository_ci_host_class(text,text,uuid,text)",
+      "callerSuppliesHostClass": false,
+      "callerSuppliesRunnerLabels": false,
+      "legacyHostOsIsDefaultHintOnly": true,
+      "decisionFrozenPerCiRun": true
+    }
   },
   "semanticInputs": {
     "maxRawBytes": 2048,
@@ -133,7 +159,6 @@
   "trustedCapabilityGrant": {
     "source": "Agent State project configuration",
     "projectStateKey": "repository_ci",
-    "schemaVersion": 1,
     "defaultCapabilities": [],
     "binding": [
       "ci_run_id",
@@ -147,7 +172,12 @@
       "repository": "Exact repository identity bound privately to the requesting Agent State project.",
       "capabilities": "Unique subset of the public generic capabilityTypes keys."
     },
-    "failClosed": true
+    "failClosed": true,
+    "acceptedSchemaVersions": [
+      1,
+      2
+    ],
+    "hostPolicyOwnedByAgentState": true
   },
   "migrationLedger": {
     "source": "Agent State ci-workflows project configuration",

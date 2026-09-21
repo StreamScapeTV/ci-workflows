@@ -243,9 +243,10 @@ class RepositoryWorkflowTests(unittest.TestCase):
             self.assertNotIn(forbidden, inputs)
 
         execute = self.workflow["jobs"]["execute"]
+        self.assertEqual(execute["needs"], "resolve_host")
         self.assertEqual(
             execute["runs-on"],
-            "${{ inputs.host_os == 'linux' && 'ubuntu-24.04' || 'macos-latest' }}",
+            "${{ fromJSON(needs.resolve_host.outputs.runs_on) }}",
         )
         self.assertEqual(execute["timeout-minutes"], 300)
 
@@ -265,11 +266,16 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertEqual(
             adoption["hostExecution"],
             {
-                "linux": {"runner": "ubuntu-24.04"},
-                "macos": {"runner": "macos-latest"},
+                "linux": {"defaultHostClass": "linux-hosted"},
+                "macos": {"defaultHostClass": "macos-hosted"},
             },
         )
+        self.assertEqual(
+            list(adoption["hostClasses"]),
+            ["linux-hosted", "macos-hosted", "macos-high-capacity"],
+        )
         self.assertIn("CI_HOST_OS", adoption["scriptEnvironment"])
+        self.assertIn("CI_HOST_CLASS", adoption["scriptEnvironment"])
         self.assertIn("CI_OPERATION", adoption["scriptEnvironment"])
         self.assertIn("CI_INPUTS_JSON", adoption["scriptEnvironment"])
         self.assertGreaterEqual(len(adoption["adoptionSteps"]), 5)
@@ -305,6 +311,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertNotIn("${args[@]}", execute)
         self.assertNotIn("--platform", execute)
         self.assertIn('export CI_HOST_OS="${HOST_OS}"', execute)
+        self.assertIn('export CI_HOST_CLASS="${HOST_CLASS}"', execute)
         self.assertIn('export CI_OPERATION="${OPERATION}"', execute)
         self.assertIn('export CI_INPUTS_JSON="${NORMALIZED_INPUTS}"', execute)
         for product_command in (
@@ -716,6 +723,24 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertEqual(trusted_values["registry_netrc"], "true")
         self.assertEqual(trusted_values["gradle_maven"], "false")
         self.assertEqual(trusted_values["auth_enabled"], "true")
+
+        v2, v2_values = self.run_capability_resolver(
+            project_state={
+                "repository_ci": {
+                    "schemaVersion": 2,
+                    "repository": "ExampleOrg/apple-application",
+                    "capabilities": ["private_network", "gradle_maven"],
+                    "hostPolicy": {
+                        "default": "macos-hosted",
+                        "operations": {"full": "macos-high-capacity"},
+                    },
+                }
+            }
+        )
+        self.assertEqual(v2.returncode, 0, v2.stderr)
+        self.assertEqual(v2_values["private_network"], "true")
+        self.assertEqual(v2_values["gradle_maven"], "true")
+        self.assertEqual(v2_values["auth_enabled"], "true")
 
         absent, absent_values = self.run_capability_resolver(project_state={})
         self.assertEqual(absent.returncode, 0, absent.stderr)

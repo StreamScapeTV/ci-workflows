@@ -1,7 +1,7 @@
 name: Repository-owned CI
 
 # Generic adoption contract:
-# - Central selects only one fixed tracked .ci entrypoint and one host OS (linux/macos).
+# - Central selects only one fixed tracked .ci entrypoint and one reviewed generic host class.
 # - Product target, selector, UI-mode, toolchain and packaging behavior stays repository-owned.
 # - Reviewed structured semantics arrive only through versioned CI_INPUTS_JSON; Central never
 #   converts them into arbitrary argv, commands, executable paths, environment maps or runner labels.
@@ -84,8 +84,157 @@ permissions:
   contents: read
 
 jobs:
+  resolve_host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      host_class: ${{ steps.host.outputs.host_class }}
+      host_os: ${{ steps.host.outputs.host_os }}
+      runs_on: ${{ steps.host.outputs.runs_on }}
+    steps:
+      - name: Resolve trusted repository CI host class
+        id: host
+        shell: bash
+        env:
+          LIFECYCLE_CI_RUN_ID: ${{ inputs.ci_run_id }}
+          TRUSTED_CAPABILITY_CI_RUN_ID: ${{ inputs.trusted_capability_ci_run_id }}
+          SOURCE_REPOSITORY: ${{ inputs.repository }}
+          SOURCE_REF: ${{ inputs.ref }}
+          SOURCE_IS_TAG: ${{ inputs.source_is_tag }}
+          OPERATION: ${{ inputs.operation }}
+          LEGACY_HOST_OS: ${{ inputs.host_os }}
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        run: |
+          set -Eeuo pipefail
+          : "${AGENT_STATE_SUPABASE_URL:?Agent State URL is required for repository host resolution}"
+          : "${AGENT_STATE_SUPABASE_SECRET_KEY:?Agent State secret is required for repository host resolution}"
+
+          headers=(
+            -H "apikey: ${AGENT_STATE_SUPABASE_SECRET_KEY}"
+            -H "Content-Type: application/json"
+            -H "Content-Profile: agent_api"
+            -H "Accept-Profile: agent_api"
+          )
+          rpc() {
+            curl --fail --silent --show-error \
+              "${headers[@]}" \
+              --data "$2" \
+              "${AGENT_STATE_SUPABASE_URL%/}/rest/v1/rpc/$1"
+          }
+          emit_host() {
+            local host_class="$1"
+            local host_os runs_on
+            case "${host_class}" in
+              linux-hosted)
+                host_os=linux
+                runs_on='["ubuntu-24.04"]'
+                ;;
+              macos-hosted)
+                host_os=macos
+                runs_on='["macos-latest"]'
+                ;;
+              macos-high-capacity)
+                host_os=macos
+                runs_on='["macOS","ARM64"]'
+                ;;
+              *)
+                echo "repository CI resolved an unsupported host class" >&2
+                exit 2
+                ;;
+            esac
+            {
+              printf 'host_class=%s\n' "${host_class}"
+              printf 'host_os=%s\n' "${host_os}"
+              printf 'runs_on=%s\n' "${runs_on}"
+            } >> "${GITHUB_OUTPUT}"
+          }
+
+          capability_run_id="${LIFECYCLE_CI_RUN_ID}"
+          context=repository_lifecycle
+          if test -n "${TRUSTED_CAPABILITY_CI_RUN_ID}"; then
+            test -z "${LIFECYCLE_CI_RUN_ID}" || {
+              echo "repository trusted aggregate capability context cannot also own Agent State lifecycle" >&2
+              exit 2
+            }
+            capability_run_id="${TRUSTED_CAPABILITY_CI_RUN_ID}"
+            context=library_package_parent
+          fi
+          test -n "${capability_run_id}" || {
+            echo "repository CI host resolution requires one trusted Agent State CI run" >&2
+            exit 2
+          }
+
+          claim_response="$(rpc claim_ci_run "$(jq -cn --arg id "${capability_run_id}" '{p_ci_run_id:$id}')")"
+          test "$(jq -r '.ok' <<<"${claim_response}")" = true || {
+            echo "repository CI could not replay the trusted Agent State CI claim for host resolution" >&2
+            exit 1
+          }
+          run="$(jq -c '.run' <<<"${claim_response}")"
+          project_key="$(jq -r '.project_key // empty' <<<"${run}")"
+          run_repository="$(jq -r '.repository // empty' <<<"${run}")"
+          run_ref="$(jq -r '.ref // empty' <<<"${run}")"
+          run_is_tag="$(jq -r '.is_tag | tostring' <<<"${run}")"
+          run_workflow="$(jq -r '.workflow_key // empty' <<<"${run}")"
+          run_profile="$(jq -r '.test_profile // empty' <<<"${run}")"
+          test -n "${project_key}" \
+            && test "${run_repository}" = "${SOURCE_REPOSITORY}" \
+            && test "${run_ref}" = "${SOURCE_REF}" \
+            && test "${run_is_tag}" = "${SOURCE_IS_TAG}" || {
+            echo "repository CI host resolution is not bound to the exact Agent State request" >&2
+            exit 1
+          }
+
+          if test "${context}" = library_package_parent; then
+            test "${run_workflow}" = release.library-package \
+              && test "${run_profile}" = publish \
+              && test "${SOURCE_IS_TAG}" = true || {
+              echo "repository CI aggregate host fallback is not bound to release.library-package/publish" >&2
+              exit 1
+            }
+            case "${LEGACY_HOST_OS}" in
+              linux) emit_host linux-hosted ;;
+              macos) emit_host macos-hosted ;;
+              *) echo "repository CI aggregate host_os must be linux or macos" >&2; exit 2 ;;
+            esac
+            exit 0
+          fi
+
+          if test "${OPERATION}" = release; then
+            test "${run_workflow}" = release.repository \
+              && test "${run_profile}" = "${LEGACY_HOST_OS}" \
+              && test "${SOURCE_IS_TAG}" = true || {
+              echo "repository CI release host resolution is not bound to the exact Agent State request" >&2
+              exit 1
+            }
+          else
+            test "${run_workflow}" = validation.repository \
+              && test "${run_profile}" = "${OPERATION}" || {
+              echo "repository CI validation host resolution is not bound to the exact Agent State request" >&2
+              exit 1
+            }
+          fi
+
+          resolution="$(rpc resolve_repository_ci_host_class "$(jq -cn \
+            --arg project "${project_key}" \
+            --arg repository "${SOURCE_REPOSITORY}" \
+            --arg id "${capability_run_id}" \
+            --arg operation "${OPERATION}" \
+            '{p_project_key:$project,p_repository:$repository,p_ci_run_id:$id,p_operation:$operation}')")"
+          test "$(jq -r '.ok' <<<"${resolution}")" = true \
+            && test "$(jq -r '.project_key // empty' <<<"${resolution}")" = "${project_key}" \
+            && test "$(jq -r '.repository // empty' <<<"${resolution}")" = "${SOURCE_REPOSITORY}" \
+            && test "$(jq -r '.ci_run_id // empty' <<<"${resolution}")" = "${capability_run_id}" \
+            && test "$(jq -r '.operation // empty' <<<"${resolution}")" = "${OPERATION}" || {
+            code="$(jq -r '.code // "invalid_response"' <<<"${resolution}" 2>/dev/null || true)"
+            echo "repository CI trusted host-class resolution failed closed: ${code}" >&2
+            exit 1
+          }
+          emit_host "$(jq -r '.host_class // empty' <<<"${resolution}")"
+
   execute:
-    runs-on: ${{ inputs.host_os == 'linux' && 'ubuntu-24.04' || 'macos-latest' }}
+    needs: resolve_host
+    runs-on: ${{ fromJSON(needs.resolve_host.outputs.runs_on) }}
     timeout-minutes: 300
     steps:
       - name: Initialize private execution paths
@@ -143,7 +292,7 @@ jobs:
         shell: bash
         env:
           OPERATION: ${{ inputs.operation }}
-          HOST_OS: ${{ inputs.host_os }}
+          HOST_OS: ${{ needs.resolve_host.outputs.host_os }}
           RAW_SEMANTIC_INPUTS: ${{ inputs.semantic_inputs_json }}
           RELEASE_AUTHORIZED: ${{ inputs.release_authorized }}
           SOURCE_IS_TAG: ${{ inputs.source_is_tag }}
@@ -448,7 +597,7 @@ jobs:
           SOURCE_REF: ${{ inputs.ref }}
           SOURCE_IS_TAG: ${{ inputs.source_is_tag }}
           OPERATION: ${{ inputs.operation }}
-          HOST_OS: ${{ inputs.host_os }}
+          HOST_OS: ${{ needs.resolve_host.outputs.host_os }}
           CONTRACT: ${{ github.workspace }}/central-ci/contracts/repository-ci-v1.json
           AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
           AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
@@ -470,7 +619,7 @@ jobs:
               raise SystemExit("repository CI capability type set is not the reviewed v1 set")
           if trusted.get("source") != "Agent State project configuration":
               raise SystemExit("repository CI trusted capability authority is invalid")
-          if trusted.get("projectStateKey") != "repository_ci" or trusted.get("schemaVersion") != 1:
+          if trusted.get("projectStateKey") != "repository_ci" or trusted.get("acceptedSchemaVersions") != [1, 2]:
               raise SystemExit("repository CI trusted capability schema is invalid")
           if trusted.get("defaultCapabilities") != [] or trusted.get("failClosed") is not True:
               raise SystemExit("repository CI trusted capability default must fail closed")
@@ -575,10 +724,16 @@ jobs:
           if grant is None:
               capabilities = []
           else:
-              if not isinstance(grant, dict) or set(grant) != {"schemaVersion", "repository", "capabilities"}:
+              if not isinstance(grant, dict):
                   raise SystemExit("trusted repository CI capability grant schema is invalid")
-              if grant.get("schemaVersion") != 1:
+              version = grant.get("schemaVersion")
+              expected_fields = {"schemaVersion", "repository", "capabilities"}
+              if version == 2:
+                  expected_fields.add("hostPolicy")
+              if set(grant) != expected_fields or version not in {1, 2}:
                   raise SystemExit("trusted repository CI capability grant version is invalid")
+              if version == 2 and not isinstance(grant.get("hostPolicy"), dict):
+                  raise SystemExit("trusted repository CI host policy is invalid")
               if grant.get("repository") != expected_repository:
                   raise SystemExit("trusted repository CI capability grant is bound to a different repository")
               capabilities = grant.get("capabilities")
@@ -742,7 +897,8 @@ jobs:
         env:
           ENTRYPOINT: ${{ steps.request.outputs.entrypoint }}
           OPERATION: ${{ inputs.operation }}
-          HOST_OS: ${{ inputs.host_os }}
+          HOST_OS: ${{ needs.resolve_host.outputs.host_os }}
+          HOST_CLASS: ${{ needs.resolve_host.outputs.host_class }}
           NORMALIZED_INPUTS: ${{ steps.request.outputs.semantic_inputs_json }}
           AUTH_ENABLED: ${{ steps.capabilities.outputs.auth_enabled }}
           AUTH_HOME: ${{ steps.registry_auth.outputs.auth_home }}
@@ -773,6 +929,7 @@ jobs:
             export GIT_TERMINAL_PROMPT=0
           fi
           export CI_HOST_OS="${HOST_OS}"
+          export CI_HOST_CLASS="${HOST_CLASS}"
           export CI_OPERATION="${OPERATION}"
           export CI_INPUTS_JSON="${NORMALIZED_INPUTS}"
 

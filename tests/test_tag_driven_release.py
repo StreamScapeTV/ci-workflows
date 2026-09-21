@@ -139,7 +139,7 @@ class TagDrivenReleaseTests(unittest.TestCase):
             for step in repository["jobs"]["execute"]["steps"]
             if step.get("name") == "Resolve trusted private infrastructure capabilities"
         )
-        self.assertEqual(step["env"]["HOST_OS"], "${{ inputs.host_os }}")
+        self.assertEqual(step["env"]["HOST_OS"], "${{ needs.resolve_host.outputs.host_os }}")
         script = step["run"]
         for marker in (
             "capability_context=repository_lifecycle",
