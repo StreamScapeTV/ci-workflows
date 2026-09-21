@@ -1031,9 +1031,13 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertEqual(scrub["if"], "${{ always() }}")
         self.assertIn('log_root = Path(os.environ["CI_LOG_DIR"])', scrub["run"])
         self.assertIn('artifact_root = Path(os.environ["CI_ARTIFACT_DIR"])', scrub["run"])
+        self.assertIn("central-repository-ci-artifact-selection.json", scrub["run"])
         self.assertNotIn('for name in ("CI_LOG_DIR", "CI_ARTIFACT_DIR")', scrub["run"])
 
         package = by_name["Package bounded repository CI evidence"]
+        self.assertIn("central-repository-ci-artifact-selection.json", package["run"])
+        self.assertIn("artifact selection changed after scrub", package["run"])
+        self.assertNotIn('for path in sorted(artifact_root.rglob("*"))', package["run"])
         self.assertIn("evidence exceeds 256 files", package["run"])
         self.assertIn("evidence exceeds 64 MiB", package["run"])
         self.assertIn("artifact evidence symlink escapes its Central-owned root", package["run"])
@@ -1055,9 +1059,11 @@ class RepositoryWorkflowTests(unittest.TestCase):
         ]
         self.assertEqual(cleanup["if"], "${{ always() }}")
         self.assertIn("central-registry-auth", cleanup["run"])
+        self.assertIn("central-repository-ci-artifact-selection.json", cleanup["run"])
 
     def test_evidence_archive_output_is_one_existing_regular_file_path(self) -> None:
         by_name = self.steps_by_name
+        scrub = by_name["Scrub configured CI secrets from private text evidence"]["run"]
         package = by_name["Package bounded repository CI evidence"]
         evidence_upload = by_name["Upload bounded repository CI evidence to Google Drive"]
         self.assertEqual(
@@ -1071,24 +1077,37 @@ class RepositoryWorkflowTests(unittest.TestCase):
             artifact_dir = root / "artifacts"
             log_dir.mkdir()
             artifact_dir.mkdir()
+            ci_log = root / "central.log"
+            ci_log.write_text("central log\n", encoding="utf-8")
             (log_dir / "tool.log").write_text("bounded log\n", encoding="utf-8")
             (artifact_dir / "result.json").write_text("{}\n", encoding="utf-8")
             progress = root / "progress.txt"
             progress.write_text("complete\n", encoding="utf-8")
             github_output = root / "github-output"
             github_output.write_text("", encoding="utf-8")
+            env = {
+                **os.environ,
+                "RUNNER_TEMP": str(root),
+                "CI_LOG": str(ci_log),
+                "CI_LOG_DIR": str(log_dir),
+                "CI_ARTIFACT_DIR": str(artifact_dir),
+                "CI_PROGRESS_FILE": str(progress),
+                "GITHUB_OUTPUT": str(github_output),
+            }
 
+            scrubbed = subprocess.run(
+                ["bash", "-c", scrub],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(scrubbed.returncode, 0, scrubbed.stderr)
             result = subprocess.run(
                 ["bash", "-c", package["run"]],
                 cwd=ROOT,
-                env={
-                    **os.environ,
-                    "RUNNER_TEMP": str(root),
-                    "CI_LOG_DIR": str(log_dir),
-                    "CI_ARTIFACT_DIR": str(artifact_dir),
-                    "CI_PROGRESS_FILE": str(progress),
-                    "GITHUB_OUTPUT": str(github_output),
-                },
+                env=env,
                 text=True,
                 capture_output=True,
                 check=False,
@@ -1183,7 +1202,99 @@ class RepositoryWorkflowTests(unittest.TestCase):
                     b"binary-safe-header\n",
                 )
 
-    def test_artifact_configured_secret_is_rejected_before_evidence_archive(self) -> None:
+    def test_secret_bearing_artifacts_are_quarantined_without_suppressing_safe_diagnostics(self) -> None:
+        by_name = self.steps_by_name
+        scrub = by_name["Scrub configured CI secrets from private text evidence"]["run"]
+        package = by_name["Package bounded repository CI evidence"]["run"]
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log_dir = root / "logs"
+            artifact_dir = root / "artifacts"
+            log_dir.mkdir()
+            artifact_dir.mkdir()
+            secret = "registry-secret-value"
+            multiline_secret = "registry-line-one\nregistry-line-two"
+            ci_log = root / "central.log"
+            ci_log.write_text("timeout diagnostics\n", encoding="utf-8")
+            (log_dir / "tool.log").write_text("bounded log\n", encoding="utf-8")
+            unsafe = artifact_dir / "arm64-apple-macos.abi.json"
+            unsafe.write_bytes(
+                b'{"credential":"' + secret.encode() + b'"}\n'
+            )
+            escaped_unsafe = artifact_dir / "escaped.json"
+            escaped_unsafe.write_bytes(
+                multiline_secret.encode().replace(b"\n", b"\\n")
+            )
+            safe = artifact_dir / "result.json"
+            safe.write_text('{"status":"cancelled"}\n', encoding="utf-8")
+            progress = root / "progress.txt"
+            progress.write_text("cancelled\n", encoding="utf-8")
+            github_output = root / "github-output"
+            github_output.write_text("", encoding="utf-8")
+            env = {
+                **os.environ,
+                "RUNNER_TEMP": str(root),
+                "CI_LOG": str(ci_log),
+                "CI_PROGRESS_FILE": str(progress),
+                "CI_LOG_DIR": str(log_dir),
+                "CI_ARTIFACT_DIR": str(artifact_dir),
+                "CI_SECRET_TEST": secret,
+                "CI_SECRET_MULTILINE": multiline_secret,
+                "GITHUB_OUTPUT": str(github_output),
+            }
+
+            scrubbed = subprocess.run(
+                ["bash", "-c", scrub],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(scrubbed.returncode, 0, scrubbed.stderr)
+            selection_path = root / "central-repository-ci-artifact-selection.json"
+            selection = json.loads(selection_path.read_text(encoding="utf-8"))
+            retained = [item["path"] for item in selection["artifacts"]]
+            self.assertNotIn(unsafe.name, retained)
+            self.assertNotIn(escaped_unsafe.name, retained)
+            self.assertIn(safe.name, retained)
+            self.assertIn("quarantined 2 secret-bearing", scrubbed.stdout)
+
+            packaged = subprocess.run(
+                ["bash", "-c", package],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(packaged.returncode, 0, packaged.stderr)
+            archive = root / "central-repository-ci-evidence.zip"
+            self.assertTrue(archive.is_file())
+            with zipfile.ZipFile(archive) as bundle:
+                names = set(bundle.namelist())
+                self.assertNotIn(f"artifacts/{unsafe.name}", names)
+                self.assertNotIn(f"artifacts/{escaped_unsafe.name}", names)
+                self.assertIn(f"artifacts/{safe.name}", names)
+                self.assertIn("logs/tool.log", names)
+                self.assertIn("progress.txt", names)
+                retained_bytes = b"".join(bundle.read(name) for name in names)
+                self.assertNotIn(secret.encode(), retained_bytes)
+                self.assertNotIn(
+                    multiline_secret.encode().replace(b"\n", b"\\n"),
+                    retained_bytes,
+                )
+
+            self.assertIn(
+                "steps.scrub.outcome == 'success'",
+                by_name["Upload private repository CI log to Google Drive"]["if"],
+            )
+            self.assertIn(
+                "steps.evidence.outcome == 'success'",
+                by_name["Upload bounded repository CI evidence to Google Drive"]["if"],
+            )
+
+    def test_artifact_selection_rejects_post_scrub_mutation(self) -> None:
         scrub = self.steps_by_name["Scrub configured CI secrets from private text evidence"]["run"]
         package = self.steps_by_name["Package bounded repository CI evidence"]["run"]
         with tempfile.TemporaryDirectory() as td:
@@ -1194,13 +1305,12 @@ class RepositoryWorkflowTests(unittest.TestCase):
             artifact_dir.mkdir()
             secret = "registry-secret-value"
             ci_log = root / "central.log"
-            ci_log.write_text("timeout diagnostics\n", encoding="utf-8")
-            (log_dir / "tool.log").write_text("bounded log\n", encoding="utf-8")
-            (artifact_dir / "result.bin").write_bytes(
-                b"binary-prefix\x00" + secret.encode() + b"\x00binary-suffix"
-            )
+            ci_log.write_text("bounded diagnostics\n", encoding="utf-8")
+            (log_dir / "tool.log").write_text("bounded tool log\n", encoding="utf-8")
+            artifact = artifact_dir / "result.json"
+            artifact.write_text('{"status":"safe"}\n', encoding="utf-8")
             progress = root / "progress.txt"
-            progress.write_text("failed\n", encoding="utf-8")
+            progress.write_text("running\n", encoding="utf-8")
             github_output = root / "github-output"
             github_output.write_text("", encoding="utf-8")
             env = {
@@ -1222,23 +1332,21 @@ class RepositoryWorkflowTests(unittest.TestCase):
                 capture_output=True,
                 check=False,
             )
-            self.assertNotEqual(scrubbed.returncode, 0)
-            self.assertIn(
-                "artifact evidence contains configured secret bytes",
-                scrubbed.stderr,
-            )
-            self.assertNotIn(secret, scrubbed.stderr)
+            self.assertEqual(scrubbed.returncode, 0, scrubbed.stderr)
+            artifact.write_bytes(secret.encode())
 
-            archive = root / "central-repository-ci-evidence.zip"
-            self.assertFalse(archive.exists())
+            packaged = subprocess.run(
+                ["bash", "-c", package],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(packaged.returncode, 0)
+            self.assertIn("artifact selection changed after scrub", packaged.stderr)
+            self.assertFalse((root / "central-repository-ci-evidence.zip").exists())
             self.assertEqual(github_output.read_text(encoding="utf-8"), "")
-
-            # Real workflow gating must prevent the packager from running after scrub failure.
-            self.assertEqual(
-                self.steps_by_name["Package bounded repository CI evidence"]["if"],
-                "${{ always() && steps.scrub.outcome == 'success' }}",
-            )
-            self.assertIn("output.write(path, arcname=name)", package)
 
     def test_oversized_artifact_is_excluded_without_suppressing_timeout_diagnostics(self) -> None:
         scrub = self.steps_by_name["Scrub configured CI secrets from private text evidence"]["run"]
@@ -1251,10 +1359,10 @@ class RepositoryWorkflowTests(unittest.TestCase):
         artifact_read = scrub.index("data = path.read_bytes()", artifact_guard)
         self.assertIn("continue", scrub[artifact_guard:artifact_read])
 
-        package_guard = package.index("if size > 16 * 1024 * 1024:")
-        package_append = package.index("total += size", package_guard)
-        self.assertIn('if prefix == "artifacts":', package[package_guard:package_append])
-        self.assertIn("continue", package[package_guard:package_append])
+        self.assertIn("central-repository-ci-artifact-selection.json", scrub)
+        self.assertIn("central-repository-ci-artifact-selection.json", package)
+        self.assertNotIn('for path in sorted(artifact_root.rglob("*"))', package)
+        self.assertIn("artifact selection changed after scrub", package)
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -1331,13 +1439,17 @@ class RepositoryWorkflowTests(unittest.TestCase):
             )
 
     def test_artifact_symlink_escape_is_rejected_without_reading_outside_bytes(self) -> None:
+        scrub = self.steps_by_name["Scrub configured CI secrets from private text evidence"]["run"]
         package = self.steps_by_name["Package bounded repository CI evidence"]["run"]
+        self.assertIn("artifact evidence symlink escapes its Central-owned root", package)
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             log_dir = root / "logs"
             artifact_dir = root / "artifacts"
             log_dir.mkdir()
             artifact_dir.mkdir()
+            ci_log = root / "central.log"
+            ci_log.write_text("bounded central log\n", encoding="utf-8")
             (log_dir / "tool.log").write_text("bounded log\n", encoding="utf-8")
             outside = root / "outside-secret.bin"
             outside_bytes = b"must-never-enter-archive"
@@ -1347,18 +1459,20 @@ class RepositoryWorkflowTests(unittest.TestCase):
             progress.write_text("failed\n", encoding="utf-8")
             github_output = root / "github-output"
             github_output.write_text("", encoding="utf-8")
+            env = {
+                **os.environ,
+                "RUNNER_TEMP": str(root),
+                "CI_LOG": str(ci_log),
+                "CI_LOG_DIR": str(log_dir),
+                "CI_ARTIFACT_DIR": str(artifact_dir),
+                "CI_PROGRESS_FILE": str(progress),
+                "GITHUB_OUTPUT": str(github_output),
+            }
 
             result = subprocess.run(
-                ["bash", "-c", package],
+                ["bash", "-c", scrub],
                 cwd=ROOT,
-                env={
-                    **os.environ,
-                    "RUNNER_TEMP": str(root),
-                    "CI_LOG_DIR": str(log_dir),
-                    "CI_ARTIFACT_DIR": str(artifact_dir),
-                    "CI_PROGRESS_FILE": str(progress),
-                    "GITHUB_OUTPUT": str(github_output),
-                },
+                env=env,
                 text=True,
                 capture_output=True,
                 check=False,
@@ -1366,6 +1480,8 @@ class RepositoryWorkflowTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("artifact evidence symlink escapes its Central-owned root", result.stderr)
             self.assertEqual(outside.read_bytes(), outside_bytes)
+            selection = root / "central-repository-ci-artifact-selection.json"
+            self.assertFalse(selection.exists())
             archive = root / "central-repository-ci-evidence.zip"
             self.assertFalse(archive.exists())
             self.assertEqual(github_output.read_text(encoding="utf-8"), "")
@@ -1415,6 +1531,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
                         handle.truncate(16 * 1024 * 1024 + 1)
                 env = {
                     **os.environ,
+                    "RUNNER_TEMP": str(root),
                     "CI_LOG": str(ci_log),
                     "CI_PROGRESS_FILE": str(progress),
                     "CI_LOG_DIR": str(log_dir),

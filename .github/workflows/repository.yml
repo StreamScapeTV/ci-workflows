@@ -1057,12 +1057,17 @@ jobs:
         run: |
           set -Eeuo pipefail
           python3 - <<'PY_REDACT'
+          import hashlib
+          import json
           import os
           from pathlib import Path
 
           paths = [Path(os.environ["CI_LOG"]), Path(os.environ["CI_PROGRESS_FILE"])]
           log_root = Path(os.environ["CI_LOG_DIR"])
           artifact_root = Path(os.environ["CI_ARTIFACT_DIR"])
+          artifact_selection_path = Path(os.environ["RUNNER_TEMP"]) / "central-repository-ci-artifact-selection.json"
+          if artifact_selection_path.exists() or artifact_selection_path.is_symlink():
+              artifact_selection_path.unlink()
           for name, root in (("CI_LOG_DIR", log_root), ("CI_ARTIFACT_DIR", artifact_root)):
               if root.is_symlink() or not root.is_dir():
                   raise SystemExit(f"repository CI {name} must remain one real directory before scrub")
@@ -1090,25 +1095,74 @@ jobs:
                       data = data.replace(escaped, b"[REDACTED]")
               path.write_bytes(data)
 
+          def contains_configured_secret(data: bytes) -> bool:
+              for raw in secrets:
+                  if raw in data:
+                      return True
+                  escaped = raw.replace(b"\n", b"\\n")
+                  if escaped != raw and escaped in data:
+                      return True
+              return False
+
           resolved_artifact_root = artifact_root.resolve(strict=True)
+          retained_artifacts: list[dict[str, object]] = []
+          quarantined_secret_count = 0
+          excluded_oversized_count = 0
           for path in sorted(artifact_root.rglob("*")):
+              relative_path = path.relative_to(artifact_root).as_posix()
               if path.is_symlink():
-                  data = os.fsencode(os.readlink(path))
+                  raw_target = os.readlink(path)
+                  data = os.fsencode(raw_target)
+                  if not data or len(data) > 4096:
+                      raise SystemExit("repository CI artifact evidence symlink target is outside the reviewed bound")
+                  lexical_target = Path(raw_target)
+                  if not lexical_target.is_absolute():
+                      lexical_target = path.parent / lexical_target
+                  lexical_target = Path(os.path.abspath(lexical_target))
+                  if os.path.commonpath((str(lexical_target), str(resolved_artifact_root))) != str(resolved_artifact_root):
+                      raise SystemExit("repository CI artifact evidence symlink escapes its Central-owned root")
+                  resolved_target = path.resolve(strict=False)
+                  if os.path.commonpath((str(resolved_target), str(resolved_artifact_root))) != str(resolved_artifact_root):
+                      raise SystemExit("repository CI artifact evidence symlink escapes its Central-owned root")
+                  kind = "symlink"
               elif path.is_file():
                   resolved = path.resolve(strict=True)
                   if os.path.commonpath((str(resolved), str(resolved_artifact_root))) != str(resolved_artifact_root):
                       raise SystemExit(f"repository CI artifact evidence escapes its Central-owned root: {path.name}")
                   if path.stat().st_size > 16 * 1024 * 1024:
+                      excluded_oversized_count += 1
                       continue
                   data = path.read_bytes()
+                  kind = "file"
               else:
                   continue
-              for raw in secrets:
-                  if raw in data:
-                      raise SystemExit(f"repository CI artifact evidence contains configured secret bytes: {path.name}")
-                  escaped = raw.replace(b"\n", b"\\n")
-                  if escaped != raw and escaped in data:
-                      raise SystemExit(f"repository CI artifact evidence contains escaped configured secret bytes: {path.name}")
+              if contains_configured_secret(data):
+                  quarantined_secret_count += 1
+                  continue
+              retained_artifacts.append(
+                  {
+                      "kind": kind,
+                      "path": relative_path,
+                      "sha256": hashlib.sha256(data).hexdigest(),
+                      "size": len(data),
+                  }
+              )
+
+          artifact_selection_path.write_text(
+              json.dumps(
+                  {"schema_version": 1, "artifacts": retained_artifacts},
+                  sort_keys=True,
+                  separators=(",", ":"),
+              ) + "\n",
+              encoding="utf-8",
+          )
+          os.chmod(artifact_selection_path, 0o600)
+          print(
+              "repository CI artifact selection retained "
+              f"{len(retained_artifacts)} artifact(s); quarantined "
+              f"{quarantined_secret_count} secret-bearing and excluded "
+              f"{excluded_oversized_count} oversized artifact(s)"
+          )
           PY_REDACT
 
       - name: Package bounded repository CI evidence
@@ -1121,74 +1175,133 @@ jobs:
           rm -f -- "${archive}"
           python3 - "${archive}" <<'PY_EVIDENCE'
           from pathlib import Path
+          import hashlib
+          import json
           import os
           import stat
           import sys
           import zipfile
 
           archive = Path(sys.argv[1])
-          roots = (
-              ("logs", Path(os.environ["CI_LOG_DIR"])),
-              ("artifacts", Path(os.environ["CI_ARTIFACT_DIR"])),
-          )
-          entries: list[tuple[str, Path, bytes | None]] = []
+          log_root = Path(os.environ["CI_LOG_DIR"])
+          artifact_root = Path(os.environ["CI_ARTIFACT_DIR"])
+          artifact_selection_path = Path(os.environ["RUNNER_TEMP"]) / "central-repository-ci-artifact-selection.json"
+          if artifact_selection_path.is_symlink() or not artifact_selection_path.is_file():
+              raise SystemExit("repository CI artifact selection must remain one regular non-symlink file")
+          try:
+              artifact_selection = json.loads(artifact_selection_path.read_text(encoding="utf-8"))
+          except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+              raise SystemExit("repository CI artifact selection is unreadable") from exc
+          if (
+              not isinstance(artifact_selection, dict)
+              or set(artifact_selection) != {"schema_version", "artifacts"}
+              or artifact_selection.get("schema_version") != 1
+              or not isinstance(artifact_selection.get("artifacts"), list)
+          ):
+              raise SystemExit("repository CI artifact selection schema is invalid")
+
+          entries: list[tuple[str, Path | None, bytes | None, bool]] = []
           total = 0
-          for prefix, root in roots:
-              if root.is_symlink() or not root.is_dir():
-                  raise SystemExit(f"repository CI {prefix} root must remain one real directory")
-              resolved_root = root.resolve(strict=True)
-              for path in sorted(root.rglob("*")):
-                  archive_name = f"{prefix}/{path.relative_to(root).as_posix()}"
-                  if path.is_symlink():
-                      if prefix != "artifacts":
-                          raise SystemExit(f"repository CI {prefix} evidence must not contain symlinks")
-                      raw_target = os.readlink(path)
-                      target_bytes = os.fsencode(raw_target)
-                      if not target_bytes or len(target_bytes) > 4096:
-                          raise SystemExit("repository CI artifact evidence symlink target is outside the reviewed bound")
-                      lexical_target = Path(raw_target)
-                      if not lexical_target.is_absolute():
-                          lexical_target = path.parent / lexical_target
-                      lexical_target = Path(os.path.abspath(lexical_target))
-                      if os.path.commonpath((str(lexical_target), str(resolved_root))) != str(resolved_root):
-                          raise SystemExit("repository CI artifact evidence symlink escapes its Central-owned root")
-                      resolved_target = path.resolve(strict=False)
-                      if os.path.commonpath((str(resolved_target), str(resolved_root))) != str(resolved_root):
-                          raise SystemExit("repository CI artifact evidence symlink escapes its Central-owned root")
-                      total += len(target_bytes)
-                      entries.append((archive_name, path, target_bytes))
-                      continue
-                  if not path.is_file():
-                      continue
+          if log_root.is_symlink() or not log_root.is_dir():
+              raise SystemExit("repository CI logs root must remain one real directory")
+          resolved_log_root = log_root.resolve(strict=True)
+          for path in sorted(log_root.rglob("*")):
+              archive_name = f"logs/{path.relative_to(log_root).as_posix()}"
+              if path.is_symlink():
+                  raise SystemExit("repository CI logs evidence must not contain symlinks")
+              if not path.is_file():
+                  continue
+              resolved = path.resolve(strict=True)
+              if os.path.commonpath((str(resolved), str(resolved_log_root))) != str(resolved_log_root):
+                  raise SystemExit("repository CI logs evidence escapes its Central-owned root")
+              size = path.stat().st_size
+              if size > 16 * 1024 * 1024:
+                  raise SystemExit("repository CI logs evidence file exceeds 16 MiB")
+              total += size
+              entries.append((archive_name, path, None, False))
+
+          if artifact_root.is_symlink() or not artifact_root.is_dir():
+              raise SystemExit("repository CI artifacts root must remain one real directory")
+          resolved_artifact_root = artifact_root.resolve(strict=True)
+          selected_paths: list[str] = []
+          for item in artifact_selection["artifacts"]:
+              if (
+                  not isinstance(item, dict)
+                  or set(item) != {"kind", "path", "sha256", "size"}
+                  or item.get("kind") not in {"file", "symlink"}
+                  or not isinstance(item.get("path"), str)
+                  or not isinstance(item.get("sha256"), str)
+                  or len(item["sha256"]) != 64
+                  or any(ch not in "0123456789abcdef" for ch in item["sha256"])
+                  or not isinstance(item.get("size"), int)
+                  or isinstance(item.get("size"), bool)
+                  or item["size"] < 0
+              ):
+                  raise SystemExit("repository CI artifact selection entry is invalid")
+              relative = Path(item["path"])
+              if relative.is_absolute() or not relative.parts or any(part in ("", ".", "..") for part in relative.parts):
+                  raise SystemExit("repository CI artifact selection path is invalid")
+              relative_text = relative.as_posix()
+              selected_paths.append(relative_text)
+              path = artifact_root / relative
+              if item["kind"] == "symlink":
+                  if not path.is_symlink():
+                      raise SystemExit("repository CI artifact selection changed after scrub")
+                  raw_target = os.readlink(path)
+                  data = os.fsencode(raw_target)
+                  if not data or len(data) > 4096:
+                      raise SystemExit("repository CI artifact evidence symlink target is outside the reviewed bound")
+                  lexical_target = Path(raw_target)
+                  if not lexical_target.is_absolute():
+                      lexical_target = path.parent / lexical_target
+                  lexical_target = Path(os.path.abspath(lexical_target))
+                  if os.path.commonpath((str(lexical_target), str(resolved_artifact_root))) != str(resolved_artifact_root):
+                      raise SystemExit("repository CI artifact evidence symlink escapes its Central-owned root")
+                  resolved_target = path.resolve(strict=False)
+                  if os.path.commonpath((str(resolved_target), str(resolved_artifact_root))) != str(resolved_artifact_root):
+                      raise SystemExit("repository CI artifact evidence symlink escapes its Central-owned root")
+                  is_symlink = True
+              else:
+                  if path.is_symlink() or not path.is_file():
+                      raise SystemExit("repository CI artifact selection changed after scrub")
                   resolved = path.resolve(strict=True)
-                  if os.path.commonpath((str(resolved), str(resolved_root))) != str(resolved_root):
-                      raise SystemExit(f"repository CI {prefix} evidence escapes its Central-owned root")
-                  size = path.stat().st_size
-                  if size > 16 * 1024 * 1024:
-                      if prefix == "artifacts":
-                          continue
-                      raise SystemExit(f"repository CI {prefix} evidence file exceeds 16 MiB")
-                  total += size
-                  entries.append((archive_name, path, None))
+                  if os.path.commonpath((str(resolved), str(resolved_artifact_root))) != str(resolved_artifact_root):
+                      raise SystemExit("repository CI artifact evidence escapes its Central-owned root")
+                  if path.stat().st_size > 16 * 1024 * 1024:
+                      raise SystemExit("repository CI artifact selection changed after scrub")
+                  data = path.read_bytes()
+                  is_symlink = False
+              if len(data) != item["size"] or hashlib.sha256(data).hexdigest() != item["sha256"]:
+                  raise SystemExit("repository CI artifact selection changed after scrub")
+              total += len(data)
+              entries.append((f"artifacts/{relative_text}", None, data, is_symlink))
+          if selected_paths != sorted(set(selected_paths)):
+              raise SystemExit("repository CI artifact selection paths must be unique and sorted")
+
           progress = Path(os.environ["CI_PROGRESS_FILE"])
           if progress.is_symlink() or not progress.is_file():
               raise SystemExit("repository CI progress evidence must remain one regular file")
+          if progress.stat().st_size > 16 * 1024 * 1024:
+              raise SystemExit("repository CI progress evidence file exceeds 16 MiB")
           total += progress.stat().st_size
-          entries.append(("progress.txt", progress, None))
+          entries.append(("progress.txt", progress, None, False))
           if len(entries) > 256:
               raise SystemExit("repository CI evidence exceeds 256 files")
           if total > 64 * 1024 * 1024:
               raise SystemExit("repository CI evidence exceeds 64 MiB")
           with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as output:
-              for name, path, symlink_target in entries:
-                  if symlink_target is None:
+              for name, path, payload, is_symlink in entries:
+                  if path is not None:
                       output.write(path, arcname=name)
+                      continue
+                  if not is_symlink:
+                      output.writestr(name, payload)
                       continue
                   info = zipfile.ZipInfo(name)
                   info.create_system = 3
                   info.external_attr = (stat.S_IFLNK | 0o777) << 16
                   info.compress_type = zipfile.ZIP_STORED
-                  output.writestr(info, symlink_target)
+                  output.writestr(info, payload)
           PY_EVIDENCE
           test -f "${archive}"
           printf 'archive=%s\n' "${archive}" >> "${GITHUB_OUTPUT}"
@@ -1241,6 +1354,7 @@ jobs:
             "${RUNNER_TEMP}/central-repository-ci-log-checkpoint-seed.txt" \
             "${RUNNER_TEMP}/central-repository-ci-log-checkpoint-status.json" \
             "${RUNNER_TEMP}/central-repository-ci-timeline.json" \
+            "${RUNNER_TEMP}/central-repository-ci-artifact-selection.json" \
             "${RUNNER_TEMP}/central-repository-ci-evidence.zip"
 
       - name: Finish Agent State run
