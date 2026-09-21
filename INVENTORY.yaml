@@ -20,6 +20,7 @@ workflows:
   source_checkpoint_publish: .github/workflows/source-checkpoint-publish.yml
   central_dispatch: .github/workflows/central-ci-dispatch.yml
   ci_log_retention: .github/workflows/ci-log-retention.yml
+  github_issue_dependency_projection: .github/workflows/github-issue-dependency-projection.yml
   self_check: .github/workflows/self-check.yml
   runner_images: .github/workflows/runner-images.yml
 actions:
@@ -30,6 +31,7 @@ actions:
 scripts:
   oci_reproducibility: scripts/ci/oci_reproducibility.py
   ci_log_reconcile: scripts/ci/ci_log_reconcile.py
+  github_issue_dependency_projection: scripts/ci/github_issue_dependency_projection.py
   repository_log_checkpoint: scripts/ci/repository_log_checkpoint.py
   repository_log_timeline: scripts/ci/repository_log_timeline.py
   source_snapshot_delete: scripts/ci/source_snapshot_delete.py
