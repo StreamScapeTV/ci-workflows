@@ -177,6 +177,7 @@ jobs:
           run_is_tag="$(jq -r '.is_tag | tostring' <<<"${run}")"
           run_workflow="$(jq -r '.workflow_key // empty' <<<"${run}")"
           run_profile="$(jq -r '.test_profile // empty' <<<"${run}")"
+          run_host_os="$(jq -r '.inputs.host_os // empty' <<<"${run}")"
           test -n "${project_key}" \
             && test "${run_repository}" = "${SOURCE_REPOSITORY}" \
             && test "${run_ref}" = "${SOURCE_REF}" \
@@ -209,7 +210,8 @@ jobs:
             }
           else
             test "${run_workflow}" = validation.repository \
-              && test "${run_profile}" = "${OPERATION}" || {
+              && test "${run_profile}" = "${OPERATION}" \
+              && test "${run_host_os}" = "${LEGACY_HOST_OS}" || {
               echo "repository CI validation host resolution is not bound to the exact Agent State request" >&2
               exit 1
             }
@@ -221,16 +223,30 @@ jobs:
             --arg id "${capability_run_id}" \
             --arg operation "${OPERATION}" \
             '{p_project_key:$project,p_repository:$repository,p_ci_run_id:$id,p_operation:$operation}')")"
-          test "$(jq -r '.ok' <<<"${resolution}")" = true \
-            && test "$(jq -r '.project_key // empty' <<<"${resolution}")" = "${project_key}" \
-            && test "$(jq -r '.repository // empty' <<<"${resolution}")" = "${SOURCE_REPOSITORY}" \
-            && test "$(jq -r '.ci_run_id // empty' <<<"${resolution}")" = "${capability_run_id}" \
-            && test "$(jq -r '.operation // empty' <<<"${resolution}")" = "${OPERATION}" || {
-            code="$(jq -r '.code // "invalid_response"' <<<"${resolution}" 2>/dev/null || true)"
-            echo "repository CI trusted host-class resolution failed closed: ${code}" >&2
-            exit 1
-          }
-          emit_host "$(jq -r '.host_class // empty' <<<"${resolution}")"
+          if test "$(jq -r '.ok' <<<"${resolution}")" = true; then
+            test "$(jq -r '.project_key // empty' <<<"${resolution}")" = "${project_key}" \
+              && test "$(jq -r '.repository // empty' <<<"${resolution}")" = "${SOURCE_REPOSITORY}" \
+              && test "$(jq -r '.ci_run_id // empty' <<<"${resolution}")" = "${capability_run_id}" \
+              && test "$(jq -r '.operation // empty' <<<"${resolution}")" = "${OPERATION}" || {
+              echo "repository CI trusted host-class resolution returned mismatched identity" >&2
+              exit 1
+            }
+            emit_host "$(jq -r '.host_class // empty' <<<"${resolution}")"
+            exit 0
+          fi
+
+          code="$(jq -r '.code // "invalid_response"' <<<"${resolution}" 2>/dev/null || true)"
+          if test "${code}" = repository_ci_not_configured; then
+            case "${LEGACY_HOST_OS}" in
+              linux) emit_host linux-hosted ;;
+              macos) emit_host macos-hosted ;;
+              *) echo "repository CI compatibility host_os must be linux or macos" >&2; exit 2 ;;
+            esac
+            exit 0
+          fi
+
+          echo "repository CI trusted host-class resolution failed closed: ${code}" >&2
+          exit 1
 
   execute:
     needs: resolve_host

@@ -40,9 +40,11 @@ class RepositoryHostClassTests(unittest.TestCase):
         resolver_code: str = "ok",
         repository: str = "ExampleOrg/example-repository",
         run_repository: str | None = None,
+        run_host_os: str | None = None,
     ):
         test_profile = test_profile or operation
         run_repository = run_repository or repository
+        run_host_os = host_os if run_host_os is None else run_host_os
         project_key = "fixture-project"
         claim = {
             "ok": True,
@@ -55,6 +57,7 @@ class RepositoryHostClassTests(unittest.TestCase):
                 "is_tag": source_is_tag == "true",
                 "workflow_key": workflow_key,
                 "test_profile": test_profile,
+                "inputs": {"host_os": run_host_os},
             },
         }
         selected_id = trusted_capability_ci_run_id or lifecycle_ci_run_id
@@ -182,6 +185,30 @@ class RepositoryHostClassTests(unittest.TestCase):
         mismatch, _ = self.run_resolver(run_repository="ExampleOrg/other")
         self.assertNotEqual(mismatch.returncode, 0)
         self.assertIn("not bound to the exact Agent State request", mismatch.stderr)
+
+        host_mismatch, _ = self.run_resolver(host_os="linux", run_host_os="macos")
+        self.assertNotEqual(host_mismatch.returncode, 0)
+        self.assertIn("not bound to the exact Agent State request", host_mismatch.stderr)
+
+    def test_missing_project_config_uses_only_reviewed_hosted_compatibility(self) -> None:
+        linux, linux_values = self.run_resolver(
+            host_os="linux",
+            resolver_ok=False,
+            resolver_code="repository_ci_not_configured",
+        )
+        self.assertEqual(linux.returncode, 0, linux.stderr)
+        self.assertEqual(linux_values["host_class"], "linux-hosted")
+        self.assertEqual(json.loads(linux_values["runs_on"]), ["ubuntu-24.04"])
+
+        macos, macos_values = self.run_resolver(
+            host_os="macos",
+            resolver_ok=False,
+            resolver_code="repository_ci_not_configured",
+        )
+        self.assertEqual(macos.returncode, 0, macos.stderr)
+        self.assertEqual(macos_values["host_class"], "macos-hosted")
+        self.assertEqual(json.loads(macos_values["runs_on"]), ["macos-latest"])
+        self.assertNotEqual(macos_values["host_class"], "macos-high-capacity")
 
     def test_release_resolution_is_bound_to_legacy_profile_but_policy_selects_runner(self) -> None:
         result, values = self.run_resolver(
