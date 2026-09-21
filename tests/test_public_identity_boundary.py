@@ -89,10 +89,66 @@ class PublicIdentityBoundaryTests(unittest.TestCase):
             ROOT / "contracts/repository-ci-v1.json",
             ROOT / "INVENTORY.yaml",
             ROOT / "README.md",
+            ROOT / "docs/repository-ci.md",
+            ROOT / "docs/repository-ci-capability-audit.md",
         )
         for path in generic_surfaces:
             text = path.read_text(encoding="utf-8")
             self.assertFalse(concrete_consumer_repositories(text), path.as_posix())
+
+    def test_repository_ci_capability_audit_freezes_consumer_neutral_v1_boundary(self) -> None:
+        path = ROOT / "docs/repository-ci-capability-audit.md"
+        text = path.read_text(encoding="utf-8")
+        self.assertFalse(concrete_consumer_repositories(text), path.as_posix())
+        for capability in ("private_network", "github_git", "registry_netrc", "gradle_maven"):
+            self.assertIn(f"`{capability}`", text)
+        self.assertIn("exactly these non-host optional capability types", text)
+        self.assertIn("No generic cache capability is required", text)
+        self.assertIn("Release and publication migration plan", text)
+        self.assertIn("legacy release lane only after its private live-caller count reaches", text)
+        self.assertIn("caller-provided secret names", text)
+        self.assertIn("arbitrary environment metadata", text)
+        self.assertIn("runner labels", text)
+
+    def test_repository_ci_onboarding_guide_covers_v1_contract(self) -> None:
+        path = ROOT / "docs/repository-ci.md"
+        text = path.read_text(encoding="utf-8")
+        self.assertFalse(concrete_consumer_repositories(text), path.as_posix())
+        for heading in (
+            "## Central execution envelope",
+            "## Shared capability catalog",
+            "## Complete script environment reference",
+            "## Repository responsibilities",
+            "## Private Agent State configuration",
+            "## Release authorization boundary",
+            "## Private evidence, retention and cleanup",
+            "## Migration checklist",
+        ):
+            self.assertIn(heading, text)
+        for entrypoint in (
+            ".ci/build.sh",
+            ".ci/test.sh",
+            ".ci/test-full.sh",
+            ".ci/test-ui.sh",
+            ".ci/release.sh",
+        ):
+            self.assertIn(entrypoint, text)
+        for variable in (
+            "CI_HOST_OS",
+            "CI_HOST_CLASS",
+            "CI_OPERATION",
+            "CI_INPUTS_JSON",
+            "CI_LOG_DIR",
+            "CI_ARTIFACT_DIR",
+            "CI_PROGRESS_FILE",
+        ):
+            self.assertIn(f"`{variable}`", text)
+        for capability in ("private_network", "github_git", "registry_netrc", "gradle_maven"):
+            self.assertIn(f"`{capability}`", text)
+        self.assertIn('"repository": "organization/example-service"', text)
+        self.assertIn("repository-ci-capability-audit.md", text)
+        self.assertIn("stdout/stderr is captured automatically", text)
+        self.assertIn("no remaining live caller", text)
 
     def test_unmarked_tests_use_only_shared_or_non_identifying_repository_fixtures(self) -> None:
         for path in sorted((ROOT / "tests").glob("test_*.py")):
