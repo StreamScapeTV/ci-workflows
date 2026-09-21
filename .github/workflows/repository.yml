@@ -866,7 +866,7 @@ jobs:
         if: ${{ always() }}
         shell: bash
         env:
-          TIMELINE_STATUS: ${{ cancelled() && 'cancelled' || 'failed' }}
+          TIMELINE_STATUS: ${{ job.status == 'cancelled' && 'cancelled' || 'failed' }}
         run: |
           set -Eeuo pipefail
           timeline="${RUNNER_TEMP}/central-repository-ci-timeline.json"

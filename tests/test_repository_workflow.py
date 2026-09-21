@@ -974,10 +974,14 @@ class RepositoryWorkflowTests(unittest.TestCase):
         execute = by_name["Execute fixed repository-owned entrypoint"]["run"]
         reconcile = by_name["Reconcile bounded Central timeline after early exit"]
         self.assertEqual(reconcile["if"], "${{ always() }}")
+        timeline_status = reconcile["env"]["TIMELINE_STATUS"]
         self.assertEqual(
-            reconcile["env"]["TIMELINE_STATUS"],
-            "${{ cancelled() && 'cancelled' || 'failed' }}",
+            timeline_status,
+            "${{ job.status == 'cancelled' && 'cancelled' || 'failed' }}",
         )
+        self.assertIn("job.status", timeline_status)
+        for status_check in ("cancelled()", "failure()", "success()", "always()"):
+            self.assertNotIn(status_check, timeline_status)
         self.assertIn("finish-active", reconcile["run"])
         self.assertLess(names.index("Execute fixed repository-owned entrypoint"), names.index("Reconcile bounded Central timeline after early exit"))
         self.assertLess(names.index("Reconcile bounded Central timeline after early exit"), names.index("Scrub configured CI secrets from private text evidence"))
