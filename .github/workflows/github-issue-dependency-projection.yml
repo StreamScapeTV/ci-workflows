@@ -1,0 +1,50 @@
+name: GitHub issue dependency projection
+
+"on":
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: central-ci-github-issue-dependency-projection
+  cancel-in-progress: false
+
+jobs:
+  project:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Claim bounded Agent State dependency projection
+        id: claim
+        shell: bash
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        run: python3 scripts/ci/github_issue_dependency_projection.py claim
+
+      - name: Prepare fixed Issues-write token
+        id: issues_token
+        if: ${{ steps.claim.outputs.has_work == 'true' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.SOURCE_APP_ID }}
+          private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          owner: StreamScapeTV
+          repositories: ${{ steps.claim.outputs.repositories }}
+          permission-issues: write
+
+      - name: Apply native blocked-by projection and read back
+        if: ${{ steps.claim.outputs.has_work == 'true' }}
+        shell: bash
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          GITHUB_ISSUES_TOKEN: ${{ steps.issues_token.outputs.token }}
+        run: python3 scripts/ci/github_issue_dependency_projection.py apply
