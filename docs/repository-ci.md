@@ -64,7 +64,7 @@ Central sets these host values before invoking the repository entrypoint:
 
 ## Capability lifetime
 
-Shared capabilities such as `private_network`, `github_git`, `registry_netrc`, and `gradle_maven` are established by Central before `.ci/*` execution and remain available for the full repository operation and Central cleanup lifecycle. Product scripts consume the resulting environment/tool defaults but never acquire the underlying credentials.
+Shared capabilities such as `private_network`, `github_git`, `registry_netrc`, `gradle_maven`, and `registry_oci_publish` are established by Central before `.ci/*` execution and remain available for the full repository operation and Central cleanup lifecycle. Product scripts consume the resulting environment/tool defaults but never acquire the underlying credentials.
 
 ## What host-class proof establishes
 
@@ -99,6 +99,7 @@ The frozen v1 non-host capability catalog is:
 - `github_git` — Central configures ephemeral Git HTTPS authentication for ordinary Git operations.
 - `registry_netrc` — Central configures ephemeral HTTPS package-registry read authentication through the operation's tool defaults.
 - `gradle_maven` — Central configures ephemeral Gradle private-Maven read properties.
+- `registry_oci_publish` — for an authorized repository `release` on Linux only, Central creates isolated Buildah/Skopeo and Helm registry authentication using the reviewed private registry write credential. Repository code receives tool-default auth paths plus fixed registry coordinates, never the raw write token.
 
 Capability authorization is private Agent State policy. Repository source cannot enable a capability,
 choose a secret, select a private host, or provide an environment map.
@@ -121,6 +122,9 @@ The supported repository-script interface is finite:
 | `CI_LOG_DIR` | Always | Writable Central-owned directory for optional text diagnostics. |
 | `CI_ARTIFACT_DIR` | Always | Writable Central-owned directory for bounded artifacts. |
 | `CI_PROGRESS_FILE` | Always | Writable Central-owned text file for progress/heartbeat information. |
+| `CI_OCI_REGISTRY` | `registry_oci_publish` release only | Read-only fixed private OCI registry host. |
+| `CI_OCI_IMAGE_NAMESPACE` | `registry_oci_publish` release only | Read-only fixed image namespace. |
+| `CI_HELM_OCI_NAMESPACE` | `registry_oci_publish` release only | Read-only fixed Helm OCI namespace. |
 
 Repository stdout/stderr is captured automatically by Central. The primary Central log path
 (`CI_LOG`), `RUNNER_TEMP`, credential files, runner labels, secrets and Drive paths are internal
@@ -223,7 +227,7 @@ ledger or consumer-to-capability/host bindings.
 authorized by Central and requires an admitted immutable tag. The repository owns release commands,
 targets, package coordinates, store metadata and product semantics.
 
-Provider publication/signing credentials are not exposed as caller-selected capability names in v1.
+The demonstrated private OCI/Helm publication family uses the bounded `registry_oci_publish` capability; its write credential remains Central-owned and is never caller-selected. Other provider publication/signing families are not exposed as caller-selected capability names in v1.
 Still-used reviewed publication lanes remain compatibility infrastructure until a target migration
 demonstrates the smallest reusable write-side credential/setup contract. That contract must remain
 Central-owned and ephemeral, prove exact-source execution plus private evidence/cleanup, and be
