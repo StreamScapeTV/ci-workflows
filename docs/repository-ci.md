@@ -99,7 +99,7 @@ The frozen v1 non-host capability catalog is:
 - `github_git` — Central configures ephemeral Git HTTPS authentication for ordinary Git operations.
 - `registry_netrc` — Central configures ephemeral HTTPS package-registry read authentication through the operation's tool defaults.
 - `gradle_maven` — Central configures ephemeral Gradle private-Maven read properties.
-- `registry_oci_publish` — for an authorized repository `release` on Linux only, Central creates isolated Buildah/Skopeo and Helm registry authentication using the reviewed private registry write credential. Repository code receives tool-default auth paths plus fixed registry coordinates, never the raw write token.
+- `registry_oci_publish` — for an authorized repository `release` on Linux only, Central creates isolated Buildah/Skopeo and Helm registry authentication using the reviewed private registry write credential. Repository code receives authenticated tool defaults plus the fixed registry host, never the raw write token; image/chart namespaces and publication coordinates remain repository-owned.
 
 Capability authorization is private Agent State policy. Repository source cannot enable a capability,
 choose a secret, select a private host, or provide an environment map.
@@ -123,8 +123,6 @@ The supported repository-script interface is finite:
 | `CI_ARTIFACT_DIR` | Always | Writable Central-owned directory for bounded artifacts. |
 | `CI_PROGRESS_FILE` | Always | Writable Central-owned text file for progress/heartbeat information. |
 | `CI_OCI_REGISTRY` | `registry_oci_publish` release only | Read-only fixed private OCI registry host. |
-| `CI_OCI_IMAGE_NAMESPACE` | `registry_oci_publish` release only | Read-only fixed image namespace. |
-| `CI_HELM_OCI_NAMESPACE` | `registry_oci_publish` release only | Read-only fixed Helm OCI namespace. |
 
 Repository stdout/stderr is captured automatically by Central. The primary Central log path
 (`CI_LOG`), `RUNNER_TEMP`, credential files, runner labels, secrets and Drive paths are internal
