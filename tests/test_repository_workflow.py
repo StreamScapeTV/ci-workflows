@@ -119,6 +119,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         run_is_tag: bool = False,
         source_is_tag: str | None = None,
         operation: str = "build",
+        host_os: str = "linux",
         run_profile: str | None = None,
         run_workflow: str = "validation.repository",
         project_state: dict | None = None,
@@ -196,6 +197,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
                     "SOURCE_REF": source_ref,
                     "SOURCE_IS_TAG": source_is_tag,
                     "OPERATION": operation,
+                    "HOST_OS": host_os,
                     "CONTRACT": str(CONTRACT),
                     "AGENT_STATE_SUPABASE_URL": "https://agent-state.invalid",
                     "AGENT_STATE_SUPABASE_SECRET_KEY": "fixture-secret",
@@ -707,7 +709,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
     def test_private_agent_state_capability_grant_is_exactly_bound_and_fail_closed(self) -> None:
         self.assertEqual(
             set(self.contract["capabilityTypes"]),
-            {"private_network", "github_git", "registry_netrc", "gradle_maven"},
+            {"private_network", "github_git", "registry_netrc", "gradle_maven", "registry_oci_publish"},
         )
 
         no_run, no_run_values = self.run_capability_resolver(ci_run_id="")
@@ -734,6 +736,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertEqual(trusted_values["github_git"], "true")
         self.assertEqual(trusted_values["registry_netrc"], "true")
         self.assertEqual(trusted_values["gradle_maven"], "false")
+        self.assertEqual(trusted_values["registry_oci_publish"], "false")
         self.assertEqual(trusted_values["auth_enabled"], "true")
 
         v2, v2_values = self.run_capability_resolver(
@@ -752,6 +755,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertEqual(v2.returncode, 0, v2.stderr)
         self.assertEqual(v2_values["private_network"], "true")
         self.assertEqual(v2_values["gradle_maven"], "true")
+        self.assertEqual(v2_values["registry_oci_publish"], "false")
         self.assertEqual(v2_values["auth_enabled"], "true")
 
         absent, absent_values = self.run_capability_resolver(project_state={})
@@ -805,6 +809,97 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertNotEqual(duplicate_capability.returncode, 0)
         self.assertIn("unique list", duplicate_capability.stderr)
 
+
+    def test_oci_publish_capability_is_release_scoped_and_uses_isolated_tool_auth(self) -> None:
+        grant = {
+            "repository_ci": {
+                "schemaVersion": 1,
+                "repository": "ExampleOrg/service-backend",
+                "capabilities": ["private_network", "registry_oci_publish"],
+            }
+        }
+
+        validation, validation_values = self.run_capability_resolver(
+            run_repository="ExampleOrg/service-backend",
+            operation="build",
+            host_os="linux",
+            project_state=grant,
+        )
+        self.assertEqual(validation.returncode, 0, validation.stderr)
+        self.assertEqual(validation_values["private_network"], "true")
+        self.assertEqual(validation_values["registry_oci_publish"], "false")
+
+        release, release_values = self.run_capability_resolver(
+            run_repository="ExampleOrg/service-backend",
+            run_ref="3.2.3",
+            source_ref="3.2.3",
+            run_is_tag=True,
+            source_is_tag="true",
+            operation="release",
+            host_os="linux",
+            run_profile="linux",
+            run_workflow="release.repository",
+            project_state=grant,
+        )
+        self.assertEqual(release.returncode, 0, release.stderr)
+        self.assertEqual(release_values["private_network"], "true")
+        self.assertEqual(release_values["registry_oci_publish"], "true")
+        self.assertEqual(release_values["auth_enabled"], "false")
+
+        setup = self.steps_by_name["Configure ephemeral OCI publication authentication"]
+        self.assertEqual(
+            setup["if"],
+            "${{ steps.capabilities.outputs.registry_oci_publish == 'true' }}",
+        )
+        self.assertEqual(
+            setup["env"]["REGISTRY_WRITE_TOKEN"],
+            "${{ secrets.REGISTRY_WRITE_TOKEN }}",
+        )
+        self.assertIn("buildah login", setup["run"])
+        self.assertIn("helm registry login", setup["run"])
+        self.assertIn("git.faruqi.dev", setup["run"])
+        self.assertIn("central-oci-publish", setup["run"])
+        self.assertNotIn("mimranfaruqi/iptv", setup["run"])
+
+        execute = self.steps_by_name["Execute fixed repository-owned entrypoint"]
+        self.assertNotIn("REGISTRY_WRITE_TOKEN", execute["env"])
+        self.assertEqual(
+            execute["env"]["OCI_PUBLISH_ENABLED"],
+            "${{ steps.capabilities.outputs.registry_oci_publish }}",
+        )
+        for env_name in (
+            "OCI_AUTH_FILE",
+            "OCI_HELM_REGISTRY_CONFIG",
+            "OCI_HELM_REPOSITORY_CONFIG",
+            "OCI_HELM_REPOSITORY_CACHE",
+            "OCI_REGISTRY_HOST",
+        ):
+            self.assertIn(env_name, execute["env"])
+        for exported in (
+            "REGISTRY_AUTH_FILE",
+            "HELM_REGISTRY_CONFIG",
+            "HELM_REPOSITORY_CONFIG",
+            "HELM_REPOSITORY_CACHE",
+            "CI_OCI_REGISTRY",
+        ):
+            self.assertIn(f"export {exported}=", execute["run"])
+        self.assertIn("CI_SECRET_REGISTRY_WRITE_TOKEN", execute["env"])
+        self.assertIn(
+            "CI_SECRET_REGISTRY_WRITE_TOKEN",
+            self.steps_by_name["Scrub configured CI secrets from private text evidence"]["env"],
+        )
+        self.assertIn(
+            "central-oci-publish",
+            self.steps_by_name["Cleanup ephemeral registry and repository evidence"]["run"],
+        )
+
+        release_secrets = self.dispatch["jobs"]["repository_release"]["secrets"]
+        validation_secrets = self.dispatch["jobs"]["repository"]["secrets"]
+        self.assertEqual(
+            release_secrets["REGISTRY_WRITE_TOKEN"],
+            "${{ secrets.FORGEJO_REGISTRY_TOKEN }}",
+        )
+        self.assertNotIn("REGISTRY_WRITE_TOKEN", validation_secrets)
 
     def test_trusted_aggregate_capability_context_is_parent_bound_and_lifecycle_separate(self) -> None:
         trusted_id = "22222222-2222-4222-8222-222222222222"
@@ -869,8 +964,9 @@ class RepositoryWorkflowTests(unittest.TestCase):
             },
         )
         self.assertEqual(parent.returncode, 0, parent.stderr)
-        for capability in self.contract["capabilityTypes"]:
+        for capability in ("private_network", "github_git", "registry_netrc", "gradle_maven"):
             self.assertEqual(values[capability], "true")
+        self.assertEqual(values["registry_oci_publish"], "false")
         self.assertEqual(values["auth_enabled"], "true")
 
         wrong_parent, _ = self.run_capability_resolver(
@@ -1080,6 +1176,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         ]
         self.assertEqual(cleanup["if"], "${{ always() }}")
         self.assertIn("central-registry-auth", cleanup["run"])
+        self.assertIn("central-oci-publish", cleanup["run"])
         self.assertIn("central-repository-ci-artifact-selection.json", cleanup["run"])
 
     def test_evidence_archive_output_is_one_existing_regular_file_path(self) -> None:
