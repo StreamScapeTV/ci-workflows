@@ -79,6 +79,14 @@ name: Repository-owned CI
         required: false
       REGISTRY_READ_TOKEN:
         required: false
+      APPLE_TEAM_ID:
+        required: false
+      APP_STORE_CONNECT_KEY_ID:
+        required: false
+      APP_STORE_CONNECT_ISSUER_ID:
+        required: false
+      APP_STORE_CONNECT_API_KEY_P8_BASE64:
+        required: false
 
 permissions:
   contents: read
@@ -935,8 +943,16 @@ jobs:
           CI_SECRET_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
           CI_SECRET_TAILSCALE_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           CI_SECRET_TAILSCALE_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          CI_APPLE_TEAM_ID: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APPLE_TEAM_ID || '' }}
+          CI_APP_STORE_CONNECT_KEY_ID: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
+          CI_APP_STORE_CONNECT_ISSUER_ID: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
+          CI_APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 || '' }}
           CI_SECRET_REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           CI_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
+          CI_SECRET_APPLE_TEAM_ID: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APPLE_TEAM_ID || '' }}
+          CI_SECRET_APP_STORE_CONNECT_KEY_ID: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
+          CI_SECRET_APP_STORE_CONNECT_ISSUER_ID: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
+          CI_SECRET_APP_STORE_CONNECT_API_KEY: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 || '' }}
         run: |
           set -Eeuo pipefail
           if test "${AUTH_ENABLED}" = true; then
@@ -1013,7 +1029,11 @@ jobs:
             CI_SECRET_TAILSCALE_ID \
             CI_SECRET_TAILSCALE_SECRET \
             CI_SECRET_REGISTRY_USERNAME \
-            CI_SECRET_REGISTRY_READ_TOKEN
+            CI_SECRET_REGISTRY_READ_TOKEN \
+            CI_SECRET_APPLE_TEAM_ID \
+            CI_SECRET_APP_STORE_CONNECT_KEY_ID \
+            CI_SECRET_APP_STORE_CONNECT_ISSUER_ID \
+            CI_SECRET_APP_STORE_CONNECT_API_KEY
 
           set +e
           (
@@ -1070,6 +1090,10 @@ jobs:
           CI_SECRET_TAILSCALE_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
           CI_SECRET_REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           CI_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
+          CI_SECRET_APPLE_TEAM_ID: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APPLE_TEAM_ID || '' }}
+          CI_SECRET_APP_STORE_CONNECT_KEY_ID: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
+          CI_SECRET_APP_STORE_CONNECT_ISSUER_ID: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
+          CI_SECRET_APP_STORE_CONNECT_API_KEY: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 || '' }}
         run: |
           set -Eeuo pipefail
           python3 - <<'PY_REDACT'

@@ -1680,6 +1680,48 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertIn("regular non-symlink file", symlinked.stderr)
         self.assertIn(secret, target_text)
 
+    def test_repository_release_forwards_existing_apple_signing_secrets_only_to_macos_release(self) -> None:
+        secret_names = (
+            "APPLE_TEAM_ID",
+            "APP_STORE_CONNECT_KEY_ID",
+            "APP_STORE_CONNECT_ISSUER_ID",
+            "APP_STORE_CONNECT_API_KEY_P8_BASE64",
+        )
+        workflow_secrets = self.workflow["on"]["workflow_call"]["secrets"]
+        for name in secret_names:
+            self.assertIn(name, workflow_secrets)
+            self.assertFalse(workflow_secrets[name]["required"])
+
+        release_secrets = self.dispatch["jobs"]["repository_release"]["secrets"]
+        validation_secrets = self.dispatch["jobs"]["repository"]["secrets"]
+        for name in secret_names:
+            self.assertEqual(release_secrets[name], f"${{{{ secrets.{name} }}}}")
+            self.assertNotIn(name, validation_secrets)
+
+        execute_env = self.steps_by_name["Execute fixed repository-owned entrypoint"]["env"]
+        expected_product_vars = {
+            "CI_APPLE_TEAM_ID": "APPLE_TEAM_ID",
+            "CI_APP_STORE_CONNECT_KEY_ID": "APP_STORE_CONNECT_KEY_ID",
+            "CI_APP_STORE_CONNECT_ISSUER_ID": "APP_STORE_CONNECT_ISSUER_ID",
+            "CI_APP_STORE_CONNECT_API_KEY_P8_BASE64": "APP_STORE_CONNECT_API_KEY_P8_BASE64",
+        }
+        for env_name, secret_name in expected_product_vars.items():
+            expression = execute_env[env_name]
+            self.assertIn("inputs.operation == 'release'", expression)
+            self.assertIn("needs.resolve_host.outputs.host_os == 'macos'", expression)
+            self.assertIn(f"secrets.{secret_name}", expression)
+
+        scrub_env = self.steps_by_name["Scrub configured CI secrets from private text evidence"]["env"]
+        for env_name in (
+            "CI_SECRET_APPLE_TEAM_ID",
+            "CI_SECRET_APP_STORE_CONNECT_KEY_ID",
+            "CI_SECRET_APP_STORE_CONNECT_ISSUER_ID",
+            "CI_SECRET_APP_STORE_CONNECT_API_KEY",
+        ):
+            self.assertIn(env_name, scrub_env)
+            self.assertIn("inputs.operation == 'release'", scrub_env[env_name])
+            self.assertIn("needs.resolve_host.outputs.host_os == 'macos'", scrub_env[env_name])
+
     def test_non_migrated_product_workflows_remain_selected_by_existing_lanes(self) -> None:
         jobs = self.dispatch["jobs"]
         self.assertEqual(jobs["apple"]["uses"], "./.github/workflows/apple.yml")
