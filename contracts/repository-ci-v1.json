@@ -152,7 +152,8 @@
     "private_network": "Connect the reviewed private network boundary before product execution.",
     "github_git": "Configure ephemeral Git HTTPS credentials for github.com using the Central source App token.",
     "registry_netrc": "Configure ephemeral HTTPS .netrc credentials for the approved private package registry host.",
-    "gradle_maven": "Configure ephemeral Gradle properties centralRegistryUsername and centralRegistryReadToken for a repository that consumes a private Maven registry."
+    "gradle_maven": "Configure ephemeral Gradle properties centralRegistryUsername and centralRegistryReadToken for a repository that consumes a private Maven registry.",
+    "registry_oci_publish": "Configure isolated authenticated OCI image and Helm registry publication state for an authorized repository release without exposing the write credential to repository code."
   },
   "infrastructure": {
     "githubHost": "github.com"
