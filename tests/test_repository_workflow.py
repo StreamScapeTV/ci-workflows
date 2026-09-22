@@ -846,6 +846,22 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertEqual(release_values["registry_oci_publish"], "true")
         self.assertEqual(release_values["auth_enabled"], "false")
 
+        macos_release, macos_values = self.run_capability_resolver(
+            run_repository="ExampleOrg/service-backend",
+            run_ref="3.2.3",
+            source_ref="3.2.3",
+            run_is_tag=True,
+            source_is_tag="true",
+            operation="release",
+            host_os="macos",
+            run_profile="macos",
+            run_workflow="release.repository",
+            project_state=grant,
+        )
+        self.assertEqual(macos_release.returncode, 0, macos_release.stderr)
+        self.assertEqual(macos_values["private_network"], "true")
+        self.assertEqual(macos_values["registry_oci_publish"], "false")
+
         setup = self.steps_by_name["Configure ephemeral OCI publication authentication"]
         self.assertEqual(
             setup["if"],
