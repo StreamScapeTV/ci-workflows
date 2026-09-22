@@ -895,10 +895,9 @@ class RepositoryWorkflowTests(unittest.TestCase):
 
         release_secrets = self.dispatch["jobs"]["repository_release"]["secrets"]
         validation_secrets = self.dispatch["jobs"]["repository"]["secrets"]
-        self.assertEqual(
-            release_secrets["REGISTRY_WRITE_TOKEN"],
-            "${{ secrets.FORGEJO_REGISTRY_TOKEN }}",
-        )
+        write_expression = release_secrets["REGISTRY_WRITE_TOKEN"]
+        self.assertIn("fromJSON(needs.request.outputs.inputs_json).host_os == 'linux'", write_expression)
+        self.assertIn("secrets.FORGEJO_REGISTRY_TOKEN", write_expression)
         self.assertNotIn("REGISTRY_WRITE_TOKEN", validation_secrets)
 
     def test_trusted_aggregate_capability_context_is_parent_bound_and_lifecycle_separate(self) -> None:
