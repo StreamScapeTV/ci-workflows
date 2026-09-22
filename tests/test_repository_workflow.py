@@ -870,8 +870,6 @@ class RepositoryWorkflowTests(unittest.TestCase):
             "OCI_HELM_REPOSITORY_CONFIG",
             "OCI_HELM_REPOSITORY_CACHE",
             "OCI_REGISTRY_HOST",
-            "OCI_IMAGE_NAMESPACE",
-            "OCI_CHART_NAMESPACE",
         ):
             self.assertIn(env_name, execute["env"])
         for exported in (
@@ -880,8 +878,6 @@ class RepositoryWorkflowTests(unittest.TestCase):
             "HELM_REPOSITORY_CONFIG",
             "HELM_REPOSITORY_CACHE",
             "CI_OCI_REGISTRY",
-            "CI_OCI_IMAGE_NAMESPACE",
-            "CI_HELM_OCI_NAMESPACE",
         ):
             self.assertIn(f"export {exported}=", execute["run"])
         self.assertIn("CI_SECRET_REGISTRY_WRITE_TOKEN", execute["env"])
