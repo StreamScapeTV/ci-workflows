@@ -116,6 +116,10 @@ class TagDrivenReleaseTests(unittest.TestCase):
         self.assertEqual(release["with"]["operation"], "release")
         self.assertTrue(release["with"]["release_authorized"])
         self.assertFalse(release["concurrency"]["cancel-in-progress"])
+        self.assertEqual(
+            release["secrets"]["REGISTRY_WRITE_TOKEN"],
+            "${{ secrets.FORGEJO_REGISTRY_TOKEN }}",
+        )
 
         legacy = jobs["android_release"]
         self.assertEqual(
