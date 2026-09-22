@@ -263,6 +263,22 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertIn("diagnostic_key:$diagnostic_key", text)
         self.assertIn("diagnostic_status:$diagnostic_status", text)
 
+    def test_agent_state_rpc_retries_only_bounded_transient_failures(self) -> None:
+        text = (_prior.ROOT / "actions/agent-state/action.yml").read_text()
+        self.assertIn("local max_attempts=4", text)
+        self.assertIn("local retry_delays=(2 4 8)", text)
+        self.assertIn("--connect-timeout 10", text)
+        self.assertIn("--max-time 25", text)
+        self.assertIn("408", text)
+        self.assertIn("429", text)
+        self.assertIn('[[ "${http_code}" =~ ^5[0-9][0-9]$ ]]', text)
+        self.assertIn("5|6|7|18|28|35|52|55|56|92", text)
+        self.assertIn("transient transport failure", text)
+        self.assertIn("after %s attempt(s)", text)
+        self.assertNotIn('[[ "${http_code}" =~ ^4[0-9][0-9]$ ]]', text)
+        self.assertNotIn("--retry-all-errors", text)
+        self.assertNotIn("--retry-connrefused", text)
+
     def test_persistent_dependency_cache_is_limited_to_apple_android_and_node(self) -> None:
         cache_capable = ("apple", "android", "node")
         for name in cache_capable:
