@@ -139,6 +139,13 @@ validated by Central against the operation schema before the repository script r
 then maps those semantic values to product-owned commands. It must not treat the JSON as arbitrary
 argv or shell text.
 
+For ordinary validation, the optional `build_configuration` semantic is deliberately finite:
+`debug` or `release`. It is admitted only for `build`, `test`, and `full`. This is a
+configuration intent, not an Xcode/Gradle argument: the repository translates the value into its
+own toolchain terminology. Absence means the repository's reviewed default. The value does not
+authorize signing, provisioning, TestFlight/App Store publication, or the generic `release`
+operation.
+
 A minimal parser can be as small as:
 
 ```sh
@@ -150,7 +157,8 @@ document = json.loads(os.environ["CI_INPUTS_JSON"])
 assert document["schemaVersion"] == 1
 inputs = document["inputs"]
 target = inputs.get("product_target")
-print(target or "default")
+configuration = inputs.get("build_configuration", "debug")
+print(target or "default", configuration)
 PY
 ```
 

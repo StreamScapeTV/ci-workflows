@@ -95,6 +95,13 @@
           "full-ordinary"
         ]
       },
+      "build_configuration": {
+        "type": "enum",
+        "values": [
+          "debug",
+          "release"
+        ]
+      },
       "release_kind": {
         "type": "enum",
         "values": [
@@ -111,20 +118,23 @@
     "operations": {
       "build": {
         "allowed": [
-          "product_target"
+          "product_target",
+          "build_configuration"
         ],
         "required": []
       },
       "test": {
         "allowed": [
           "product_target",
-          "test_selectors"
+          "test_selectors",
+          "build_configuration"
         ],
         "required": []
       },
       "full": {
         "allowed": [
-          "product_target"
+          "product_target",
+          "build_configuration"
         ],
         "required": []
       },
