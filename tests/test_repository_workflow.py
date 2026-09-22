@@ -735,6 +735,10 @@ class RepositoryWorkflowTests(unittest.TestCase):
             self.contract["trustedCapabilityGrant"]["defaultCapabilities"],
             [],
         )
+        self.assertEqual(
+            self.contract["trustedCapabilityGrant"]["acceptedSchemaVersions"],
+            [1, 2, 3],
+        )
         self.assertTrue(
             self.contract["trustedCapabilityGrant"]["failClosed"],
         )
@@ -821,6 +825,45 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertEqual(v2_values["gradle_maven"], "true")
         self.assertEqual(v2_values["registry_oci_publish"], "false")
         self.assertEqual(v2_values["auth_enabled"], "true")
+
+        v3, v3_values = self.run_capability_resolver(
+            project_state={
+                "repository_ci": {
+                    "schemaVersion": 3,
+                    "repository": "ExampleOrg/apple-application",
+                    "capabilities": ["private_network", "github_git"],
+                    "hostPolicy": {
+                        "operatingSystems": {
+                            "linux": {
+                                "default": "linux-hosted",
+                                "operations": {},
+                            },
+                            "macos": {
+                                "default": "macos-high-capacity",
+                                "operations": {},
+                            },
+                        }
+                    },
+                }
+            }
+        )
+        self.assertEqual(v3.returncode, 0, v3.stderr)
+        self.assertEqual(v3_values["private_network"], "true")
+        self.assertEqual(v3_values["github_git"], "true")
+        self.assertEqual(v3_values["registry_oci_publish"], "false")
+        self.assertEqual(v3_values["auth_enabled"], "true")
+
+        invalid_v3, _ = self.run_capability_resolver(
+            project_state={
+                "repository_ci": {
+                    "schemaVersion": 3,
+                    "repository": "ExampleOrg/apple-application",
+                    "capabilities": ["private_network"],
+                }
+            }
+        )
+        self.assertNotEqual(invalid_v3.returncode, 0)
+        self.assertIn("capability grant version is invalid", invalid_v3.stderr)
 
         absent, absent_values = self.run_capability_resolver(project_state={})
         self.assertEqual(absent.returncode, 0, absent.stderr)

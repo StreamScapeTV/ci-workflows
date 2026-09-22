@@ -182,12 +182,14 @@
     ],
     "fields": {
       "repository": "Exact repository identity bound privately to the requesting Agent State project.",
-      "capabilities": "Unique subset of the public generic capabilityTypes keys."
+      "capabilities": "Unique subset of the public generic capabilityTypes keys.",
+      "hostPolicy": "Private reviewed host policy interpreted by the trusted Agent State resolver; ordinary callers cannot supply runner labels or raw runs-on values."
     },
     "failClosed": true,
     "acceptedSchemaVersions": [
       1,
-      2
+      2,
+      3
     ],
     "hostPolicyOwnedByAgentState": true
   },
