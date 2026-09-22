@@ -669,6 +669,7 @@ jobs:
       TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
       REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
       REGISTRY_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+      REGISTRY_WRITE_TOKEN: ${{ fromJSON(needs.request.outputs.inputs_json).host_os == 'linux' && secrets.FORGEJO_REGISTRY_TOKEN || '' }}
       APPLE_TEAM_ID: ${{ fromJSON(needs.request.outputs.inputs_json).host_os == 'macos' && secrets.APPLE_TEAM_ID || '' }}
       APP_STORE_CONNECT_KEY_ID: ${{ fromJSON(needs.request.outputs.inputs_json).host_os == 'macos' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
       APP_STORE_CONNECT_ISSUER_ID: ${{ fromJSON(needs.request.outputs.inputs_json).host_os == 'macos' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
