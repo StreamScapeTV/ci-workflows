@@ -362,6 +362,46 @@ class RepositoryWorkflowTests(unittest.TestCase):
             ["Suite/Test", "Suite.Other/test_case"],
         )
 
+        for operation in ("build", "test", "full"):
+            result, operation_output = self.run_repository_request(
+                operation=operation,
+                host_os="macos",
+                semantic={
+                    "product_target": "ios",
+                    "build_configuration": "release",
+                    **({"test_selectors": ["Suite/Test"]} if operation == "test" else {}),
+                },
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            normalized_line = next(
+                line
+                for line in operation_output.splitlines()
+                if line.startswith("semantic_inputs_json=")
+            )
+            operation_inputs = json.loads(normalized_line.split("=", 1)[1])["inputs"]
+            self.assertEqual(operation_inputs["build_configuration"], "release")
+            self.assertEqual(operation_inputs["product_target"], "ios")
+
+        rejected_configuration, _ = self.run_repository_request(
+            operation="build",
+            host_os="macos",
+            semantic={"product_target": "ios", "build_configuration": "Release"},
+        )
+        self.assertNotEqual(rejected_configuration.returncode, 0)
+        self.assertIn("outside the reviewed enum", rejected_configuration.stderr)
+
+        ui_configuration, _ = self.run_repository_request(
+            operation="ui-test",
+            host_os="macos",
+            semantic={
+                "product_target": "ios",
+                "ui_mode": "smoke",
+                "build_configuration": "release",
+            },
+        )
+        self.assertNotEqual(ui_configuration.returncode, 0)
+        self.assertIn("unknown field", ui_configuration.stderr)
+
         ui, _ = self.run_repository_request(
             operation="ui-test",
             host_os="macos",
@@ -394,6 +434,30 @@ class RepositoryWorkflowTests(unittest.TestCase):
         invalid_host, _ = self.run_repository_request(host_os="ios")
         self.assertNotEqual(invalid_host.returncode, 0)
         self.assertIn("host_os must be linux or macos", invalid_host.stderr)
+
+    def test_release_configuration_semantic_stays_generic_and_unsigned(self) -> None:
+        fields = self.contract["semanticInputs"]["fields"]
+        self.assertEqual(
+            fields["build_configuration"],
+            {"type": "enum", "values": ["debug", "release"]},
+        )
+        operations = self.contract["semanticInputs"]["operations"]
+        for operation in ("build", "test", "full"):
+            self.assertIn("build_configuration", operations[operation]["allowed"])
+        self.assertNotIn("build_configuration", operations["ui-test"]["allowed"])
+        self.assertNotIn("build_configuration", operations["release"]["allowed"])
+
+        self.assertNotIn("release-build", self.workflow_text)
+        self.assertNotIn("bootstrap-streamscape-media-binary.sh", self.workflow_text)
+        self.assertNotIn("Vendor/StreamscapeMediaApple", self.workflow_text)
+
+        execute = self.steps_by_name["Execute fixed repository-owned entrypoint"]["run"]
+        self.assertIn('"./${ENTRYPOINT}"', execute)
+        self.assertNotIn("--configuration", execute)
+        self.assertNotIn("--platform", execute)
+        self.assertNotIn("xcodebuild", execute)
+        self.assertNotIn("CODE_SIGNING_ALLOWED", execute)
+        self.assertNotIn("CODE_SIGNING_REQUIRED", execute)
 
     def test_release_contract_remains_separately_authorized_and_tag_bound(self) -> None:
         denied, _ = self.run_repository_request(
