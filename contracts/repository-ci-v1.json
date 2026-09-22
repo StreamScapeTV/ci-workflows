@@ -98,7 +98,8 @@
       "release_kind": {
         "type": "enum",
         "values": [
-          "prepare"
+          "prepare",
+          "publish"
         ]
       },
       "build_identity": {
