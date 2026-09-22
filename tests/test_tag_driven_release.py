@@ -80,7 +80,7 @@ class TagDrivenReleaseTests(unittest.TestCase):
         self.assertEqual(inputs["host_os"], "linux")
         self.assertEqual(
             json.loads(inputs["semantic_inputs"]),
-            {"build_identity": "1.0.0_257", "release_kind": "prepare"},
+            {"build_identity": "1.0.0_257", "release_kind": "publish"},
         )
         self.assertEqual(normalized, values["inputs_json"] + "\n")
         self.assertEqual(values["release_version"], "")
