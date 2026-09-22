@@ -1695,7 +1695,9 @@ class RepositoryWorkflowTests(unittest.TestCase):
         release_secrets = self.dispatch["jobs"]["repository_release"]["secrets"]
         validation_secrets = self.dispatch["jobs"]["repository"]["secrets"]
         for name in secret_names:
-            self.assertEqual(release_secrets[name], f"${{{{ secrets.{name} }}}}")
+            expression = release_secrets[name]
+            self.assertIn("fromJSON(needs.request.outputs.inputs_json).host_os == 'macos'", expression)
+            self.assertIn(f"secrets.{name}", expression)
             self.assertNotIn(name, validation_secrets)
 
         execute_env = self.steps_by_name["Execute fixed repository-owned entrypoint"]["env"]
