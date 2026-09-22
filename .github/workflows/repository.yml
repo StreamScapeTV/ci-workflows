@@ -735,13 +735,13 @@ jobs:
 
           project_response="$(rpc get_project_state "$(jq -cn --arg project "${project_key}" '{p_project_key:$project}')")"
           project_state="$(jq -c '.state // {}' <<<"${project_response}")"
-          PROJECT_STATE="${project_state}" python3 - "${known_capabilities}" "${SOURCE_REPOSITORY}" "${OPERATION}" "${capability_context}" "${GITHUB_OUTPUT}" <<'PY_CAPABILITIES'
+          PROJECT_STATE="${project_state}" python3 - "${known_capabilities}" "${SOURCE_REPOSITORY}" "${OPERATION}" "${HOST_OS}" "${capability_context}" "${GITHUB_OUTPUT}" <<'PY_CAPABILITIES'
           from pathlib import Path
           import json
           import os
           import sys
 
-          known_raw, expected_repository, operation, capability_context, output_path = sys.argv[1:6]
+          known_raw, expected_repository, operation, host_os, capability_context, output_path = sys.argv[1:7]
           known = set(known_raw.split(","))
           state = json.loads(os.environ["PROJECT_STATE"])
           if not isinstance(state, dict):
@@ -769,7 +769,11 @@ jobs:
                   raise SystemExit("trusted repository CI capability grant contains an unknown capability")
 
           enabled_capabilities = set(capabilities)
-          if operation != "release" or capability_context != "repository_lifecycle":
+          if (
+              operation != "release"
+              or host_os != "linux"
+              or capability_context != "repository_lifecycle"
+          ):
               enabled_capabilities.discard("registry_oci_publish")
 
           with Path(output_path).open("a", encoding="utf-8") as output:
