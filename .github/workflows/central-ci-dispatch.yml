@@ -87,7 +87,7 @@ jobs:
               if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}", ref) is None:
                   raise SystemExit("release.repository tag is outside the reviewed build_identity bound")
               semantic_inputs = json.dumps(
-                  {"build_identity": ref, "release_kind": "prepare"},
+                  {"build_identity": ref, "release_kind": "publish"},
                   sort_keys=True,
                   separators=(",", ":"),
               )
@@ -397,7 +397,7 @@ jobs:
               semantic = json.loads(inputs["semantic_inputs"])
           except (TypeError, json.JSONDecodeError) as exc:
               raise SystemExit("release.repository semantic_inputs must be one JSON object") from exc
-          expected = {"build_identity": ref, "release_kind": "prepare"}
+          expected = {"build_identity": ref, "release_kind": "publish"}
           if semantic != expected:
               raise SystemExit("release.repository semantics must be derived only from the immutable tag")
           PY_VALIDATE_REPOSITORY_RELEASE
@@ -669,10 +669,10 @@ jobs:
       TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
       REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
       REGISTRY_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-      APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
+      APPLE_TEAM_ID: ${{ fromJSON(needs.request.outputs.inputs_json).host_os == 'macos' && secrets.APPLE_TEAM_ID || '' }}
+      APP_STORE_CONNECT_KEY_ID: ${{ fromJSON(needs.request.outputs.inputs_json).host_os == 'macos' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
+      APP_STORE_CONNECT_ISSUER_ID: ${{ fromJSON(needs.request.outputs.inputs_json).host_os == 'macos' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
+      APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ fromJSON(needs.request.outputs.inputs_json).host_os == 'macos' && secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 || '' }}
 
   apple:
     needs: request

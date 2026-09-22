@@ -35,7 +35,7 @@ guide when that catalog is integrated.
 | Ephemeral Gradle private-Maven read authentication | Optional generic capability: `gradle_maven` | Central configures bounded Gradle properties for read-side dependency resolution. |
 | Xcode, Gradle, Android SDK, Node, Python, Flutter and other product/toolchain commands | Repository-owned behavior | Fixed `.ci/*` scripts own toolchain installation/use, targets, tasks, selectors and product semantics. Central does not construct product argv. |
 | Simulator, emulator and product-local test-environment lifecycle | Repository-owned behavior | Repository scripts own bounded product execution lifecycle. Physical-device infrastructure may remain separately governed and is not a v1 freeze blocker. |
-| Provider publication/signing credentials and provider-specific release transport | Separately governed compatibility behavior | Existing reviewed release lanes remain live. `release.repository` may prepare/run a fixed `.ci/release.sh`, but v1 does not expose provider secrets or provider commands as generic caller input. |
+| Provider publication/signing credentials and provider-specific release transport | Separately governed fixed release plumbing | Authorized macOS `release.repository` supplies the existing Apple signing/App Store Connect material through fixed `CI_APPLE_*` variables; other provider lanes remain compatibility behavior. Secret names, environment maps, and provider commands are never caller inputs. |
 | Shared dependency/build cache | Separately governed, non-blocking | No generic cache capability is required to migrate the current validation fleet. Add one only after measured reusable need; never accept caller cache paths or restore commands. |
 | Diagnostic follow UX and optional progress polling | Separately governed, non-blocking | The stable private log/evidence contract is sufficient for v1 adoption; follow behavior may evolve independently. |
 
@@ -65,8 +65,10 @@ before a target migration is ready. The bounded plan is:
 2. Move product build/test/release semantics into the repository's fixed `.ci/release.sh` without
    moving credential acquisition into repository source.
 3. When a current migration is ready to leave a compatibility lane, identify the smallest reusable
-   credential/setup class for that publication family. Central may materialize only bounded
-   ephemeral credential files/environment/tool defaults for the lifetime of `.ci/release.sh`.
+   credential/setup class for that publication family. The current Apple migration reuses the four
+   existing Central signing/App Store Connect secrets as fixed macOS-release-only `CI_APPLE_*`
+   variables; this is not a new caller-selectable capability. Other families may materialize only
+   bounded ephemeral credential files/environment/tool defaults for the lifetime of `.ci/release.sh`.
 4. Keep provider commands, package coordinates, store metadata, signing semantics, targets and
    release decisions repository-owned. Do not expose raw secret names, arbitrary registries,
    commands, arguments or runner labels through Agent State or workflow inputs.

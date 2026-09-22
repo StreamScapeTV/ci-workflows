@@ -141,6 +141,10 @@ class PublicIdentityBoundaryTests(unittest.TestCase):
             "CI_LOG_DIR",
             "CI_ARTIFACT_DIR",
             "CI_PROGRESS_FILE",
+            "CI_APPLE_TEAM_ID",
+            "CI_APP_STORE_CONNECT_KEY_ID",
+            "CI_APP_STORE_CONNECT_ISSUER_ID",
+            "CI_APP_STORE_CONNECT_API_KEY_P8_BASE64",
         ):
             self.assertIn(f"`{variable}`", text)
         for capability in ("private_network", "github_git", "registry_netrc", "gradle_maven"):
