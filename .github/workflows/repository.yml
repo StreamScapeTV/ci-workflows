@@ -79,6 +79,8 @@ name: Repository-owned CI
         required: false
       REGISTRY_READ_TOKEN:
         required: false
+      REGISTRY_WRITE_TOKEN:
+        required: false
       APPLE_TEAM_ID:
         required: false
       APP_STORE_CONNECT_KEY_ID:
@@ -638,7 +640,7 @@ jobs:
           trusted = value.get("trustedCapabilityGrant")
           if not isinstance(capability_types, dict) or not isinstance(trusted, dict):
               raise SystemExit("repository CI capability contract is incomplete")
-          expected = {"private_network", "github_git", "registry_netrc", "gradle_maven"}
+          expected = {"private_network", "github_git", "registry_netrc", "gradle_maven", "registry_oci_publish"}
           if set(capability_types) != expected:
               raise SystemExit("repository CI capability type set is not the reviewed v1 set")
           if trusted.get("source") != "Agent State project configuration":
@@ -733,13 +735,13 @@ jobs:
 
           project_response="$(rpc get_project_state "$(jq -cn --arg project "${project_key}" '{p_project_key:$project}')")"
           project_state="$(jq -c '.state // {}' <<<"${project_response}")"
-          PROJECT_STATE="${project_state}" python3 - "${known_capabilities}" "${SOURCE_REPOSITORY}" "${GITHUB_OUTPUT}" <<'PY_CAPABILITIES'
+          PROJECT_STATE="${project_state}" python3 - "${known_capabilities}" "${SOURCE_REPOSITORY}" "${OPERATION}" "${capability_context}" "${GITHUB_OUTPUT}" <<'PY_CAPABILITIES'
           from pathlib import Path
           import json
           import os
           import sys
 
-          known_raw, expected_repository, output_path = sys.argv[1:4]
+          known_raw, expected_repository, operation, capability_context, output_path = sys.argv[1:6]
           known = set(known_raw.split(","))
           state = json.loads(os.environ["PROJECT_STATE"])
           if not isinstance(state, dict):
@@ -766,11 +768,15 @@ jobs:
               if any(not isinstance(value, str) or value not in known for value in capabilities):
                   raise SystemExit("trusted repository CI capability grant contains an unknown capability")
 
+          enabled_capabilities = set(capabilities)
+          if operation != "release" or capability_context != "repository_lifecycle":
+              enabled_capabilities.discard("registry_oci_publish")
+
           with Path(output_path).open("a", encoding="utf-8") as output:
               for capability in sorted(known):
-                  output.write(f"{capability}={'true' if capability in capabilities else 'false'}\n")
+                  output.write(f"{capability}={'true' if capability in enabled_capabilities else 'false'}\n")
               auth_enabled = any(
-                  value in capabilities
+                  value in enabled_capabilities
                   for value in ("github_git", "registry_netrc", "gradle_maven")
               )
               output.write(f"auth_enabled={'true' if auth_enabled else 'false'}\n")
@@ -880,6 +886,58 @@ jobs:
             printf 'git_config=%s\n' "${git_config}"
           } >> "${GITHUB_OUTPUT}"
 
+      - name: Configure ephemeral OCI publication authentication
+        id: oci_publish_auth
+        if: ${{ steps.capabilities.outputs.registry_oci_publish == 'true' }}
+        shell: bash
+        env:
+          OPERATION: ${{ inputs.operation }}
+          HOST_OS: ${{ needs.resolve_host.outputs.host_os }}
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_WRITE_TOKEN: ${{ secrets.REGISTRY_WRITE_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          test "${OPERATION}" = release && test "${HOST_OS}" = linux || {
+            echo "OCI publication capability is bounded to authorized Linux repository release" >&2
+            exit 2
+          }
+          test -n "${REGISTRY_USERNAME}" && test -n "${REGISTRY_WRITE_TOKEN}" || {
+            echo "reviewed OCI publication capability is missing its fixed write credential" >&2
+            exit 1
+          }
+          for tool in buildah skopeo helm; do
+            command -v "${tool}" >/dev/null 2>&1 || {
+              echo "OCI publication host is missing required tool: ${tool}" >&2
+              exit 1
+            }
+          done
+
+          state_root="${RUNNER_TEMP}/central-oci-publish"
+          auth_file="${state_root}/auth.json"
+          helm_registry="${state_root}/helm-registry.json"
+          helm_repositories="${state_root}/helm-repositories.yaml"
+          helm_cache="${state_root}/helm-repository-cache"
+          rm -rf -- "${state_root}"
+          mkdir -m 0700 "${state_root}" "${helm_cache}"
+          printf '{}\n' > "${auth_file}"
+          chmod 0600 "${auth_file}"
+
+          printf '%s' "${REGISTRY_WRITE_TOKEN}" |
+            buildah login --authfile "${auth_file}" --username "${REGISTRY_USERNAME}" --password-stdin git.faruqi.dev >/dev/null
+          printf '%s' "${REGISTRY_WRITE_TOKEN}" |
+            HELM_REGISTRY_CONFIG="${helm_registry}" helm registry login git.faruqi.dev --username "${REGISTRY_USERNAME}" --password-stdin >/dev/null
+          test -f "${auth_file}" && test ! -L "${auth_file}" || exit 1
+          test -f "${helm_registry}" && test ! -L "${helm_registry}" || exit 1
+          chmod 0600 "${helm_registry}"
+
+          {
+            printf 'auth_file=%s\n' "${auth_file}"
+            printf 'helm_registry_config=%s\n' "${helm_registry}"
+            printf 'helm_repository_config=%s\n' "${helm_repositories}"
+            printf 'helm_repository_cache=%s\n' "${helm_cache}"
+            printf 'registry_host=%s\n' 'git.faruqi.dev'
+          } >> "${GITHUB_OUTPUT}"
+
       - name: Record private-capabilities completion and start repository entrypoint
         shell: bash
         run: |
@@ -927,6 +985,12 @@ jobs:
           AUTH_ENABLED: ${{ steps.capabilities.outputs.auth_enabled }}
           AUTH_HOME: ${{ steps.registry_auth.outputs.auth_home }}
           AUTH_GIT_CONFIG: ${{ steps.registry_auth.outputs.git_config }}
+          OCI_PUBLISH_ENABLED: ${{ steps.capabilities.outputs.registry_oci_publish }}
+          OCI_AUTH_FILE: ${{ steps.oci_publish_auth.outputs.auth_file }}
+          OCI_HELM_REGISTRY_CONFIG: ${{ steps.oci_publish_auth.outputs.helm_registry_config }}
+          OCI_HELM_REPOSITORY_CONFIG: ${{ steps.oci_publish_auth.outputs.helm_repository_config }}
+          OCI_HELM_REPOSITORY_CACHE: ${{ steps.oci_publish_auth.outputs.helm_repository_cache }}
+          OCI_REGISTRY_HOST: ${{ steps.oci_publish_auth.outputs.registry_host }}
           CHECKPOINT_ENABLED: ${{ (inputs.ci_run_id != '' || inputs.upload_private_log) && steps.log_seed.outcome == 'success' && 'true' || 'false' }}
           CHECKPOINT_FILE_ID: ${{ steps.log_seed.outputs.file_id }}
           CHECKPOINT_SEED_SHA256: ${{ steps.log_seed.outputs.file_sha256 }}
@@ -949,6 +1013,7 @@ jobs:
           CI_APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 || '' }}
           CI_SECRET_REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           CI_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
+          CI_SECRET_REGISTRY_WRITE_TOKEN: ${{ secrets.REGISTRY_WRITE_TOKEN }}
           CI_SECRET_APPLE_TEAM_ID: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APPLE_TEAM_ID || '' }}
           CI_SECRET_APP_STORE_CONNECT_KEY_ID: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
           CI_SECRET_APP_STORE_CONNECT_ISSUER_ID: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
@@ -964,6 +1029,18 @@ jobs:
           export CI_HOST_CLASS="${HOST_CLASS}"
           export CI_OPERATION="${OPERATION}"
           export CI_INPUTS_JSON="${NORMALIZED_INPUTS}"
+          if test "${OCI_PUBLISH_ENABLED}" = true; then
+            test -n "${OCI_AUTH_FILE}" && test -n "${OCI_HELM_REGISTRY_CONFIG}" \
+              && test -n "${OCI_REGISTRY_HOST}" || {
+                echo "OCI publication capability setup is incomplete" >&2
+                exit 1
+              }
+            export REGISTRY_AUTH_FILE="${OCI_AUTH_FILE}"
+            export HELM_REGISTRY_CONFIG="${OCI_HELM_REGISTRY_CONFIG}"
+            export HELM_REPOSITORY_CONFIG="${OCI_HELM_REPOSITORY_CONFIG}"
+            export HELM_REPOSITORY_CACHE="${OCI_HELM_REPOSITORY_CACHE}"
+            export CI_OCI_REGISTRY="${OCI_REGISTRY_HOST}"
+          fi
 
           checkpoint_pid=""
           stop_checkpoint() {
@@ -1030,6 +1107,7 @@ jobs:
             CI_SECRET_TAILSCALE_SECRET \
             CI_SECRET_REGISTRY_USERNAME \
             CI_SECRET_REGISTRY_READ_TOKEN \
+            CI_SECRET_REGISTRY_WRITE_TOKEN \
             CI_SECRET_APPLE_TEAM_ID \
             CI_SECRET_APP_STORE_CONNECT_KEY_ID \
             CI_SECRET_APP_STORE_CONNECT_ISSUER_ID \
@@ -1090,6 +1168,7 @@ jobs:
           CI_SECRET_TAILSCALE_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
           CI_SECRET_REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           CI_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
+          CI_SECRET_REGISTRY_WRITE_TOKEN: ${{ secrets.REGISTRY_WRITE_TOKEN }}
           CI_SECRET_APPLE_TEAM_ID: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APPLE_TEAM_ID || '' }}
           CI_SECRET_APP_STORE_CONNECT_KEY_ID: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
           CI_SECRET_APP_STORE_CONNECT_ISSUER_ID: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
@@ -1405,6 +1484,7 @@ jobs:
           set -Eeuo pipefail
           rm -rf -- \
             "${RUNNER_TEMP}/central-registry-auth" \
+            "${RUNNER_TEMP}/central-oci-publish" \
             "${RUNNER_TEMP}/repository-ci-logs" \
             "${RUNNER_TEMP}/repository-ci-artifacts"
           rm -f -- \
