@@ -80,7 +80,7 @@ class TagDrivenReleaseTests(unittest.TestCase):
         self.assertEqual(inputs["host_os"], "linux")
         self.assertEqual(
             json.loads(inputs["semantic_inputs"]),
-            {"build_identity": "1.0.0_257", "release_kind": "prepare"},
+            {"build_identity": "1.0.0_257", "release_kind": "publish"},
         )
         self.assertEqual(normalized, values["inputs_json"] + "\n")
         self.assertEqual(values["release_version"], "")
@@ -116,6 +116,10 @@ class TagDrivenReleaseTests(unittest.TestCase):
         self.assertEqual(release["with"]["operation"], "release")
         self.assertTrue(release["with"]["release_authorized"])
         self.assertFalse(release["concurrency"]["cancel-in-progress"])
+        self.assertEqual(
+            release["secrets"]["REGISTRY_WRITE_TOKEN"],
+            "${{ secrets.FORGEJO_REGISTRY_TOKEN }}",
+        )
 
         legacy = jobs["android_release"]
         self.assertEqual(
