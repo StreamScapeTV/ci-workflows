@@ -121,6 +121,10 @@ The supported repository-script interface is finite:
 | `CI_LOG_DIR` | Always | Writable Central-owned directory for optional text diagnostics. |
 | `CI_ARTIFACT_DIR` | Always | Writable Central-owned directory for bounded artifacts. |
 | `CI_PROGRESS_FILE` | Always | Writable Central-owned text file for progress/heartbeat information. |
+| `CI_APPLE_TEAM_ID` | Authorized macOS `release` only | Existing Apple signing team identifier supplied by Central. |
+| `CI_APP_STORE_CONNECT_KEY_ID` | Authorized macOS `release` only | Existing App Store Connect API key identifier supplied by Central. |
+| `CI_APP_STORE_CONNECT_ISSUER_ID` | Authorized macOS `release` only | Existing App Store Connect issuer identifier supplied by Central. |
+| `CI_APP_STORE_CONNECT_API_KEY_P8_BASE64` | Authorized macOS `release` only | Existing App Store Connect API key material supplied by Central. |
 
 Repository stdout/stderr is captured automatically by Central. The primary Central log path
 (`CI_LOG`), `RUNNER_TEMP`, credential files, runner labels, secrets and Drive paths are internal
@@ -223,12 +227,15 @@ ledger or consumer-to-capability/host bindings.
 authorized by Central and requires an admitted immutable tag. The repository owns release commands,
 targets, package coordinates, store metadata and product semantics.
 
-Provider publication/signing credentials are not exposed as caller-selected capability names in v1.
-Still-used reviewed publication lanes remain compatibility infrastructure until a target migration
-demonstrates the smallest reusable write-side credential/setup contract. That contract must remain
-Central-owned and ephemeral, prove exact-source execution plus private evidence/cleanup, and be
-recorded in the private migration ledger before its legacy lane can be retired. See the capability
-audit for the full bounded migration plan.
+Provider publication/signing credentials are not caller-selected capability names. For an authorized
+macOS `release.repository` operation, Central supplies the existing Apple signing/App Store Connect
+material only through the four fixed `CI_APPLE_*` variables documented above and includes those same
+values in its redaction surface. Validation and non-macOS release operations receive none of that
+secret material. The repository-owned `.ci/release.sh` owns signing, archive/export, validation, upload,
+and product release semantics; Central accepts no caller-selected secret names, arbitrary environment
+maps, or product release commands. The direct immutable-tag `release.repository` semantic is
+`release_kind=publish`; `release_kind=prepare` remains only for the existing aggregate library-package
+preparation path while that compatibility flow is live.
 
 ## Private evidence, retention and cleanup
 
