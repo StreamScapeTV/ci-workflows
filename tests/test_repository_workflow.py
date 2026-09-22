@@ -397,7 +397,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         denied, _ = self.run_repository_request(
             operation="release",
             host_os="macos",
-            semantic={"release_kind": "prepare", "build_identity": "20260919.1"},
+            semantic={"release_kind": "publish", "build_identity": "20260919.1"},
         )
         self.assertNotEqual(denied.returncode, 0)
         self.assertIn("separately authorized Central caller", denied.stderr)
@@ -405,7 +405,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         allowed, output = self.run_repository_request(
             operation="release",
             host_os="macos",
-            semantic={"release_kind": "prepare", "build_identity": "20260919.1"},
+            semantic={"release_kind": "publish", "build_identity": "20260919.1"},
             release_authorized="true",
             source_is_tag="true",
         )
@@ -415,7 +415,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         missing, _ = self.run_repository_request(
             operation="release",
             host_os="macos",
-            semantic={"release_kind": "prepare"},
+            semantic={"release_kind": "publish"},
             release_authorized="true",
             source_is_tag="true",
         )
