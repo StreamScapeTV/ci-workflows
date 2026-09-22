@@ -87,7 +87,7 @@ jobs:
               if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}", ref) is None:
                   raise SystemExit("release.repository tag is outside the reviewed build_identity bound")
               semantic_inputs = json.dumps(
-                  {"build_identity": ref, "release_kind": "prepare"},
+                  {"build_identity": ref, "release_kind": "publish"},
                   sort_keys=True,
                   separators=(",", ":"),
               )
@@ -669,6 +669,7 @@ jobs:
       TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
       REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
       REGISTRY_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+      REGISTRY_WRITE_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
