@@ -936,8 +936,6 @@ jobs:
             printf 'helm_repository_config=%s\n' "${helm_repositories}"
             printf 'helm_repository_cache=%s\n' "${helm_cache}"
             printf 'registry_host=%s\n' 'git.faruqi.dev'
-            printf 'image_namespace=%s\n' 'mimranfaruqi'
-            printf 'chart_namespace=%s\n' 'mimranfaruqi/helm-charts'
           } >> "${GITHUB_OUTPUT}"
 
       - name: Record private-capabilities completion and start repository entrypoint
@@ -993,8 +991,6 @@ jobs:
           OCI_HELM_REPOSITORY_CONFIG: ${{ steps.oci_publish_auth.outputs.helm_repository_config }}
           OCI_HELM_REPOSITORY_CACHE: ${{ steps.oci_publish_auth.outputs.helm_repository_cache }}
           OCI_REGISTRY_HOST: ${{ steps.oci_publish_auth.outputs.registry_host }}
-          OCI_IMAGE_NAMESPACE: ${{ steps.oci_publish_auth.outputs.image_namespace }}
-          OCI_CHART_NAMESPACE: ${{ steps.oci_publish_auth.outputs.chart_namespace }}
           CHECKPOINT_ENABLED: ${{ (inputs.ci_run_id != '' || inputs.upload_private_log) && steps.log_seed.outcome == 'success' && 'true' || 'false' }}
           CHECKPOINT_FILE_ID: ${{ steps.log_seed.outputs.file_id }}
           CHECKPOINT_SEED_SHA256: ${{ steps.log_seed.outputs.file_sha256 }}
@@ -1035,8 +1031,7 @@ jobs:
           export CI_INPUTS_JSON="${NORMALIZED_INPUTS}"
           if test "${OCI_PUBLISH_ENABLED}" = true; then
             test -n "${OCI_AUTH_FILE}" && test -n "${OCI_HELM_REGISTRY_CONFIG}" \
-              && test -n "${OCI_REGISTRY_HOST}" && test -n "${OCI_IMAGE_NAMESPACE}" \
-              && test -n "${OCI_CHART_NAMESPACE}" || {
+              && test -n "${OCI_REGISTRY_HOST}" || {
                 echo "OCI publication capability setup is incomplete" >&2
                 exit 1
               }
@@ -1045,8 +1040,6 @@ jobs:
             export HELM_REPOSITORY_CONFIG="${OCI_HELM_REPOSITORY_CONFIG}"
             export HELM_REPOSITORY_CACHE="${OCI_HELM_REPOSITORY_CACHE}"
             export CI_OCI_REGISTRY="${OCI_REGISTRY_HOST}"
-            export CI_OCI_IMAGE_NAMESPACE="${OCI_IMAGE_NAMESPACE}"
-            export CI_HELM_OCI_NAMESPACE="${OCI_CHART_NAMESPACE}"
           fi
 
           checkpoint_pid=""
