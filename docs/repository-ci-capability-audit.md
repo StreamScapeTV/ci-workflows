@@ -33,6 +33,7 @@ guide when that catalog is integrated.
 | Ephemeral Git HTTPS authentication | Optional generic capability: `github_git` | Central configures Git defaults; repository scripts use ordinary Git operations without acquiring credentials. |
 | Ephemeral generic HTTPS package-registry read authentication | Optional generic capability: `registry_netrc` | Central configures the reviewed registry login in the operation environment. |
 | Ephemeral Gradle private-Maven read authentication | Optional generic capability: `gradle_maven` | Central configures bounded Gradle properties for read-side dependency resolution. |
+| Private OCI image + Helm OCI publication authentication | Optional generic capability: `registry_oci_publish` | Only for an authorized Linux repository release, Central establishes isolated Buildah/Skopeo + Helm registry auth with the existing reviewed write credential; product scripts own coordinates, immutability checks, push/read-back commands and release semantics. |
 | Xcode, Gradle, Android SDK, Node, Python, Flutter and other product/toolchain commands | Repository-owned behavior | Fixed `.ci/*` scripts own toolchain installation/use, targets, tasks, selectors and product semantics. Central does not construct product argv. |
 | Simulator, emulator and product-local test-environment lifecycle | Repository-owned behavior | Repository scripts own bounded product execution lifecycle. Physical-device infrastructure may remain separately governed and is not a v1 freeze blocker. |
 | Provider publication/signing credentials and provider-specific release transport | Separately governed compatibility behavior | Existing reviewed release lanes remain live. `release.repository` may prepare/run a fixed `.ci/release.sh`, but v1 does not expose provider secrets or provider commands as generic caller input. |
@@ -47,6 +48,7 @@ Repository CI v1 has exactly these non-host optional capability types:
 - `github_git`
 - `registry_netrc`
 - `gradle_maven`
+- `registry_oci_publish`
 
 A project may receive only a reviewed unique subset through private Agent State configuration.
 No capability is enabled by repository source, semantic inputs, caller-provided secret names, or
@@ -75,9 +77,7 @@ before a target migration is ready. The bounded plan is:
 6. Retire the corresponding legacy release lane only after its private live-caller count reaches
    zero.
 
-This plan covers the current publication families without freezing speculative public capability
-names for package publication, Maven publication, OCI/container publication, Android distribution,
-or Apple distribution before their reusable credential contracts are demonstrated.
+The private OCI/Helm family is now demonstrated by `registry_oci_publish`. The remaining publication families stay separately governed until their own reusable credential contracts are demonstrated; do not infer generic package, Maven, Android-distribution, or Apple-distribution capability names from this OCI migration.
 
 ## Cache decision
 
