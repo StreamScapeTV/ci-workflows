@@ -87,7 +87,7 @@ jobs:
               if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}", ref) is None:
                   raise SystemExit("release.repository tag is outside the reviewed build_identity bound")
               semantic_inputs = json.dumps(
-                  {"build_identity": ref, "release_kind": "prepare"},
+                  {"build_identity": ref, "release_kind": "publish"},
                   sort_keys=True,
                   separators=(",", ":"),
               )
@@ -397,7 +397,7 @@ jobs:
               semantic = json.loads(inputs["semantic_inputs"])
           except (TypeError, json.JSONDecodeError) as exc:
               raise SystemExit("release.repository semantic_inputs must be one JSON object") from exc
-          expected = {"build_identity": ref, "release_kind": "prepare"}
+          expected = {"build_identity": ref, "release_kind": "publish"}
           if semantic != expected:
               raise SystemExit("release.repository semantics must be derived only from the immutable tag")
           PY_VALIDATE_REPOSITORY_RELEASE
