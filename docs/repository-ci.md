@@ -64,7 +64,7 @@ Central sets these host values before invoking the repository entrypoint:
 
 ## Capability lifetime
 
-Shared capabilities such as `private_network`, `github_git`, `registry_netrc`, and `gradle_maven` are established by Central before `.ci/*` execution and remain available for the full repository operation and Central cleanup lifecycle. Product scripts consume the resulting environment/tool defaults but never acquire the underlying credentials.
+Shared capabilities such as `private_network`, `github_git`, `registry_netrc`, `gradle_maven`, and `registry_oci_publish` are established by Central before `.ci/*` execution and remain available for the full repository operation and Central cleanup lifecycle. Product scripts consume the resulting environment/tool defaults but never acquire the underlying credentials.
 
 ## What host-class proof establishes
 
@@ -99,6 +99,7 @@ The frozen v1 non-host capability catalog is:
 - `github_git` — Central configures ephemeral Git HTTPS authentication for ordinary Git operations.
 - `registry_netrc` — Central configures ephemeral HTTPS package-registry read authentication through the operation's tool defaults.
 - `gradle_maven` — Central configures ephemeral Gradle private-Maven read properties.
+- `registry_oci_publish` — for an authorized Linux repository `release`, Central creates isolated Buildah/Skopeo and Helm registry authentication using the reviewed private registry write credential. Repository code receives authenticated tool defaults plus the fixed registry host, never the raw write token; image/chart namespaces and publication coordinates remain repository-owned.
 
 Capability authorization is private Agent State policy. Repository source cannot enable a capability,
 choose a secret, select a private host, or provide an environment map.
@@ -121,6 +122,7 @@ The supported repository-script interface is finite:
 | `CI_LOG_DIR` | Always | Writable Central-owned directory for optional text diagnostics. |
 | `CI_ARTIFACT_DIR` | Always | Writable Central-owned directory for bounded artifacts. |
 | `CI_PROGRESS_FILE` | Always | Writable Central-owned text file for progress/heartbeat information. |
+| `CI_OCI_REGISTRY` | `registry_oci_publish` Linux release only | Read-only fixed private OCI registry host. |
 | `CI_APPLE_TEAM_ID` | Authorized macOS `release` only | Existing Apple signing team identifier supplied by Central. |
 | `CI_APP_STORE_CONNECT_KEY_ID` | Authorized macOS `release` only | Existing App Store Connect API key identifier supplied by Central. |
 | `CI_APP_STORE_CONNECT_ISSUER_ID` | Authorized macOS `release` only | Existing App Store Connect issuer identifier supplied by Central. |
@@ -236,6 +238,8 @@ and product release semantics; Central accepts no caller-selected secret names, 
 maps, or product release commands. The direct immutable-tag `release.repository` semantic is
 `release_kind=publish`; `release_kind=prepare` remains only for the existing aggregate library-package
 preparation path while that compatibility flow is live.
+
+An authorized Linux `release.repository` may additionally receive the privately granted `registry_oci_publish` capability. Central establishes isolated Buildah/Skopeo and Helm authentication and exposes only standard tool configuration plus `CI_OCI_REGISTRY`; the raw write token never enters the repository process. The repository owns image/chart names, namespaces, build/package commands, immutability checks, push/read-back behavior, and release decisions.
 
 ## Private evidence, retention and cleanup
 
