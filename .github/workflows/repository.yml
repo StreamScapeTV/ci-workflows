@@ -645,7 +645,7 @@ jobs:
               raise SystemExit("repository CI capability type set is not the reviewed v1 set")
           if trusted.get("source") != "Agent State project configuration":
               raise SystemExit("repository CI trusted capability authority is invalid")
-          if trusted.get("projectStateKey") != "repository_ci" or trusted.get("acceptedSchemaVersions") != [1, 2]:
+          if trusted.get("projectStateKey") != "repository_ci" or trusted.get("acceptedSchemaVersions") != [1, 2, 3]:
               raise SystemExit("repository CI trusted capability schema is invalid")
           if trusted.get("defaultCapabilities") != [] or trusted.get("failClosed") is not True:
               raise SystemExit("repository CI trusted capability default must fail closed")
@@ -754,11 +754,11 @@ jobs:
                   raise SystemExit("trusted repository CI capability grant schema is invalid")
               version = grant.get("schemaVersion")
               expected_fields = {"schemaVersion", "repository", "capabilities"}
-              if version == 2:
+              if version in {2, 3}:
                   expected_fields.add("hostPolicy")
-              if set(grant) != expected_fields or version not in {1, 2}:
+              if set(grant) != expected_fields or version not in {1, 2, 3}:
                   raise SystemExit("trusted repository CI capability grant version is invalid")
-              if version == 2 and not isinstance(grant.get("hostPolicy"), dict):
+              if version in {2, 3} and not isinstance(grant.get("hostPolicy"), dict):
                   raise SystemExit("trusted repository CI host policy is invalid")
               if grant.get("repository") != expected_repository:
                   raise SystemExit("trusted repository CI capability grant is bound to a different repository")

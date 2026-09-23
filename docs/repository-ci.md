@@ -32,23 +32,33 @@ The legacy library-package aggregate still uses its fixed hosted Linux/macOS rea
 
 ## Trusted Agent State policy
 
-Project-specific bindings live only in private Agent State `repository_ci` configuration. Public examples use non-identifying repositories:
+Project-specific bindings live only in private Agent State `repository_ci` configuration. For mixed-platform repositories, schema v3 selects policy by the already-admitted operating system before applying an optional operation override. Public examples use non-identifying repositories:
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "repository": "organization/example-native-library",
   "capabilities": ["private_network"],
   "hostPolicy": {
-    "default": "macos-hosted",
-    "operations": {
-      "full": "macos-high-capacity"
+    "operatingSystems": {
+      "linux": {
+        "default": "linux-hosted",
+        "operations": {}
+      },
+      "macos": {
+        "default": "macos-hosted",
+        "operations": {
+          "full": "macos-high-capacity"
+        }
+      }
     }
   }
 }
 ```
 
-Operation overrides are limited to `build`, `test`, `full`, `ui-test`, and `release`. Unknown classes, repository mismatches, stale CI identities, or conflicting replays fail closed. New projects request a reviewed generic class by updating private Agent State project configuration; they do not edit `.ci/*` scripts to select runners.
+Schema v1 keeps ordinary hosted selection from the admitted operating system. Schema v2 remains accepted for compatibility with already-reviewed policy, but its project-global host policy is not the mixed-platform model. Schema v3 keeps Linux and macOS policy independent; a missing OS block falls back only to the ordinary hosted class for that admitted OS.
+
+Operation overrides are limited to `build`, `test`, `full`, `ui-test`, and `release`. Unknown classes, cross-OS assignments, repository mismatches, stale CI identities, or conflicting replays fail closed in trusted Agent State resolution. Central capability admission accepts the reviewed repository/capability fields for schemas 1-3 but does not interpret `hostPolicy` into runner labels. New projects request a reviewed generic class by updating private Agent State project configuration; they do not edit `.ci/*` scripts to select runners.
 
 ## Script environment
 
@@ -216,13 +226,15 @@ A generic configuration example is:
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "repository": "organization/example-service",
   "capabilities": ["private_network", "registry_netrc"],
   "hostPolicy": {
-    "default": "linux-hosted",
-    "operations": {
-      "full": "macos-high-capacity"
+    "operatingSystems": {
+      "linux": {
+        "default": "linux-hosted",
+        "operations": {}
+      }
     }
   }
 }
