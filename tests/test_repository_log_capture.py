@@ -69,6 +69,15 @@ class RepositoryLogCaptureTests(unittest.TestCase):
         data = self.capture(payload)
         self.assertIn(b"last-progress: native compilation still active", data)
 
+    def test_capture_failure_still_drains_product_stream(self) -> None:
+        payload = b"x" * (2 * 1024 * 1024)
+        source = io.BytesIO(payload)
+        with tempfile.TemporaryDirectory() as td:
+            missing = Path(td) / "missing.log"
+            with self.assertRaises(capture.CaptureError):
+                capture.capture_stream(missing, source, overlap_bytes=0)
+        self.assertEqual(source.tell(), len(payload))
+
     def test_workflow_preserves_product_and_capture_exit_codes(self) -> None:
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         execute = next(
