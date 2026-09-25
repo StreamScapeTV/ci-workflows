@@ -57,6 +57,11 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
 
     def test_product_wrapper_and_cache_contract_are_fixed(self) -> None:
         steps = self.workflow["jobs"]["screenshot"]["steps"]
+        private_git = next(step for step in steps if step["name"] == "Connect to private Git service for Android screenshot capture")
+        self.assertEqual(private_git["uses"], "StreamScapeTV/ci-workflows/actions/private-git@main")
+        self.assertEqual(private_git["if"], "${{ steps.screenshot_selection.outputs.should_run == 'true' }}")
+        self.assertEqual(private_git["env"]["TS_OAUTH_CLIENT_ID"], "${{ secrets.TS_OAUTH_CLIENT_ID }}")
+        self.assertEqual(private_git["env"]["TS_OAUTH_SECRET"], "${{ secrets.TS_OAUTH_SECRET }}")
         run = next(step for step in steps if step["name"] == "Run fixed Android screenshot-review wrapper")
         self.assertIn("wrapper=scripts/ci/run-android-screenshot-review.sh", run["run"])
         self.assertIn("git ls-files --error-unmatch", run["run"])
