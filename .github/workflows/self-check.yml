@@ -34,6 +34,7 @@ jobs:
           tests.test_repository_workflow
           tests.test_repository_host_classes
           tests.test_repository_log_checkpoint
+          tests.test_repository_log_capture
           tests.test_public_identity_boundary
           tests.test_ci_log_reconcile
           tests.test_github_issue_dependency_projection
