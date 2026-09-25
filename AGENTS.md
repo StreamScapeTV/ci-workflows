@@ -34,6 +34,10 @@ Keep Central CI small, conventional, and fixed-profile.
   actions or frameworks for one workflow step or one technology command.
 - Keep product command detail product-owned. Central selects fixed reviewed
   profiles rather than accepting caller-supplied execution detail.
+- Generic Repository CI uses `repository-plan.yml` as the semantic parent and
+  `repository.yml` as the single-OS child executor. A tracked repository plan may
+  select only reviewed OS identifiers; Central resolves each child host class and
+  keeps one Agent State parent lifecycle.
 
 ## Validation
 

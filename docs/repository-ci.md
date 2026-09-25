@@ -14,6 +14,29 @@ Central CI executes fixed tracked repository scripts and owns shared infrastruct
 
 Each supported entrypoint must be tracked, executable, and regular. Unsupported operations must fail closed in the repository rather than inventing another Central profile.
 
+## Tracked multi-OS execution plan
+
+A repository that needs one semantic operation to execute on more than one reviewed operating system may add the tracked non-executable regular file `.ci/execution-plan.json` (mode `100644`). The v1 shape is finite and declarative:
+
+```json
+{
+  "schemaVersion": 1,
+  "operations": {
+    "build": ["linux", "macos"],
+    "test": ["linux", "macos"],
+    "full": ["linux", "macos"],
+    "ui-test": ["linux", "macos"],
+    "release": ["linux", "macos"]
+  }
+}
+```
+
+Only the fixed operation names and reviewed OS identifiers `linux` and `macos` are accepted in v1. Each operation selects one or two unique OS values. Unknown fields, duplicate OS values, unknown OS values, unsupported operations, untracked/symlinked plans, and oversized or ambiguous JSON fail closed. The plan never contains runner labels, commands, arguments, environment maps, secret names, timeouts, or product targets.
+
+When the plan is present, repository source is authoritative for the OS set. The legacy `host_os` request remains only a backwards-compatible single-child fallback for repositories that have not adopted the plan. Central starts one Agent State parent lifecycle, records one exact observed source SHA, runs each selected child concurrently with `fail-fast` disabled, and settles the parent only after every child is terminal. Each child reuses the same fixed operation entrypoint, receives its own `CI_HOST_OS`/`CI_HOST_CLASS`, capability setup, private log/evidence objects, and cleanup lifecycle.
+
+Central resolves each planned child through the CI-service-only Agent State child-OS host resolver. The resolver remains bound to the exact parent project/repository/CI run/operation and freezes a replay-safe decision per child OS. Ordinary callers still cannot supply a host-class array or raw runner matrix.
+
 ## Generic host classes
 
 Host selection is trusted Central infrastructure policy. Repository scripts and ordinary callers never select GitHub runner labels, runner groups, machine names, label arrays, or `runs-on` expressions.
@@ -26,7 +49,7 @@ The reviewed v1 catalog is:
 
 Concrete runner labels and machines are Central implementation details and are not part of the repository contract. A new class requires a reviewed reusable Central change; a repository cannot create a class by configuration.
 
-For normal `validation.repository` and `release.repository` runs, Central resolves the effective class through the service-only Agent State `resolve_repository_ci_host_class` decision for the exact project, repository, CI run, and operation. The decision is frozen on that CI run and replay-safe. The existing `host_os` request value remains only the reviewed default hint used by legacy/v1 project configuration; it is not a runner-label or host-class input.
+For direct single-OS child execution, Central resolves the effective class through the service-only Agent State `resolve_repository_ci_host_class` decision for the exact project, repository, CI run, and operation. For a tracked multi-OS parent plan, each child uses the service-only `resolve_repository_ci_host_class_for_os` decision bound to the same parent plus the selected child OS. Decisions are replay-safe and OS/class compatibility remains fail-closed. The existing `host_os` request value is a compatibility fallback only when `.ci/execution-plan.json` is absent; it is never a runner-label or host-class input.
 
 The legacy library-package aggregate still uses its fixed hosted Linux/macOS readiness split until that parent receives its own repository-CI lifecycle. It cannot request the high-capacity class.
 
@@ -85,16 +108,16 @@ A successful host-class run proves trusted class resolution, Central runner sele
 
 For every admitted repository operation, Central owns the reusable execution envelope:
 
-1. claim and validate the Agent State request;
-2. resolve one reviewed generic host class;
-3. check out the exact source/ref and record the observed SHA;
-4. resolve the trusted private capability grant;
-5. establish granted shared capabilities for the full operation lifetime;
-6. invoke exactly one fixed tracked repository entrypoint;
-7. capture and scrub private text evidence and package bounded artifacts;
-8. upload private log/evidence through the shared Drive mechanisms;
-9. remove ephemeral credentials, network state and evidence staging; and
-10. settle the Agent State CI run.
+1. claim and validate one Agent State parent request;
+2. check out the exact source/ref, record the observed SHA once, and validate the optional tracked execution plan;
+3. derive one or more reviewed child OS executions from the plan (or one legacy `host_os` compatibility child when the plan is absent);
+4. resolve the trusted generic host class independently for every child OS;
+5. establish the same authorized shared capabilities independently for each child lifetime;
+6. invoke exactly one fixed tracked repository entrypoint per child, concurrently when more than one OS is selected;
+7. capture/scrub private text evidence and package bounded artifacts independently per child;
+8. upload OS-distinct private log/evidence objects through the shared Drive mechanisms;
+9. remove each child's ephemeral credentials, network state and evidence staging; and
+10. settle the single parent Agent State CI run only after all required children settle.
 
 Repository scripts do not implement this lifecycle and do not call Agent State or Drive directly.
 
@@ -177,6 +200,7 @@ PY
 A repository owns only product/toolchain behavior. It must:
 
 - provide the fixed `.ci/*` files needed by its admitted operations;
+- when an operation needs more than one OS, provide tracked `.ci/execution-plan.json` with only the reviewed finite OS set;
 - keep every supported entrypoint tracked, regular, non-symlinked and executable;
 - make unsupported operations fail closed explicitly;
 - parse `CI_INPUTS_JSON` and translate reviewed semantics into product-owned target/test/release choices;
@@ -276,13 +300,14 @@ before lifecycle settlement. Drive availability does not widen repository execut
 A repository is migrated only when:
 
 1. required fixed `.ci/*` files exist, are tracked and executable;
-2. unsupported operations fail closed;
-3. required private capabilities and host policy are configured in trusted Agent State;
-4. product/toolchain semantics live in repository scripts and consume only the documented interface;
-5. required operations run through the generic executor on exact observed source;
-6. private logs/evidence, failure handling and cleanup behave correctly;
-7. required representative live proof is recorded in the private migration ledger; and
-8. only after the ledger has no remaining live caller for a compatibility lane may that lane be retired.
+2. any multi-OS requirement is declared only through tracked `.ci/execution-plan.json`;
+3. unsupported operations and invalid execution plans fail closed;
+4. required private capabilities and OS-aware host policy are configured in trusted Agent State;
+5. product/toolchain semantics live in repository scripts and consume only the documented interface;
+6. required operations run through the generic executor on exact observed source, including concurrent Linux/macOS children where declared;
+7. child-private logs/evidence, failure handling and cleanup behave correctly and the parent settles only after all children;
+8. required representative live proof is recorded in the private migration ledger; and
+9. only after the ledger has no remaining live caller for a compatibility lane may that lane be retired.
 
 Release migration additionally requires the write-side publication plan above; migration must never be
 declared merely because a validation entrypoint exists.

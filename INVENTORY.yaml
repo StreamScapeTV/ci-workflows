@@ -3,6 +3,7 @@ repository: StreamScapeTV/ci-workflows
 workflows:
   apple: .github/workflows/apple.yml
   repository: .github/workflows/repository.yml
+  repository_plan: .github/workflows/repository-plan.yml
   android: .github/workflows/android.yml
   python: .github/workflows/python.yml
   node: .github/workflows/node.yml
@@ -34,6 +35,7 @@ scripts:
   github_issue_dependency_projection: scripts/ci/github_issue_dependency_projection.py
   repository_log_checkpoint: scripts/ci/repository_log_checkpoint.py
   repository_log_timeline: scripts/ci/repository_log_timeline.py
+  repository_execution_plan: scripts/ci/repository_execution_plan.py
   source_snapshot_delete: scripts/ci/source_snapshot_delete.py
   source_checkpoint_publish: scripts/ci/source_checkpoint_publish.py
   source_snapshot_lifecycle: scripts/ci/source_snapshot_lifecycle.py

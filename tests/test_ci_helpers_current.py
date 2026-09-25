@@ -27,10 +27,10 @@ class CiHelperTests(_prior.CiHelperTests):
         inventory = yaml.safe_load((_prior.ROOT / "INVENTORY.yaml").read_text())
         self.assertEqual(
             set(inventory["workflows"]),
-            {"apple", "repository", "apple_binary", "apple_swiftpm", "library_package_release", "android", "python", "node", "flutter", "maven", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "source_snapshot_delete", "source_snapshot", "source_checkpoint_publish", "central_dispatch", "ci_log_retention", "github_issue_dependency_projection", "self_check", "runner_images"},
+            {"apple", "repository", "repository_plan", "apple_binary", "apple_swiftpm", "library_package_release", "android", "python", "node", "flutter", "maven", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "source_snapshot_delete", "source_snapshot", "source_checkpoint_publish", "central_dispatch", "ci_log_retention", "github_issue_dependency_projection", "self_check", "runner_images"},
         )
         self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git", "source_snapshot"})
-        self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility", "ci_log_reconcile", "github_issue_dependency_projection", "repository_log_checkpoint", "repository_log_timeline", "source_snapshot_delete", "source_snapshot_lifecycle", "source_checkpoint_publish", "swiftpm_binary"})
+        self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility", "ci_log_reconcile", "github_issue_dependency_projection", "repository_log_checkpoint", "repository_log_timeline", "repository_execution_plan", "source_snapshot_delete", "source_snapshot_lifecycle", "source_checkpoint_publish", "swiftpm_binary"})
         self.assertEqual(set(inventory["contracts"]), {"repository_ci_v1"})
         self.assertEqual(inventory["contracts"]["repository_ci_v1"], "contracts/repository-ci-v1.json")
         self.assertEqual(set(inventory["services"]), {"runner_images"})
@@ -41,10 +41,11 @@ class CiHelperTests(_prior.CiHelperTests):
 
     def test_workflows_use_no_reusable_prefix(self) -> None:
         names = {p.name for p in (_prior.ROOT / ".github/workflows").glob("*.yml")}
-        self.assertEqual(len(names), 22)
+        self.assertEqual(len(names), 23)
         self.assertNotIn("broker.yml", names)
         self.assertFalse(any(name.startswith("reusable-") for name in names))
         self.assertIn("source-snapshot-delete.yml", names)
+        self.assertIn("repository-plan.yml", names)
         self.assertIn("ci-log-retention.yml", names)
         self.assertIn("github-issue-dependency-projection.yml", names)
         self.assertIn("source-snapshot.yml", names)

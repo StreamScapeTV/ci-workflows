@@ -1,0 +1,255 @@
+name: Repository-owned CI execution plan
+
+# One semantic Agent State operation owns this parent lifecycle. A tracked bounded
+# .ci/execution-plan.json may select concurrent reviewed OS children; repositories
+# never supply commands, runner labels, raw matrices, environment maps, or secrets.
+
+"on":
+  workflow_call:
+    inputs:
+      repository:
+        type: string
+        required: true
+      ref:
+        type: string
+        required: true
+      source_is_tag:
+        type: boolean
+        required: false
+        default: false
+      expected_source_sha:
+        type: string
+        required: false
+        default: ""
+      operation:
+        type: string
+        required: true
+      host_os:
+        description: Compatibility fallback used only when the tracked execution plan is absent.
+        type: string
+        required: true
+      semantic_inputs_json:
+        type: string
+        required: false
+        default: "{}"
+      release_authorized:
+        type: boolean
+        required: false
+        default: false
+      ci_run_id:
+        type: string
+        required: true
+      upload_private_log:
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      SOURCE_APP_ID:
+        required: true
+      SOURCE_APP_PRIVATE_KEY:
+        required: true
+      AGENT_STATE_SUPABASE_URL:
+        required: true
+      AGENT_STATE_SUPABASE_SECRET_KEY:
+        required: true
+      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID:
+        required: false
+      GOOGLE_DRIVE_CLIENT_ID:
+        required: false
+      GOOGLE_DRIVE_CLIENT_SECRET:
+        required: false
+      GOOGLE_DRIVE_REFRESH_TOKEN:
+        required: false
+      TS_OAUTH_CLIENT_ID:
+        required: false
+      TS_OAUTH_SECRET:
+        required: false
+      REGISTRY_USERNAME:
+        required: false
+      REGISTRY_READ_TOKEN:
+        required: false
+      REGISTRY_WRITE_TOKEN:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
+      APP_STORE_CONNECT_KEY_ID:
+        required: false
+      APP_STORE_CONNECT_ISSUER_ID:
+        required: false
+      APP_STORE_CONNECT_API_KEY_P8_BASE64:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      source_sha: ${{ steps.source_identity.outputs.source_sha }}
+      execution_matrix: ${{ steps.plan.outputs.execution_matrix }}
+      plan_source: ${{ steps.plan.outputs.plan_source }}
+    steps:
+      - name: Mark parent Agent State run as running
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: start
+          ci_run_id: ${{ inputs.ci_run_id }}
+
+      - name: Check out reviewed Central execution-plan parser
+        uses: actions/checkout@v4
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.sha }}
+          path: central-ci
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prepare source token
+        id: source
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.SOURCE_APP_ID }}
+          private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          owner: StreamScapeTV
+          permission-contents: read
+          permission-metadata: read
+
+      - name: Resolve exact repository source ref
+        id: source_ref
+        shell: bash
+        env:
+          REQUESTED_REF: ${{ inputs.ref }}
+          REQUESTED_IS_TAG: ${{ inputs.source_is_tag }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${REQUESTED_REF}" || { echo "repository-owned CI requires one non-empty branch or tag name" >&2; exit 2; }
+          case "${REQUESTED_IS_TAG}" in
+            false) namespace=refs/heads ;;
+            true) namespace=refs/tags ;;
+            *) echo "repository-owned CI source_is_tag must be true or false" >&2; exit 2 ;;
+          esac
+          full_ref="${namespace}/${REQUESTED_REF}"
+          git check-ref-format "${full_ref}" >/dev/null || { echo "repository-owned CI requested branch/tag name is not a valid Git ref" >&2; exit 2; }
+          printf 'full_ref=%s\n' "${full_ref}" >> "${GITHUB_OUTPUT}"
+
+      - name: Check out exact repository source for plan selection
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ steps.source_ref.outputs.full_ref }}
+          token: ${{ steps.source.outputs.token }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify exact parent source identity
+        id: source_identity
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+        run: |
+          set -Eeuo pipefail
+          source_sha="$(git -C source rev-parse HEAD)"
+          [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          if test -n "${EXPECTED_SOURCE_SHA}"; then
+            [[ "${EXPECTED_SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]] || { echo "expected repository source SHA is invalid" >&2; exit 2; }
+            test "${source_sha}" = "${EXPECTED_SOURCE_SHA}" || { echo "repository source moved after aggregate admission" >&2; exit 1; }
+          fi
+          test -z "$(git -C source status --porcelain --untracked-files=all)" || { echo "repository source checkout is not clean" >&2; exit 2; }
+          printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Select bounded repository-owned execution plan
+        id: plan
+        shell: bash
+        env:
+          OPERATION: ${{ inputs.operation }}
+          LEGACY_HOST_OS: ${{ inputs.host_os }}
+        run: |
+          set -Eeuo pipefail
+          plan_rel=.ci/execution-plan.json
+          plan_path="source/${plan_rel}"
+          args=(--operation "${OPERATION}" --legacy-host-os "${LEGACY_HOST_OS}")
+          if git -C source ls-files --error-unmatch -- "${plan_rel}" >/dev/null 2>&1; then
+            mode="$(git -C source ls-files -s -- "${plan_rel}" | awk 'NR==1 {print $1}')"
+            test "${mode}" = 100644 || { echo "repository CI execution plan must be tracked mode 100644" >&2; exit 2; }
+            test -f "${plan_path}" && test ! -L "${plan_path}" || { echo "repository CI execution plan must be a regular non-symlink file" >&2; exit 2; }
+            args+=(--plan "${plan_path}")
+          else
+            test ! -e "${plan_path}" && test ! -L "${plan_path}" || { echo "repository CI execution plan must be tracked" >&2; exit 2; }
+          fi
+          selection="$(python3 central-ci/scripts/ci/repository_execution_plan.py "${args[@]}")"
+          os_json="$(jq -c '.operatingSystems' <<<"${selection}")"
+          matrix="$(jq -cn --argjson operating_systems "${os_json}" '{include:[$operating_systems[] | {host_os:.}]}')"
+          {
+            printf 'execution_matrix=%s\n' "${matrix}"
+            printf 'plan_source=%s\n' "$(jq -r '.source' <<<"${selection}")"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Record parent observed source SHA
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: observe-source
+          ci_run_id: ${{ inputs.ci_run_id }}
+          observed_source_sha: ${{ steps.source_identity.outputs.source_sha }}
+
+  execute:
+    needs: plan
+    if: ${{ needs.plan.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.execution_matrix) }}
+    uses: ./.github/workflows/repository.yml
+    with:
+      repository: ${{ inputs.repository }}
+      ref: ${{ inputs.ref }}
+      source_is_tag: ${{ inputs.source_is_tag }}
+      expected_source_sha: ${{ needs.plan.outputs.source_sha }}
+      trusted_capability_ci_run_id: ${{ inputs.ci_run_id }}
+      operation: ${{ inputs.operation }}
+      host_os: ${{ matrix.host_os }}
+      semantic_inputs_json: ${{ inputs.semantic_inputs_json }}
+      release_authorized: ${{ inputs.release_authorized }}
+      ci_run_id: ""
+      upload_private_log: ${{ inputs.ci_run_id != '' || inputs.upload_private_log }}
+    secrets:
+      SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
+      SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+      AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+      AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+      GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+      GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+      REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
+      REGISTRY_WRITE_TOKEN: ${{ matrix.host_os == 'linux' && secrets.REGISTRY_WRITE_TOKEN || '' }}
+      APPLE_TEAM_ID: ${{ matrix.host_os == 'macos' && secrets.APPLE_TEAM_ID || '' }}
+      APP_STORE_CONNECT_KEY_ID: ${{ matrix.host_os == 'macos' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
+      APP_STORE_CONNECT_ISSUER_ID: ${{ matrix.host_os == 'macos' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
+      APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ matrix.host_os == 'macos' && secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 || '' }}
+
+  settle:
+    if: ${{ always() }}
+    needs: [plan, execute]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Settle one parent Agent State operation after all children
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: finish
+          ci_run_id: ${{ inputs.ci_run_id }}
+          status: ${{ needs.plan.result == 'success' && needs.execute.result == 'success' && 'succeeded' || 'failed' }}
