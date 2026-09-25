@@ -263,9 +263,13 @@ An authorized Linux `release.repository` may additionally receive the privately 
 
 ## Private evidence, retention and cleanup
 
-Central captures repository stdout/stderr into its private log, scrubs configured secrets, packages
-bounded eligible evidence, and uses the shared private Drive transport. Stable-log replacement,
-retention and follow behavior are Central policy and are not controlled by the repository.
+Central captures repository stdout/stderr into a bounded private rolling log, retaining startup
+context plus a terminal tail while continuously draining product output. The rolling capture stays
+below the reviewed text-evidence limit, preserves enough overlap for configured-secret values that
+cross a rollover boundary to remain detectable, and never changes the product exit status. Central
+then scrubs configured secrets, packages bounded eligible evidence, and uses the shared private Drive
+transport. Stable-log replacement, retention and follow behavior are Central policy and are not
+controlled by the repository.
 
 Cleanup runs independently of product success. Ephemeral authentication files, private-network state
 owned by the Central capability, log/evidence staging and other run-owned temporary state are removed
