@@ -92,11 +92,17 @@ def capture_stream(
     if not 0 <= overlap_bytes <= MAX_OVERLAP_BYTES:
         raise CaptureError("repository CI capture overlap is outside the reviewed bound")
 
-    prefix = _initial_prefix(path)
     input_bytes = 0
     rollovers = 0
     failure: CaptureError | None = None
-    output = path.open("ab", buffering=0)
+    prefix = b""
+    output = None
+    try:
+        prefix = _initial_prefix(path)
+        output = path.open("ab", buffering=0)
+    except (CaptureError, OSError):
+        failure = CaptureError("repository CI bounded log capture could not initialize")
+
     try:
         while True:
             block = source.read(READ_BYTES)
@@ -108,6 +114,7 @@ def capture_stream(
             if failure is not None:
                 continue
             try:
+                assert output is not None
                 output.write(block)
                 if path.stat().st_size > MAX_LOG_BYTES:
                     output.close()
@@ -124,7 +131,8 @@ def capture_stream(
         if failure is not None:
             raise failure
     finally:
-        output.close()
+        if output is not None:
+            output.close()
 
     _regular_file(path)
     if path.stat().st_size > MAX_LOG_BYTES:
