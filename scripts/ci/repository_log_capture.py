@@ -119,7 +119,7 @@ def capture_stream(
                         input_bytes=input_bytes,
                     )
                     output = path.open("ab", buffering=0)
-            except OSError:
+            except (OSError, CaptureError):
                 failure = CaptureError("repository CI bounded log capture failed")
         if failure is not None:
             raise failure
