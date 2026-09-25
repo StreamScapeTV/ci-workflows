@@ -1,11 +1,29 @@
-# StreamScapeTV CI workflows
+# StreamScapeTV CI Workflows
 
-Shared reusable workflows.
+Reusable GitHub Actions workflows and shared actions for build, test, validation, packaging, and release automation.
 
-## Public identity boundary
+## Overview
 
-Reusable Central CI APIs, contracts, documentation, and examples describe capabilities and project classes, not concrete private consumer repositories or products. New shared behavior must stay repository-neutral and use non-identifying fixtures.
+This repository provides reusable CI building blocks for projects that need consistent execution across different languages, platforms, and runner types.
 
-A small number of technology-specific workflows/actions still contain concrete consumer checks solely because live callers depend on those compatibility lanes. Those source files, and tests that must assert their exact compatibility behavior, carry a dedicated legacy-migration-residue marker. The marker is not an API or an allowlist: it documents temporary migration residue and must not be used to justify new identity-coupled behavior. Remove the identity coupling only after the private migration ledger proves that the affected legacy lane has zero live callers.
+It includes:
 
-The generic repository-owned executor (`.github/workflows/repository.yml`) and its public contract (`contracts/repository-ci-v1.json`) must remain free of concrete consumer identity.
+- reusable build and test workflows;
+- repository-owned CI entrypoints for Linux and macOS workloads;
+- shared actions for source setup, authentication, networking, diagnostics, and cleanup;
+- validation and release workflows for several common project types;
+- bounded workflow inputs intended for predictable, repeatable CI execution.
+
+## Repository layout
+
+- `.github/workflows/` — reusable workflow entrypoints
+- `actions/` — shared GitHub Actions
+- `scripts/` — CI helpers and validation utilities
+- `contracts/` — machine-readable CI contracts
+- `tests/` — repository-level workflow and contract checks
+
+The workflow YAML files are the source of truth for supported inputs, outputs, permissions, and execution behavior.
+
+## License
+
+This project is available under the MIT License. See [LICENSE](LICENSE).
