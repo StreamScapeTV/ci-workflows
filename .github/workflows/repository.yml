@@ -1095,6 +1095,22 @@ jobs:
             checkpoint_pid=$!
           fi
 
+          capture_overlap_bytes="$(python3 - <<'PY_CAPTURE_OVERLAP'
+          import os
+
+          maximum = 0
+          for name, value in os.environ.items():
+              if not name.startswith("CI_SECRET_") or not value:
+                  continue
+              raw = value.encode()
+              escaped = raw.replace(b"\n", b"\\n")
+              maximum = max(maximum, len(raw), len(escaped))
+          if maximum > 1024 * 1024:
+              raise SystemExit("repository CI configured secret exceeds the reviewed capture overlap bound")
+          print(maximum)
+          PY_CAPTURE_OVERLAP
+          )"
+
           unset \
             CHECKPOINT_GOOGLE_DRIVE_CLIENT_ID \
             CHECKPOINT_GOOGLE_DRIVE_CLIENT_SECRET \
@@ -1121,8 +1137,12 @@ jobs:
           (
             cd source
             "./${ENTRYPOINT}"
-          ) >> "${CI_LOG}" 2>&1
-          status=$?
+          ) 2>&1 | python3 central-ci/scripts/ci/repository_log_capture.py \
+            --log-path "${CI_LOG}" \
+            --overlap-bytes "${capture_overlap_bytes}"
+          pipeline_status=("${PIPESTATUS[@]}")
+          status="${pipeline_status[0]}"
+          capture_status="${pipeline_status[1]}"
           set -e
           if test "${status}" -eq 0; then
             finish_entrypoint_timeline complete
@@ -1131,10 +1151,17 @@ jobs:
           fi
           stop_checkpoint
           trap - TERM INT EXIT
-          printf 'exit_code=%s\n' "${status}" >> "${GITHUB_OUTPUT}"
+          {
+            printf 'exit_code=%s\n' "${status}"
+            printf 'capture_exit_code=%s\n' "${capture_status}"
+          } >> "${GITHUB_OUTPUT}"
           if test "${status}" -ne 0; then
             echo "repository-owned ${OPERATION} operation failed; inspect the private CI log" >&2
             exit "${status}"
+          fi
+          if test "${capture_status}" -ne 0; then
+            echo "repository-owned ${OPERATION} operation completed but bounded private-log capture failed" >&2
+            exit "${capture_status}"
           fi
 
       - name: Reconcile bounded Central timeline after early exit
