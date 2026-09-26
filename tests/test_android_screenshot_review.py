@@ -1,8 +1,11 @@
 # LEGACY_MIGRATION_RESIDUE: This file verifies still-live compatibility whose source currently contains concrete consumer identity; do not extend that identity coupling.
+import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import zipfile
 
 import yaml
 
@@ -14,6 +17,84 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
         self.workflow = yaml.safe_load((ROOT / ".github/workflows/android.yml").read_text())
         self.dispatch = yaml.safe_load((ROOT / ".github/workflows/central-ci-dispatch.yml").read_text())
         self.drive = yaml.safe_load((ROOT / "actions/google-drive/action.yml").read_text())
+
+    def screenshot_package_validation_script(self) -> str:
+        steps = self.workflow["jobs"]["screenshot"]["steps"]
+        validate = next(
+            step
+            for step in steps
+            if step["name"] == "Validate Android screenshot-review package and extract direct evidence"
+        )
+        return validate["run"]
+
+    def run_screenshot_package_validation(self, *, profile: str, captures: list[dict[str, object]]):
+        source_sha = "a" * 40
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = root / f"{profile}.zip"
+            normalized_captures = []
+            with zipfile.ZipFile(package, "w") as archive:
+                for index, capture in enumerate(captures):
+                    value = {
+                        "canonical_id": capture["canonical_id"],
+                        "package_member": capture.get("package_member", f"captures/{index}.png"),
+                        "canonical_path": capture.get("canonical_path", f"/{index}"),
+                        "title": capture.get("title", f"Capture {index}"),
+                        "presentation": capture.get("presentation", "screen"),
+                        "shared_logic_family": capture.get("shared_logic_family", "fixture"),
+                        "target": capture.get("target", "fixture"),
+                        "navigation_plan": capture.get("navigation_plan", {"steps": []}),
+                        "mounted_route": capture.get("mounted_route", f"/{index}"),
+                        "width": capture.get("width", 1280),
+                        "height": capture.get("height", 720),
+                        "captured_at_utc": capture.get("captured_at_utc", "2026-09-26T00:00:00Z"),
+                    }
+                    if "variant" in capture:
+                        value["variant"] = capture["variant"]
+                    normalized_captures.append(value)
+                    archive.writestr(
+                        value["package_member"],
+                        b"\x89PNG\r\n\x1a\n" + b"fixture" * 10,
+                    )
+                archive.writestr(
+                    "index.json",
+                    json.dumps(
+                        {
+                            "source_sha": source_sha,
+                            "platform": "android",
+                            "capture_profile": profile,
+                            "drive_root": "repositories/iptv-android/screenshots",
+                            "drive_package_path": f"repositories/iptv-android/screenshots/{profile}.zip",
+                            "captures": normalized_captures,
+                            "cache": {"fixture": True},
+                            "normalization": {"fixture": True},
+                        }
+                    ),
+                )
+                archive.writestr("routes.json", "{}")
+
+            github_output = root / "github-output"
+            github_output.write_text("", encoding="utf-8")
+            result = subprocess.run(
+                ["bash", "-c", self.screenshot_package_validation_script()],
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "PACKAGE_PATH": str(package),
+                    "CAPTURE_PROFILE": profile,
+                    "SOURCE_SHA": source_sha,
+                    "GITHUB_OUTPUT": str(github_output),
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            evidence = root / "direct-evidence"
+            files = {
+                path.name: path.read_bytes()
+                for path in evidence.iterdir()
+            } if evidence.exists() else {}
+            return result, files
 
     def test_dispatch_accepts_only_fixed_android_screenshot_request(self) -> None:
         step = next(step for step in self.dispatch["jobs"]["request"]["steps"] if step.get("name") == "Validate native targeted test request")
@@ -147,8 +228,11 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
         self.assertIn("must not encode source SHA as a Drive folder", script)
         self.assertIn('direct_dir = package.parent / "direct-evidence"', script)
         self.assertIn('screen_id = capture.get("canonical_id")', script)
-        self.assertIn('(direct_dir / f"{screen_id}.png").write_bytes(image)', script)
-        self.assertIn('(direct_dir / f"{screen_id}.json").write_text(', script)
+        self.assertIn('variant = capture.get("variant")', script)
+        self.assertIn("capture_identity = (screen_id, variant)", script)
+        self.assertIn('evidence_stem = screen_id if variant is None else f"{screen_id}--variant--{variant}"', script)
+        self.assertIn('(direct_dir / f"{evidence_stem}.png").write_bytes(image)', script)
+        self.assertIn('(direct_dir / f"{evidence_stem}.json").write_text(', script)
         self.assertIn('"cache": index.get("cache")', script)
         self.assertIn('"normalization": index.get("normalization")', script)
 
@@ -158,6 +242,80 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
         self.assertEqual(upload["with"]["subdirectory"], "review/${{ steps.screenshot_package.outputs.capture_profile }}")
         self.assertEqual(upload["with"]["file_path"], "${{ steps.screenshot_package.outputs.evidence_dir }}")
         self.assertNotIn("file_name", upload["with"])
+
+    def test_tv_variants_share_canonical_id_and_extract_without_filename_collision(self) -> None:
+        canonical_id = "tv.browse.movies-series-catalog"
+        result, files = self.run_screenshot_package_validation(
+            profile="tv",
+            captures=[
+                {"canonical_id": canonical_id, "variant": "movie"},
+                {"canonical_id": canonical_id, "variant": "series"},
+            ],
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            set(files),
+            {
+                f"{canonical_id}--variant--movie.png",
+                f"{canonical_id}--variant--movie.json",
+                f"{canonical_id}--variant--series.png",
+                f"{canonical_id}--variant--series.json",
+            },
+        )
+        movie = json.loads(files[f"{canonical_id}--variant--movie.json"])
+        series = json.loads(files[f"{canonical_id}--variant--series.json"])
+        self.assertEqual(movie["screen_id"], canonical_id)
+        self.assertEqual(series["screen_id"], canonical_id)
+        self.assertEqual(movie["variant"], "movie")
+        self.assertEqual(series["variant"], "series")
+
+    def test_exact_duplicate_tv_capture_identity_is_rejected(self) -> None:
+        result, _ = self.run_screenshot_package_validation(
+            profile="tv",
+            captures=[
+                {"canonical_id": "tv.browse.movies-series-catalog", "variant": "movie"},
+                {"canonical_id": "tv.browse.movies-series-catalog", "variant": "movie"},
+            ],
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("capture identity is duplicated", result.stderr)
+
+    def test_distinct_capture_identities_cannot_overwrite_one_evidence_stem(self) -> None:
+        result, _ = self.run_screenshot_package_validation(
+            profile="tv",
+            captures=[
+                {"canonical_id": "tv.catalog--variant--movie"},
+                {"canonical_id": "tv.catalog", "variant": "movie"},
+            ],
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("direct-evidence identity is invalid", result.stderr)
+
+    def test_variant_is_bounded_to_safe_tv_capture_identity(self) -> None:
+        unsafe, _ = self.run_screenshot_package_validation(
+            profile="tv",
+            captures=[{"canonical_id": "tv.browse.movies-series-catalog", "variant": "../movie"}],
+        )
+        self.assertNotEqual(unsafe.returncode, 0)
+        self.assertIn("capture variant is invalid", unsafe.stderr)
+
+        mobile, _ = self.run_screenshot_package_validation(
+            profile="phone-portrait",
+            captures=[{"canonical_id": "mobile.home", "variant": "movie"}],
+        )
+        self.assertNotEqual(mobile.returncode, 0)
+        self.assertIn("capture variant is invalid", mobile.stderr)
+
+    def test_mobile_capture_without_variant_keeps_existing_evidence_names(self) -> None:
+        result, files = self.run_screenshot_package_validation(
+            profile="phone-portrait",
+            captures=[{"canonical_id": "mobile.home"}],
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(set(files), {"mobile.home.png", "mobile.home.json"})
+        metadata = json.loads(files["mobile.home.json"])
+        self.assertEqual(metadata["screen_id"], "mobile.home")
+        self.assertIsNone(metadata["variant"])
 
     def test_normal_lanes_receive_demo_secrets_only_and_scrub_all_fixed_values(self) -> None:
         steps = self.workflow["jobs"]["screenshot"]["steps"]

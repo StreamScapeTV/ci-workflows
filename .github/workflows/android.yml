@@ -823,20 +823,37 @@ jobs:
               if not isinstance(captures, list) or not 1 <= len(captures) <= 20:
                   raise SystemExit("Android screenshot-review index must contain 1 through 20 captures")
               seen = set()
+              evidence_stems = set()
               for capture in captures:
                   if not isinstance(capture, dict):
                       raise SystemExit("Android screenshot-review capture identity is malformed")
                   screen_id = capture.get("canonical_id")
+                  variant = capture.get("variant")
                   member = capture.get("package_member")
                   expected_prefix = "tv." if profile == "tv" else "mobile."
                   if (
                       not isinstance(screen_id, str)
                       or not screen_id.startswith(expected_prefix)
                       or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,191}", screen_id) is None
-                      or screen_id in seen
                   ):
                       raise SystemExit("Android screenshot-review canonical screen identity is invalid")
-                  seen.add(screen_id)
+                  if variant is not None and (
+                      profile != "tv"
+                      or not isinstance(variant, str)
+                      or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", variant) is None
+                  ):
+                      raise SystemExit("Android screenshot-review capture variant is invalid")
+                  capture_identity = (screen_id, variant)
+                  if capture_identity in seen:
+                      raise SystemExit("Android screenshot-review capture identity is duplicated")
+                  seen.add(capture_identity)
+                  evidence_stem = screen_id if variant is None else f"{screen_id}--variant--{variant}"
+                  if (
+                      re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,191}", evidence_stem) is None
+                      or evidence_stem in evidence_stems
+                  ):
+                      raise SystemExit("Android screenshot-review direct-evidence identity is invalid")
+                  evidence_stems.add(evidence_stem)
                   if not isinstance(member, str) or member not in names:
                       raise SystemExit("Android screenshot-review screenshot member is missing")
                   pure = PurePosixPath(member)
@@ -857,7 +874,7 @@ jobs:
                       "presentation": capture.get("presentation"),
                       "shared_logic_family": capture.get("shared_logic_family"),
                       "target": capture.get("target"),
-                      "variant": capture.get("variant"),
+                      "variant": variant,
                       "navigation_plan": capture.get("navigation_plan"),
                       "mounted_route": capture.get("mounted_route"),
                       "width": capture.get("width"),
@@ -868,8 +885,8 @@ jobs:
                   }
                   if metadata["canonical_path"] is None or metadata["navigation_plan"] is None:
                       raise SystemExit("Android screenshot-review capture lacks direct-review provenance")
-                  (direct_dir / f"{screen_id}.png").write_bytes(image)
-                  (direct_dir / f"{screen_id}.json").write_text(
+                  (direct_dir / f"{evidence_stem}.png").write_bytes(image)
+                  (direct_dir / f"{evidence_stem}.json").write_text(
                       json.dumps(metadata, indent=2, sort_keys=True) + "\n",
                       encoding="utf-8",
                   )
