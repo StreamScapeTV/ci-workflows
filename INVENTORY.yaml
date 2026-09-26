@@ -34,6 +34,7 @@ scripts:
   ci_log_reconcile: scripts/ci/ci_log_reconcile.py
   github_issue_dependency_projection: scripts/ci/github_issue_dependency_projection.py
   repository_log_checkpoint: scripts/ci/repository_log_checkpoint.py
+  repository_log_capture: scripts/ci/repository_log_capture.py
   repository_log_timeline: scripts/ci/repository_log_timeline.py
   repository_execution_plan: scripts/ci/repository_execution_plan.py
   source_snapshot_delete: scripts/ci/source_snapshot_delete.py
