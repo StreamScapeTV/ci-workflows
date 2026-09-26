@@ -23,7 +23,7 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
         call = workflow["on"]["workflow_call"]
         self.assertEqual(
             set(call["inputs"]),
-            {"repository", "ref", "source_is_tag", "expected_source_sha", "ci_run_id", "upload_private_log"},
+            {"repository", "ref", "source_is_tag", "expected_source_sha", "ci_run_id", "trusted_capability_ci_run_id", "upload_private_log"},
         )
         self.assertEqual(
             set(call["secrets"]),
@@ -90,10 +90,12 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
         return next(
             step["run"]
             for step in workflow["jobs"]["publish"]["steps"]
-            if step.get("name") == "Prove unauthenticated private GitHub and artifact reads fail"
+            if step.get("name") == "Validate private GitHub and artifact read policy"
         )
 
-    def _run_private_controls(self, anonymous_mode: str) -> tuple[subprocess.CompletedProcess[str], str, str, str]:
+    def _run_private_controls(
+        self, anonymous_mode: str, read_policy: str = "authenticated"
+    ) -> tuple[subprocess.CompletedProcess[str], str, str, str]:
         artifact = b"private-swift-binary-artifact"
         checksum = hashlib.sha256(artifact).hexdigest()
         artifact_b64 = base64.b64encode(artifact).decode("ascii")
@@ -120,6 +122,7 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
                 "    handle.write('CURL_HOME=' + os.environ.get('CURL_HOME', '') + '\\n')\n"
                 "    handle.write('XDG_CONFIG_HOME=' + os.environ.get('XDG_CONFIG_HOME', '') + '\\n')\n"
                 "    handle.write('AMBIENT_HEADER=' + os.environ.get('AMBIENT_HEADER', '<unset>') + '\\n')\n"
+                "    handle.write('AUTHENTICATED=' + str('--netrc-file' in args).lower() + '\\n')\n"
                 "out = Path(args[args.index('--output') + 1])\n"
                 "if '--dump-header' in args:\n"
                 "    Path(args[args.index('--dump-header') + 1]).write_text('HTTP/1.1 401 Unauthorized\\n', encoding='utf-8')\n"
@@ -141,6 +144,14 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
                 "if mode == 'unexpected-2xx':\n"
                 "    out.write_bytes(b'login page')\n"
                 "    sys.stdout.write('200')\n"
+                "    raise SystemExit(0)\n"
+                "if mode == 'missing':\n"
+                "    out.write_bytes(b'not found')\n"
+                "    sys.stdout.write('404')\n"
+                "    raise SystemExit(0)\n"
+                "if mode == 'redirect':\n"
+                "    out.write_bytes(b'')\n"
+                "    sys.stdout.write('302')\n"
                 "    raise SystemExit(0)\n"
                 "if mode == 'transport':\n"
                 "    sys.stdout.write('000')\n"
@@ -227,8 +238,9 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
                     "PUBLICATION_RECEIPT": str(receipt),
                     "PACKAGE_URL": "https://github.com/example-org/private-swift-package.git",
                     "VERSION": "1.2.3",
-                    "CI_PACKAGE_USERNAME": "fixture-user",
-                    "CI_PACKAGE_READ_TOKEN": "fixture-read-token",
+                    "REGISTRY_READ_POLICY": read_policy,
+                    "CI_PACKAGE_USERNAME": "fixture-user" if read_policy == "authenticated" else "",
+                    "CI_PACKAGE_READ_TOKEN": "fixture-read-token" if read_policy == "authenticated" else "",
                 },
                 text=True,
                 capture_output=True,
@@ -244,7 +256,7 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
     def test_private_controls_cover_github_git_and_generic_artifact_reads(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
         controls = self._private_controls_script()
-        self.assertIn("Prove unauthenticated private GitHub and artifact reads fail", text)
+        self.assertIn("Validate private GitHub and artifact read policy", text)
         self.assertIn("PUBLICATION_RECEIPT", text)
         self.assertIn("publication_receipt=", controls)
         self.assertIn("env -i", controls)
@@ -254,12 +266,14 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
         self.assertIn("classification=transport_error", controls)
         self.assertIn("classification=unexpected_2xx", controls)
         self.assertIn("artifact_authenticated_readback classification=exact", controls)
+        self.assertIn("artifact_credential_free_readback classification=exact", controls)
+        self.assertIn("REGISTRY_READ_POLICY", controls)
         self.assertIn("hashlib.sha256()", controls)
         self.assertIn("sha256_file", controls)
         self.assertNotIn("sha256sum", controls)
         self.assertIn("git -c credential.helper= -c core.askPass=/usr/bin/false", controls)
         self.assertIn("Private GitHub Swift package is readable without authentication", controls)
-        self.assertIn("Private Swift binary artifact is readable without authentication", controls)
+        self.assertIn("Strict Swift binary read policy unexpectedly allowed credential-free artifact access", controls)
         self.assertIn("machine github.com", text)
         self.assertIn("machine git.faruqi.dev", text)
         self.assertIn("x-access-token", text)
@@ -277,8 +291,25 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
         self.assertIn("GIT_CONFIG_COUNT=<unset>", git_trace)
         self.assertIn("AMBIENT_GIT_AUTH=<unset>", git_trace)
 
+    def test_private_controls_accept_approved_credential_free_exact_artifact_without_netrc(self) -> None:
+        result, private_log, curl_trace, git_trace = self._run_private_controls(
+            "exact-public", "credential-free"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("artifact_anonymous_control classification=exact_artifact_access", private_log)
+        self.assertIn("artifact_credential_free_readback classification=exact", private_log)
+        self.assertNotIn("AUTHENTICATED=true", curl_trace)
+        self.assertIn("github_unauthenticated_control git_rc=128 classification=authentication_required", private_log)
+        self.assertIn("GIT_CONFIG_COUNT=<unset>", git_trace)
+
+    def test_private_controls_fail_closed_on_credential_free_auth_refusal(self) -> None:
+        result, private_log, _, _ = self._run_private_controls("deny", "credential-free")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("artifact_anonymous_control classification=authentication_refusal", private_log)
+        self.assertIn("did not return the exact artifact", result.stderr)
+
     def test_private_controls_fail_closed_on_transport_error(self) -> None:
-        result, private_log, _, _ = self._run_private_controls("transport")
+        result, private_log, _, _ = self._run_private_controls("transport", "credential-free")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("artifact_anonymous_control classification=transport_error", private_log)
         self.assertIn("transport failure", result.stderr)
@@ -287,13 +318,42 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
         result, private_log, _, _ = self._run_private_controls("exact-public")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("artifact_anonymous_control classification=exact_artifact_access", private_log)
-        self.assertIn("readable without authentication", result.stderr)
+        self.assertIn("unexpectedly allowed credential-free artifact access", result.stderr)
+
+    def test_private_controls_fail_closed_on_missing_or_redirected_credential_free_artifact(self) -> None:
+        for mode in ("missing", "redirect"):
+            with self.subTest(mode=mode):
+                result, private_log, _, _ = self._run_private_controls(mode, "credential-free")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("classification=unexpected_http_status", private_log)
+                self.assertIn("unexpected HTTP status", result.stderr)
 
     def test_private_controls_reject_nonartifact_http_2xx(self) -> None:
-        result, private_log, _, _ = self._run_private_controls("unexpected-2xx")
+        result, private_log, _, _ = self._run_private_controls("unexpected-2xx", "credential-free")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("artifact_anonymous_control classification=unexpected_2xx", private_log)
         self.assertIn("without the exact artifact", result.stderr)
+
+
+    def test_read_policy_is_trusted_agent_state_bound_and_read_credentials_are_conditional(self) -> None:
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        steps = workflow["jobs"]["publish"]["steps"]
+        policy = next(step for step in steps if step.get("name") == "Resolve trusted private package read policy")
+        script = policy["run"]
+        self.assertIn("claim_ci_run", script)
+        self.assertIn("get_project_state", script)
+        self.assertIn("release.apple", script)
+        self.assertIn("release.library-package", script)
+        self.assertIn("resolve-read-policy", script)
+        self.assertIn("mode=authenticated", script)
+        publication = next(step for step in steps if step.get("name") == "Publish and read back immutable binary cohort")
+        self.assertEqual(publication["env"]["CI_SWIFTPM_BINARY_READ_POLICY"], "${{ steps.read_policy.outputs.mode }}")
+        self.assertIn("steps.read_policy.outputs.mode == 'authenticated'", publication["env"]["CI_SWIFTPM_BINARY_PACKAGE_READ_TOKEN"])
+        consumer = next(step for step in steps if step.get("name") == "Run two fresh ordinary SwiftPM/Xcode consumers")
+        self.assertIn("steps.read_policy.outputs.mode == 'authenticated'", consumer["env"]["CI_PACKAGE_READ_TOKEN"])
+        self.assertIn('if test "${REGISTRY_READ_POLICY}" = authenticated', consumer["run"])
+        self.assertIn("machine github.com", consumer["run"])
+        self.assertIn("machine git.faruqi.dev", consumer["run"])
 
     def test_release_dispatch_accepts_only_empty_swiftpm_semantics(self) -> None:
         workflow = yaml.safe_load(DISPATCH.read_text(encoding="utf-8"))

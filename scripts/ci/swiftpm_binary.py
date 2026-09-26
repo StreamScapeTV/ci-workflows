@@ -29,6 +29,14 @@ SAFE_FILE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,255}")
 FIXED_WRAPPER = Path("scripts/ci/run-swiftpm-binary.sh")
 REGISTRY_HOST = "git.faruqi.dev"
 REGISTRY_PREFIX = ("api", "packages", "mimranfaruqi", "generic")
+KNOWN_REPOSITORY_CAPABILITIES = {
+    "private_network",
+    "github_git",
+    "registry_netrc",
+    "gradle_maven",
+    "registry_oci_publish",
+}
+READ_POLICIES = {"authenticated", "credential-free"}
 
 
 class ContractError(RuntimeError):
@@ -349,11 +357,61 @@ def basic_auth(username: str, token: str) -> str:
     return "Basic " + base64.b64encode(f"{username}:{token}".encode()).decode()
 
 
-def read_remote_identity(url: str, username: str, read_token: str) -> tuple[int, int, str]:
+def repository_registry_read_policy(project_state: object, repository: str) -> str:
+    if not isinstance(project_state, dict):
+        fail("Agent State project configuration must be one object")
+    grant = project_state.get("repository_ci")
+    if not isinstance(grant, dict):
+        fail("trusted repository CI capability grant is required for Swift binary read policy")
+    version = grant.get("schemaVersion")
+    expected_fields = {"schemaVersion", "repository", "capabilities"}
+    if version in {2, 3}:
+        expected_fields.add("hostPolicy")
+    if set(grant) != expected_fields or version not in {1, 2, 3}:
+        fail("trusted repository CI capability grant version is invalid")
+    if version in {2, 3} and not isinstance(grant.get("hostPolicy"), dict):
+        fail("trusted repository CI host policy is invalid")
+    if grant.get("repository") != repository:
+        fail("trusted repository CI capability grant is bound to a different repository")
+    capabilities = grant.get("capabilities")
+    if not isinstance(capabilities, list) or len(capabilities) != len(set(capabilities)):
+        fail("trusted repository CI capability grant must be one unique list")
+    if any(not isinstance(value, str) or value not in KNOWN_REPOSITORY_CAPABILITIES for value in capabilities):
+        fail("trusted repository CI capability grant contains an unknown capability")
+    return "authenticated" if "registry_netrc" in capabilities else "credential-free"
+
+
+def command_resolve_read_policy(args: argparse.Namespace) -> None:
+    if not REPOSITORY_RE.fullmatch(args.repository):
+        fail("Swift binary read policy requires one StreamScapeTV repository")
+    policy = repository_registry_read_policy(read_json(Path(args.project_state)), args.repository)
+    write_json(
+        Path(args.output),
+        {"schemaVersion": 1, "registryReadPolicy": policy},
+    )
+
+
+def read_remote_identity(
+    url: str,
+    *,
+    read_policy: str,
+    username: str = "",
+    read_token: str = "",
+) -> tuple[int, int, str]:
+    if read_policy not in READ_POLICIES:
+        fail("private Generic Package read policy is invalid")
+    headers: dict[str, str] = {}
+    if read_policy == "authenticated":
+        if not username or not read_token:
+            fail("authenticated private Generic Package reads require fixed read credentials")
+        headers["Authorization"] = basic_auth(username, read_token)
+    elif read_token:
+        fail("credential-free private Generic Package reads must not receive a read token")
+
     parsed = urlsplit(url)
     connection = http.client.HTTPSConnection(parsed.hostname, timeout=120, context=ssl.create_default_context())
     try:
-        connection.request("GET", parsed.path, headers={"Authorization": basic_auth(username, read_token)})
+        connection.request("GET", parsed.path, headers=headers)
         response = connection.getresponse()
         if response.status == 404:
             response.read()
@@ -394,8 +452,19 @@ def upload_remote(url: str, path: Path, username: str, publish_token: str) -> in
         connection.close()
 
 
-def require_remote_exact(item: dict, username: str, read_token: str) -> bool:
-    status, size, checksum = read_remote_identity(str(item["url"]), username, read_token)
+def require_remote_exact(
+    item: dict,
+    *,
+    read_policy: str,
+    username: str = "",
+    read_token: str = "",
+) -> bool:
+    status, size, checksum = read_remote_identity(
+        str(item["url"]),
+        read_policy=read_policy,
+        username=username,
+        read_token=read_token,
+    )
     if status == 404:
         return False
     if size != item["size"] or checksum != item["checksum"]:
@@ -424,8 +493,15 @@ def command_publish(args: argparse.Namespace) -> None:
     username = os.environ.get("CI_SWIFTPM_BINARY_PACKAGE_USERNAME", "")
     publish_token = os.environ.get("CI_SWIFTPM_BINARY_PACKAGE_TOKEN", "")
     read_token = os.environ.get("CI_SWIFTPM_BINARY_PACKAGE_READ_TOKEN", "")
-    if not username or not publish_token or not read_token:
-        fail("fixed private Generic Package credentials are missing")
+    read_policy = os.environ.get("CI_SWIFTPM_BINARY_READ_POLICY", "")
+    if not username or not publish_token:
+        fail("fixed private Generic Package publication credentials are missing")
+    if read_policy not in READ_POLICIES:
+        fail("private Generic Package read policy is invalid")
+    if read_policy == "authenticated" and not read_token:
+        fail("fixed private Generic Package read credential is missing")
+    if read_policy == "credential-free" and read_token:
+        fail("credential-free private Generic Package reads must not receive a read token")
 
     initially_present = 0
     for item in artifacts:
@@ -435,17 +511,27 @@ def command_publish(args: argparse.Namespace) -> None:
         path = safe_evidence_file(evidence_root, str(item.get("file", "")))
         if path.stat().st_size != item.get("size") or sha256_file(path) != item.get("checksum"):
             fail(f"local artifact changed after validation for target {item.get('target')}")
-        if require_remote_exact(item, username, read_token):
+        read_args = {
+            "read_policy": read_policy,
+            "username": username if read_policy == "authenticated" else "",
+            "read_token": read_token,
+        }
+        if require_remote_exact(item, **read_args):
             initially_present += 1
             continue
         status = upload_remote(str(item["url"]), path, username, publish_token)
-        if status not in (200, 201) and not require_remote_exact(item, username, read_token):
+        if status not in (200, 201) and not require_remote_exact(item, **read_args):
             fail(f"private Generic Package create failed with HTTP {status} for target {item['target']}")
-        if not require_remote_exact(item, username, read_token):
+        if not require_remote_exact(item, **read_args):
             fail(f"private Generic Package artifact missing after create for target {item['target']}")
 
     for item in artifacts:
-        if not require_remote_exact(item, username, read_token):
+        read_args = {
+            "read_policy": read_policy,
+            "username": username if read_policy == "authenticated" else "",
+            "read_token": read_token,
+        }
+        if not require_remote_exact(item, **read_args):
             fail(f"complete Generic Package readback failed for target {item['target']}")
 
     write_json(
@@ -516,6 +602,12 @@ def build_parser() -> argparse.ArgumentParser:
     plan.add_argument("--evidence-dir", required=True)
     plan.add_argument("--output", required=True)
     plan.set_defaults(func=command_validate_plan)
+
+    policy = subparsers.add_parser("resolve-read-policy")
+    policy.add_argument("--project-state", required=True)
+    policy.add_argument("--repository", required=True)
+    policy.add_argument("--output", required=True)
+    policy.set_defaults(func=command_resolve_read_policy)
 
     publish = subparsers.add_parser("publish")
     publish.add_argument("--plan", required=True)

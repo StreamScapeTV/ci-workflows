@@ -20,6 +20,10 @@ name: Swift binary package publication
         type: string
         required: false
         default: ""
+      trusted_capability_ci_run_id:
+        type: string
+        required: false
+        default: ""
       upload_private_log:
         type: boolean
         required: false
@@ -252,20 +256,134 @@ jobs:
           fi
           printf 'normalized=%s\n' "${normalized}" >> "${GITHUB_OUTPUT}"
 
-      - name: Validate fixed private package credentials
+      - name: Resolve trusted private package read policy
+        id: read_policy
+        shell: bash
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          LIFECYCLE_CI_RUN_ID: ${{ inputs.ci_run_id }}
+          TRUSTED_CAPABILITY_CI_RUN_ID: ${{ inputs.trusted_capability_ci_run_id }}
+          SOURCE_REPOSITORY: ${{ inputs.repository }}
+          SOURCE_REF: ${{ inputs.ref }}
+          SOURCE_IS_TAG: ${{ inputs.source_is_tag }}
+        run: |
+          set -Eeuo pipefail
+          if test -n "${LIFECYCLE_CI_RUN_ID}" && test -n "${TRUSTED_CAPABILITY_CI_RUN_ID}"; then
+            echo "Swift binary read policy accepts only one Agent State authority" >&2
+            exit 2
+          fi
+          capability_run_id="${LIFECYCLE_CI_RUN_ID}"
+          capability_context=release_apple
+          if test -n "${TRUSTED_CAPABILITY_CI_RUN_ID}"; then
+            capability_run_id="${TRUSTED_CAPABILITY_CI_RUN_ID}"
+            capability_context=library_package_parent
+          fi
+          if test -z "${capability_run_id}"; then
+            printf 'mode=authenticated\n' >>"${GITHUB_OUTPUT}"
+            printf 'registry_read_policy=authenticated source=strict-default\n' >>"${CI_LOG}"
+            exit 0
+          fi
+
+          : "${AGENT_STATE_SUPABASE_URL:?Agent State URL is required for trusted Swift binary read policy}"
+          : "${AGENT_STATE_SUPABASE_SECRET_KEY:?Agent State secret is required for trusted Swift binary read policy}"
+          headers=(
+            -H "apikey: ${AGENT_STATE_SUPABASE_SECRET_KEY}"
+            -H "Content-Type: application/json"
+            -H "Content-Profile: agent_api"
+            -H "Accept-Profile: agent_api"
+          )
+          rpc() {
+            curl --fail --silent --show-error \
+              "${headers[@]}" \
+              --data "$2" \
+              "${AGENT_STATE_SUPABASE_URL%/}/rest/v1/rpc/$1"
+          }
+
+          claim_response="$(rpc claim_ci_run "$(jq -cn --arg id "${capability_run_id}" '{p_ci_run_id:$id}')")"
+          test "$(jq -r '.ok' <<<"${claim_response}")" = true || {
+            echo "Swift binary read policy could not replay the trusted Agent State CI claim" >&2
+            exit 1
+          }
+          run="$(jq -c '.run' <<<"${claim_response}")"
+          project_key="$(jq -r '.project_key // empty' <<<"${run}")"
+          run_repository="$(jq -r '.repository // empty' <<<"${run}")"
+          run_ref="$(jq -r '.ref // empty' <<<"${run}")"
+          run_is_tag="$(jq -r '.is_tag | tostring' <<<"${run}")"
+          run_workflow="$(jq -r '.workflow_key // empty' <<<"${run}")"
+          run_profile="$(jq -r '.test_profile // empty' <<<"${run}")"
+          test -n "${project_key}" \
+            && test "${run_repository}" = "${SOURCE_REPOSITORY}" \
+            && test "${run_ref}" = "${SOURCE_REF}" \
+            && test "${run_is_tag}" = "${SOURCE_IS_TAG}" || {
+              echo "Swift binary read policy is not bound to the exact Agent State request" >&2
+              exit 1
+            }
+          case "${capability_context}" in
+            release_apple)
+              test "${run_workflow}" = release.apple && test "${run_profile}" = swiftpm-package || {
+                echo "Swift binary read policy requires the exact release.apple/swiftpm-package lifecycle" >&2
+                exit 1
+              }
+              ;;
+            library_package_parent)
+              test "${run_workflow}" = release.library-package && test "${run_profile}" = publish || {
+                echo "Swift binary read policy requires the exact release.library-package/publish parent" >&2
+                exit 1
+              }
+              ;;
+            *) exit 2 ;;
+          esac
+
+          project_response="$(rpc get_project_state "$(jq -cn --arg project "${project_key}" '{p_project_key:$project}')")"
+          test "$(jq -r '.ok' <<<"${project_response}")" = true || {
+            echo "Swift binary read policy could not resolve trusted project configuration" >&2
+            exit 1
+          }
+          state_file="${RUNNER_TEMP}/swiftpm-read-policy-project-state.json"
+          policy_file="${RUNNER_TEMP}/swiftpm-read-policy.json"
+          jq -c '.state' <<<"${project_response}" >"${state_file}"
+          if ! python3 central-ci/scripts/ci/swiftpm_binary.py resolve-read-policy \
+            --project-state "${state_file}" \
+            --repository "${SOURCE_REPOSITORY}" \
+            --output "${policy_file}" \
+            >>"${CI_LOG}" 2>&1; then
+            echo "Trusted Swift binary read policy is invalid; inspect the private CI log" >&2
+            exit 1
+          fi
+          mode="$(jq -r '.registryReadPolicy // empty' "${policy_file}")"
+          case "${mode}" in
+            authenticated|credential-free) ;;
+            *) echo "Trusted Swift binary read policy returned an invalid mode" >&2; exit 2 ;;
+          esac
+          printf 'mode=%s\n' "${mode}" >>"${GITHUB_OUTPUT}"
+          printf 'registry_read_policy=%s source=trusted-agent-state\n' "${mode}" >>"${CI_LOG}"
+
+      - name: Validate fixed private package publication credentials
         shell: bash
         env:
           CI_PACKAGE_USERNAME: ${{ secrets.PACKAGE_PUBLISH_USERNAME }}
           CI_PACKAGE_PUBLISH_TOKEN: ${{ secrets.PACKAGE_PUBLISH_TOKEN }}
-          CI_PACKAGE_READ_TOKEN: ${{ secrets.PACKAGE_READ_TOKEN }}
         run: |
           set -Eeuo pipefail
-          for name in CI_PACKAGE_USERNAME CI_PACKAGE_PUBLISH_TOKEN CI_PACKAGE_READ_TOKEN; do
+          for name in CI_PACKAGE_USERNAME CI_PACKAGE_PUBLISH_TOKEN; do
             test -n "${!name-}" || {
-              echo "Missing fixed private Generic Package credential: ${name}" >&2
+              echo "Missing fixed private Generic Package publication credential: ${name}" >&2
               exit 1
             }
           done
+
+      - name: Validate authenticated package read credential
+        if: ${{ steps.read_policy.outputs.mode == 'authenticated' }}
+        shell: bash
+        env:
+          CI_PACKAGE_READ_TOKEN: ${{ secrets.PACKAGE_READ_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${CI_PACKAGE_READ_TOKEN}" || {
+            echo "Missing fixed private Generic Package read credential" >&2
+            exit 1
+          }
 
       - name: Connect to private package registry network
         uses: StreamScapeTV/ci-workflows/actions/private-git@main
@@ -279,7 +397,8 @@ jobs:
         env:
           CI_SWIFTPM_BINARY_PACKAGE_USERNAME: ${{ secrets.PACKAGE_PUBLISH_USERNAME }}
           CI_SWIFTPM_BINARY_PACKAGE_TOKEN: ${{ secrets.PACKAGE_PUBLISH_TOKEN }}
-          CI_SWIFTPM_BINARY_PACKAGE_READ_TOKEN: ${{ secrets.PACKAGE_READ_TOKEN }}
+          CI_SWIFTPM_BINARY_PACKAGE_READ_TOKEN: ${{ steps.read_policy.outputs.mode == 'authenticated' && secrets.PACKAGE_READ_TOKEN || '' }}
+          CI_SWIFTPM_BINARY_READ_POLICY: ${{ steps.read_policy.outputs.mode }}
           NORMALIZED_PLAN: ${{ steps.plan.outputs.normalized }}
           SOURCE_SHA: ${{ steps.source_identity.outputs.source_sha }}
           PACKAGE_URL: ${{ steps.request.outputs.package_url }}
@@ -301,17 +420,22 @@ jobs:
           printf 'package_version=%s\n' "${VERSION}" >> "${GITHUB_OUTPUT}"
           printf 'receipt=%s\n' "${receipt}" >> "${GITHUB_OUTPUT}"
 
-      - name: Prove unauthenticated private GitHub and artifact reads fail
+      - name: Validate private GitHub and artifact read policy
         id: controls
         shell: bash
         env:
           PUBLICATION_RECEIPT: ${{ steps.publication.outputs.receipt }}
           PACKAGE_URL: ${{ steps.request.outputs.package_url }}
           VERSION: ${{ steps.request.outputs.version }}
-          CI_PACKAGE_USERNAME: ${{ secrets.PACKAGE_PUBLISH_USERNAME }}
-          CI_PACKAGE_READ_TOKEN: ${{ secrets.PACKAGE_READ_TOKEN }}
+          REGISTRY_READ_POLICY: ${{ steps.read_policy.outputs.mode }}
+          CI_PACKAGE_USERNAME: ${{ steps.read_policy.outputs.mode == 'authenticated' && secrets.PACKAGE_PUBLISH_USERNAME || '' }}
+          CI_PACKAGE_READ_TOKEN: ${{ steps.read_policy.outputs.mode == 'authenticated' && secrets.PACKAGE_READ_TOKEN || '' }}
         run: |
           set -Eeuo pipefail
+          case "${REGISTRY_READ_POLICY}" in
+            authenticated|credential-free) ;;
+            *) echo "Swift binary artifact control received an invalid read policy" >&2; exit 2 ;;
+          esac
           control_root="${RUNNER_TEMP}/swiftpm-private-controls"
           rm -rf -- "${control_root}"
           mkdir -p "${control_root}"
@@ -408,64 +532,82 @@ jobs:
           case "${anonymous_status}" in
             401|403)
               printf 'artifact_anonymous_control classification=authentication_refusal\n' >>"${CI_LOG}"
+              if test "${REGISTRY_READ_POLICY}" = credential-free; then
+                echo "Credential-free Swift binary read policy did not return the exact artifact" >&2
+                exit 1
+              fi
               ;;
             2??)
               anonymous_sha="$(sha256_file "${anonymous_body}")"
               anonymous_size="$(wc -c < "${anonymous_body}" | tr -d '[:space:]')"
-              if test "${anonymous_sha}" = "${first_checksum}" && test "${anonymous_size}" = "${first_size}"; then
-                printf 'artifact_anonymous_control classification=exact_artifact_access sha256=%s size=%s\n' "${anonymous_sha}" "${anonymous_size}" >>"${CI_LOG}"
-                echo "Private Swift binary artifact is readable without authentication" >&2
-              else
+              if test "${anonymous_sha}" != "${first_checksum}" || test "${anonymous_size}" != "${first_size}"; then
                 printf 'artifact_anonymous_control classification=unexpected_2xx sha256=%s size=%s\n' "${anonymous_sha}" "${anonymous_size}" >>"${CI_LOG}"
-                echo "Unauthenticated Swift binary control returned HTTP 2xx without the exact artifact; inspect the private CI log" >&2
+                echo "Credential-free Swift binary control returned HTTP 2xx without the exact artifact; inspect the private CI log" >&2
+                exit 1
               fi
-              exit 1
+              printf 'artifact_anonymous_control classification=exact_artifact_access sha256=%s size=%s\n' "${anonymous_sha}" "${anonymous_size}" >>"${CI_LOG}"
+              if test "${REGISTRY_READ_POLICY}" = authenticated; then
+                echo "Strict Swift binary read policy unexpectedly allowed credential-free artifact access" >&2
+                exit 1
+              fi
               ;;
             *)
               printf 'artifact_anonymous_control classification=unexpected_http_status\n' >>"${CI_LOG}"
-              echo "Unauthenticated Swift binary control did not return an explicit authentication refusal; inspect the private CI log" >&2
+              echo "Swift binary credential-free control returned an unexpected HTTP status; inspect the private CI log" >&2
               exit 1
               ;;
           esac
 
-          authenticated_home="${control_root}/authenticated-home"
-          authenticated_body="${control_root}/authenticated-body.bin"
-          mkdir -p "${authenticated_home}"
-          umask 077
-          cat >"${authenticated_home}/.netrc" <<EOF_NETRC
+          if test "${REGISTRY_READ_POLICY}" = authenticated; then
+            test -n "${CI_PACKAGE_USERNAME}" && test -n "${CI_PACKAGE_READ_TOKEN}" || {
+              echo "Strict Swift binary read policy is missing its fixed read credential" >&2
+              exit 1
+            }
+            authenticated_home="${control_root}/authenticated-home"
+            authenticated_body="${control_root}/authenticated-body.bin"
+            mkdir -p "${authenticated_home}"
+            umask 077
+            cat >"${authenticated_home}/.netrc" <<EOF_NETRC
           machine git.faruqi.dev
             login ${CI_PACKAGE_USERNAME}
             password ${CI_PACKAGE_READ_TOKEN}
           EOF_NETRC
-          chmod 600 "${authenticated_home}/.netrc"
-          set +e
-          authenticated_status="$(env -i \
-            PATH="${PATH}" \
-            HOME="${authenticated_home}" \
-            CURL_HOME="${authenticated_home}" \
-            XDG_CONFIG_HOME="${authenticated_home}" \
-            curl --disable --silent --show-error \
-              --netrc-file "${authenticated_home}/.netrc" \
-              --output "${authenticated_body}" \
-              --write-out '%{http_code}' \
-              --max-time 120 \
-              "${first_url}" \
-              2>>"${CI_LOG}")"
-          authenticated_rc=$?
-          set -e
-          printf 'artifact_authenticated_readback curl_rc=%s http_status=%s\n' "${authenticated_rc}" "${authenticated_status}" >>"${CI_LOG}"
-          if test "${authenticated_rc}" -ne 0 || test "${authenticated_status}" != 200; then
-            echo "Authenticated Swift binary control could not read the private artifact; inspect the private CI log" >&2
-            exit 1
+            chmod 600 "${authenticated_home}/.netrc"
+            set +e
+            authenticated_status="$(env -i \
+              PATH="${PATH}" \
+              HOME="${authenticated_home}" \
+              CURL_HOME="${authenticated_home}" \
+              XDG_CONFIG_HOME="${authenticated_home}" \
+              curl --disable --silent --show-error \
+                --netrc-file "${authenticated_home}/.netrc" \
+                --output "${authenticated_body}" \
+                --write-out '%{http_code}' \
+                --max-time 120 \
+                "${first_url}" \
+                2>>"${CI_LOG}")"
+            authenticated_rc=$?
+            set -e
+            printf 'artifact_authenticated_readback curl_rc=%s http_status=%s\n' "${authenticated_rc}" "${authenticated_status}" >>"${CI_LOG}"
+            if test "${authenticated_rc}" -ne 0 || test "${authenticated_status}" != 200; then
+              echo "Authenticated Swift binary control could not read the private artifact; inspect the private CI log" >&2
+              exit 1
+            fi
+            authenticated_sha="$(sha256_file "${authenticated_body}")"
+            authenticated_size="$(wc -c < "${authenticated_body}" | tr -d '[:space:]')"
+            if test "${authenticated_sha}" != "${first_checksum}" || test "${authenticated_size}" != "${first_size}"; then
+              printf 'artifact_authenticated_readback classification=identity_mismatch sha256=%s size=%s\n' "${authenticated_sha}" "${authenticated_size}" >>"${CI_LOG}"
+              echo "Authenticated Swift binary control returned the wrong artifact identity; inspect the private CI log" >&2
+              exit 1
+            fi
+            printf 'artifact_authenticated_readback classification=exact sha256=%s size=%s\n' "${authenticated_sha}" "${authenticated_size}" >>"${CI_LOG}"
+          else
+            test -z "${CI_PACKAGE_USERNAME}" && test -z "${CI_PACKAGE_READ_TOKEN}" || {
+              echo "Credential-free Swift binary read policy received registry read credentials" >&2
+              exit 1
+            }
+            printf 'artifact_credential_free_readback classification=exact\n' >>"${CI_LOG}"
           fi
-          authenticated_sha="$(sha256_file "${authenticated_body}")"
-          authenticated_size="$(wc -c < "${authenticated_body}" | tr -d '[:space:]')"
-          if test "${authenticated_sha}" != "${first_checksum}" || test "${authenticated_size}" != "${first_size}"; then
-            printf 'artifact_authenticated_readback classification=identity_mismatch sha256=%s size=%s\n' "${authenticated_sha}" "${authenticated_size}" >>"${CI_LOG}"
-            echo "Authenticated Swift binary control returned the wrong artifact identity; inspect the private CI log" >&2
-            exit 1
-          fi
-          printf 'artifact_authenticated_readback classification=exact sha256=%s size=%s\n' "${authenticated_sha}" "${authenticated_size}" >>"${CI_LOG}"
 
           unauth_home="${control_root}/github-unauth-home"
           unauth_stderr="${control_root}/github-unauth-stderr.txt"
@@ -494,15 +636,16 @@ jobs:
             exit 1
           fi
           printf 'github_unauthenticated_control git_rc=%s classification=authentication_required\n' "${git_rc}" >>"${CI_LOG}"
-          printf 'Unauthenticated GitHub package and private binary HTTPS controls rejected as required; authenticated binary identity readback matched publication receipt.\n' >>"${CI_LOG}"
+          printf 'Private GitHub authentication boundary and Swift binary registry read policy validated.\n' >>"${CI_LOG}"
 
       - name: Run two fresh ordinary SwiftPM/Xcode consumers
         id: consumer
         shell: bash
         env:
           CI_GITHUB_SOURCE_TOKEN: ${{ steps.source.outputs.token }}
-          CI_PACKAGE_USERNAME: ${{ secrets.PACKAGE_PUBLISH_USERNAME }}
-          CI_PACKAGE_READ_TOKEN: ${{ secrets.PACKAGE_READ_TOKEN }}
+          REGISTRY_READ_POLICY: ${{ steps.read_policy.outputs.mode }}
+          CI_PACKAGE_USERNAME: ${{ steps.read_policy.outputs.mode == 'authenticated' && secrets.PACKAGE_PUBLISH_USERNAME || '' }}
+          CI_PACKAGE_READ_TOKEN: ${{ steps.read_policy.outputs.mode == 'authenticated' && secrets.PACKAGE_READ_TOKEN || '' }}
           CONTRACT: ${{ steps.source_contract.outputs.contract }}
         run: |
           set -Eeuo pipefail
@@ -529,10 +672,26 @@ jobs:
           machine github.com
             login x-access-token
             password ${CI_GITHUB_SOURCE_TOKEN}
+          EOF_NETRC
+            if test "${REGISTRY_READ_POLICY}" = authenticated; then
+              test -n "${CI_PACKAGE_USERNAME}" && test -n "${CI_PACKAGE_READ_TOKEN}" || {
+                echo "Authenticated Swift binary consumer is missing registry read credentials" >&2
+                exit 1
+              }
+              cat >>"${home}/.netrc" <<EOF_REGISTRY_NETRC
           machine git.faruqi.dev
             login ${CI_PACKAGE_USERNAME}
             password ${CI_PACKAGE_READ_TOKEN}
-          EOF_NETRC
+          EOF_REGISTRY_NETRC
+            elif test "${REGISTRY_READ_POLICY}" = credential-free; then
+              test -z "${CI_PACKAGE_USERNAME}" && test -z "${CI_PACKAGE_READ_TOKEN}" || {
+                echo "Credential-free Swift binary consumer received registry read credentials" >&2
+                exit 1
+              }
+            else
+              echo "Swift binary consumer received an invalid registry read policy" >&2
+              exit 2
+            fi
             chmod 600 "${home}/.netrc"
             printf '\n===== swiftpm-binary-consumer-%s =====\n' "${attempt}" >>"${CI_LOG}"
             if ! (cd "${RUNNER_TEMP}" && env \

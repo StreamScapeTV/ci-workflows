@@ -88,7 +88,13 @@ class LibraryPackageReleaseWorkflowTests(unittest.TestCase):
         apple = jobs["apple_swiftpm"]
         self.assertIn("release_prepare", apple["needs"])
         self.assertEqual(apple["with"]["ci_run_id"], "")
+        self.assertEqual(
+            apple["with"]["trusted_capability_ci_run_id"],
+            "${{ inputs.ci_run_id }}",
+        )
         self.assertEqual(apple["with"]["expected_source_sha"], "${{ needs.plan.outputs.source_sha }}")
+        self.assertIn("AGENT_STATE_SUPABASE_URL", apple["secrets"])
+        self.assertIn("AGENT_STATE_SUPABASE_SECRET_KEY", apple["secrets"])
         maven = jobs["maven"]
         self.assertIn("apple_swiftpm", maven["needs"])
         self.assertEqual(maven["with"]["build_number"], "${{ inputs.ref }}")
