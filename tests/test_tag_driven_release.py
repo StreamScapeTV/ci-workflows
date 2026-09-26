@@ -112,13 +112,20 @@ class TagDrivenReleaseTests(unittest.TestCase):
             release["if"],
             "${{ needs.request.outputs.workflow_key == 'release.repository' }}",
         )
-        self.assertEqual(release["uses"], "./.github/workflows/repository.yml")
+        self.assertEqual(release["uses"], "./.github/workflows/repository-plan.yml")
         self.assertEqual(release["with"]["operation"], "release")
         self.assertTrue(release["with"]["release_authorized"])
         self.assertFalse(release["concurrency"]["cancel-in-progress"])
-        write_expression = release["secrets"]["REGISTRY_WRITE_TOKEN"]
-        self.assertIn("fromJSON(needs.request.outputs.inputs_json).host_os == 'linux'", write_expression)
-        self.assertIn("secrets.FORGEJO_REGISTRY_TOKEN", write_expression)
+        self.assertEqual(
+            release["secrets"]["REGISTRY_WRITE_TOKEN"],
+            "${{ secrets.FORGEJO_REGISTRY_TOKEN }}",
+        )
+        plan = yaml.safe_load(
+            (ROOT / ".github/workflows/repository-plan.yml").read_text(encoding="utf-8")
+        )
+        write_expression = plan["jobs"]["execute"]["secrets"]["REGISTRY_WRITE_TOKEN"]
+        self.assertIn("matrix.host_os == 'linux'", write_expression)
+        self.assertIn("secrets.REGISTRY_WRITE_TOKEN", write_expression)
 
         legacy = jobs["android_release"]
         self.assertEqual(

@@ -1,7 +1,8 @@
 name: Repository-owned CI
 
 # Generic adoption contract:
-# - Central selects only one fixed tracked .ci entrypoint and one reviewed generic host class.
+# - This workflow executes one fixed tracked .ci child on one reviewed generic host class.
+# - repository-plan.yml may fan one semantic parent operation out to multiple OS children.
 # - Product target, selector, UI-mode, toolchain and packaging behavior stays repository-owned.
 # - Reviewed structured semantics arrive only through versioned CI_INPUTS_JSON; Central never
 #   converts them into arbitrary argv, commands, executable paths, environment maps or runner labels.
@@ -164,11 +165,11 @@ jobs:
           context=repository_lifecycle
           if test -n "${TRUSTED_CAPABILITY_CI_RUN_ID}"; then
             test -z "${LIFECYCLE_CI_RUN_ID}" || {
-              echo "repository trusted aggregate capability context cannot also own Agent State lifecycle" >&2
+              echo "repository trusted parent capability context cannot also own Agent State lifecycle" >&2
               exit 2
             }
             capability_run_id="${TRUSTED_CAPABILITY_CI_RUN_ID}"
-            context=library_package_parent
+            context=trusted_parent
           fi
           test -n "${capability_run_id}" || {
             echo "repository CI host resolution requires one trusted Agent State CI run" >&2
@@ -196,18 +197,66 @@ jobs:
             exit 1
           }
 
-          if test "${context}" = library_package_parent; then
-            test "${run_workflow}" = release.library-package \
-              && test "${run_profile}" = publish \
-              && test "${SOURCE_IS_TAG}" = true || {
-              echo "repository CI aggregate host fallback is not bound to release.library-package/publish" >&2
+          if test "${context}" = trusted_parent; then
+            case "${run_workflow}" in
+              release.library-package)
+                test "${run_profile}" = publish \
+                  && test "${SOURCE_IS_TAG}" = true || {
+                  echo "repository CI aggregate host fallback is not bound to release.library-package/publish" >&2
+                  exit 1
+                }
+                case "${LEGACY_HOST_OS}" in
+                  linux) emit_host linux-hosted ;;
+                  macos) emit_host macos-hosted ;;
+                  *) echo "repository CI aggregate host_os must be linux or macos" >&2; exit 2 ;;
+                esac
+                exit 0
+                ;;
+              validation.repository)
+                test "${OPERATION}" != release \
+                  && test "${run_profile}" = "${OPERATION}" || {
+                  echo "repository CI planned child is not bound to the parent validation operation" >&2
+                  exit 1
+                }
+                ;;
+              release.repository)
+                test "${OPERATION}" = release \
+                  && test "${run_is_tag}" = true || {
+                  echo "repository CI planned release child is not bound to the parent release operation" >&2
+                  exit 1
+                }
+                ;;
+              *)
+                echo "repository CI trusted parent is not an approved repository parent operation" >&2
+                exit 1
+                ;;
+            esac
+
+            case "${LEGACY_HOST_OS}" in
+              linux|macos) ;;
+              *) echo "repository CI planned child OS must be linux or macos" >&2; exit 2 ;;
+            esac
+            resolution="$(rpc resolve_repository_ci_host_class_for_os "$(jq -cn \
+              --arg project "${project_key}" \
+              --arg repository "${SOURCE_REPOSITORY}" \
+              --arg id "${capability_run_id}" \
+              --arg operation "${OPERATION}" \
+              --arg host_os "${LEGACY_HOST_OS}" \
+              '{p_project_key:$project,p_repository:$repository,p_ci_run_id:$id,p_operation:$operation,p_host_os:$host_os}')")"
+            test "$(jq -r '.ok' <<<"${resolution}")" = true || {
+              code="$(jq -r '.code // "invalid_response"' <<<"${resolution}" 2>/dev/null || true)"
+              echo "repository CI trusted planned-child host-class resolution failed closed: ${code}" >&2
               exit 1
             }
-            case "${LEGACY_HOST_OS}" in
-              linux) emit_host linux-hosted ;;
-              macos) emit_host macos-hosted ;;
-              *) echo "repository CI aggregate host_os must be linux or macos" >&2; exit 2 ;;
-            esac
+            test "$(jq -r '.project_key // empty' <<<"${resolution}")" = "${project_key}" \
+              && test "$(jq -r '.repository // empty' <<<"${resolution}")" = "${SOURCE_REPOSITORY}" \
+              && test "$(jq -r '.ci_run_id // empty' <<<"${resolution}")" = "${capability_run_id}" \
+              && test "$(jq -r '.operation // empty' <<<"${resolution}")" = "${OPERATION}" \
+              && test "$(jq -r '.host_os // empty' <<<"${resolution}")" = "${LEGACY_HOST_OS}" || {
+              echo "repository CI trusted planned-child host-class resolution returned mismatched identity" >&2
+              exit 1
+            }
+            emit_host "$(jq -r '.host_class // empty' <<<"${resolution}")"
             exit 0
           fi
 
@@ -335,21 +384,13 @@ jobs:
           esac
           if test -n "${TRUSTED_CAPABILITY_CI_RUN_ID}"; then
             test -z "${LIFECYCLE_CI_RUN_ID}" || {
-              echo "repository trusted aggregate capability context cannot also own Agent State lifecycle" >&2
+              echo "repository trusted parent capability context cannot also own Agent State lifecycle" >&2
               exit 2
             }
             test "${CALLER_REPOSITORY}" = StreamScapeTV/ci-workflows && test "${CALLER_REF}" = refs/heads/main || {
-              echo "repository trusted aggregate capability context requires reviewed Central main" >&2
+              echo "repository trusted parent capability context requires reviewed Central main" >&2
               exit 2
             }
-            test "${SOURCE_IS_TAG}" = true || {
-              echo "repository trusted aggregate capability context requires an immutable tag source" >&2
-              exit 2
-            }
-            case "${OPERATION}" in
-              full|release) ;;
-              *) echo "repository trusted aggregate capability context is accepted only by full/release operations" >&2; exit 2 ;;
-            esac
           fi
           case "${OPERATION}" in
             build) entrypoint=.ci/build.sh ;;
@@ -670,7 +711,7 @@ jobs:
           capability_context=repository_lifecycle
           if test -n "${TRUSTED_CAPABILITY_CI_RUN_ID}"; then
             capability_run_id="${TRUSTED_CAPABILITY_CI_RUN_ID}"
-            capability_context=library_package_parent
+            capability_context=trusted_parent
           fi
           if test -z "${capability_run_id}"; then
             emit_none
@@ -724,11 +765,31 @@ jobs:
                   }
               fi
               ;;
-            library_package_parent)
-              test "${run_workflow}" = release.library-package && test "${run_profile}" = publish || {
-                echo "repository CI trusted aggregate capability parent is not release.library-package/publish" >&2
-                exit 1
-              }
+            trusted_parent)
+              case "${run_workflow}" in
+                release.library-package)
+                  capability_context=library_package_parent
+                  test "${run_profile}" = publish || {
+                    echo "repository CI trusted aggregate capability parent is not release.library-package/publish" >&2
+                    exit 1
+                  }
+                  ;;
+                validation.repository)
+                  capability_context=repository_parent
+                  test "${OPERATION}" != release && test "${run_profile}" = "${OPERATION}" || {
+                    echo "repository CI trusted planned capability parent is not the requested validation operation" >&2
+                    exit 1
+                  }
+                  ;;
+                release.repository)
+                  capability_context=repository_parent
+                  test "${OPERATION}" = release && test "${run_is_tag}" = true || {
+                    echo "repository CI trusted planned release capability parent is invalid" >&2
+                    exit 1
+                  }
+                  ;;
+                *) echo "repository CI trusted capability parent is invalid" >&2; exit 1 ;;
+              esac
               ;;
             *) echo "repository CI trusted capability context is invalid" >&2; exit 1 ;;
           esac
@@ -772,7 +833,7 @@ jobs:
           if (
               operation != "release"
               or host_os != "linux"
-              or capability_context != "repository_lifecycle"
+              or capability_context not in {"repository_lifecycle", "repository_parent"}
           ):
               enabled_capabilities.discard("registry_oci_publish")
 
@@ -974,7 +1035,7 @@ jobs:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
           file_path: ${{ runner.temp }}/central-repository-ci-log-checkpoint-seed.txt
-          file_name: ${{ github.run_id }}-${{ github.run_attempt }}-repository-${{ inputs.operation }}.txt
+          file_name: ${{ github.run_id }}-${{ github.run_attempt }}-repository-${{ inputs.operation }}-${{ needs.resolve_host.outputs.host_os }}.txt
           mime_type: text/plain
 
       - name: Execute fixed repository-owned entrypoint
@@ -1488,7 +1549,7 @@ jobs:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
           file_path: ${{ runner.temp }}/central-repository-ci.log
-          file_name: ${{ github.run_id }}-${{ github.run_attempt }}-repository-${{ inputs.operation }}.txt
+          file_name: ${{ github.run_id }}-${{ github.run_attempt }}-repository-${{ inputs.operation }}-${{ needs.resolve_host.outputs.host_os }}.txt
           mime_type: text/plain
 
       - name: Upload bounded repository CI evidence to Google Drive
@@ -1504,7 +1565,7 @@ jobs:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
           file_path: ${{ steps.evidence.outputs.archive }}
-          file_name: ${{ github.run_id }}-${{ github.run_attempt }}-repository-${{ inputs.operation }}-evidence.zip
+          file_name: ${{ github.run_id }}-${{ github.run_attempt }}-repository-${{ inputs.operation }}-${{ needs.resolve_host.outputs.host_os }}-evidence.zip
           mime_type: application/zip
 
       - name: Cleanup ephemeral registry and repository evidence

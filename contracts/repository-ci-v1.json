@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "name": "StreamScapeTV repository-owned CI contract",
-  "summary": "Central selects one fixed repository entrypoint on a reviewed generic host class resolved from trusted Agent State policy and supplies only reviewed infrastructure plus a versioned structured semantic input document. Product commands and toolchain behavior stay in the repository.",
+  "summary": "Central executes one semantic parent operation on the finite reviewed OS set selected by an optional tracked repository execution plan, while each child still invokes exactly one fixed .ci entrypoint on a trusted generic host class. Product commands and toolchain behavior stay in the repository.",
   "adoption": {
     "fixedEntrypoints": {
       "build": ".ci/build.sh",
@@ -19,7 +19,7 @@
       }
     },
     "scriptEnvironment": {
-      "CI_HOST_OS": "Selected host execution OS: linux or macos.",
+      "CI_HOST_OS": "Current child operating system selected by the tracked repository execution plan, or by legacy host_os only when no plan exists.",
       "CI_OPERATION": "Selected fixed semantic operation: build, test, full, ui-test, or separately authorized release.",
       "CI_INPUTS_JSON": "Canonical JSON object with schemaVersion=1 and an inputs object validated against the operation schema.",
       "CI_LOG_DIR": "Central-owned optional text evidence directory.",
@@ -29,6 +29,7 @@
     },
     "adoptionSteps": [
       "Add tracked executable fixed entrypoints under .ci/; unsupported operations must fail closed explicitly.",
+      "Optionally add tracked .ci/execution-plan.json when one semantic operation must run on more than one reviewed operating system; the plan selects only finite OS identifiers, never runners or commands.",
       "Read CI_HOST_OS and CI_INPUTS_JSON when product target, selectors, UI mode, or release identity are needed.",
       "Validate and translate reviewed semantics inside the repository before invoking Xcode, Gradle, Python, Node, Flutter, or other product commands.",
       "Do not upload evidence or request Drive, registry, runner, or secret configuration from the caller.",
@@ -70,7 +71,33 @@
       "callerSuppliesHostClass": false,
       "callerSuppliesRunnerLabels": false,
       "legacyHostOsIsDefaultHintOnly": true,
-      "decisionFrozenPerCiRun": true
+      "decisionFrozenPerCiRun": true,
+      "plannedChildResolver": "resolve_repository_ci_host_class_for_os(text,text,uuid,text,text)",
+      "plannedChildDecisionFrozenBy": [
+        "ci_run_id",
+        "operation",
+        "host_os"
+      ],
+      "legacyHostOsCompatibilityOnlyWhenPlanAbsent": true
+    },
+    "executionPlan": {
+      "path": ".ci/execution-plan.json",
+      "schemaVersion": 1,
+      "allowedOperatingSystems": [
+        "linux",
+        "macos"
+      ],
+      "maxOperatingSystemsPerOperation": 2,
+      "missingPlanBehavior": "Use the legacy host_os input as one compatibility child only.",
+      "repositoryOwnsOperatingSystemSetWhenPresent": true,
+      "callerSuppliesOperatingSystemArray": false,
+      "operationShape": {
+        "build": "operating-system-list",
+        "test": "operating-system-list",
+        "full": "operating-system-list",
+        "ui-test": "operating-system-list",
+        "release": "operating-system-list"
+      }
     }
   },
   "semanticInputs": {
@@ -217,5 +244,94 @@
     "linux-service-backend",
     "generic-package-consumer",
     "generic-node-python-java-native"
-  ]
+  ],
+  "legacyCapabilityParity": {
+    "status": "classified",
+    "classificationValues": [
+      "generic-baseline",
+      "generic-trusted-capability",
+      "repository-owned-entrypoint",
+      "separately-governed",
+      "legacy-only-nonblocking"
+    ],
+    "capabilities": [
+      {
+        "capability": "exact source checkout and observed-SHA attestation",
+        "classification": "generic-baseline"
+      },
+      {
+        "capability": "hosted Linux and macOS execution",
+        "classification": "generic-baseline"
+      },
+      {
+        "capability": "reviewed high-capacity macOS execution",
+        "classification": "generic-trusted-capability"
+      },
+      {
+        "capability": "private network for the full child execution lifetime",
+        "classification": "generic-trusted-capability"
+      },
+      {
+        "capability": "ephemeral Git HTTPS authentication",
+        "classification": "generic-trusted-capability"
+      },
+      {
+        "capability": "ephemeral private HTTPS registry authentication",
+        "classification": "generic-trusted-capability"
+      },
+      {
+        "capability": "ephemeral Gradle private-Maven read authentication",
+        "classification": "generic-trusted-capability"
+      },
+      {
+        "capability": "authorized OCI image and Helm registry publication",
+        "classification": "generic-trusted-capability"
+      },
+      {
+        "capability": "product and toolchain build/test/package commands",
+        "classification": "repository-owned-entrypoint"
+      },
+      {
+        "capability": "product target, selector, UI-mode and release semantics",
+        "classification": "repository-owned-entrypoint"
+      },
+      {
+        "capability": "toolchain bootstrap and hosted emulator/simulator setup for ordinary validation",
+        "classification": "repository-owned-entrypoint"
+      },
+      {
+        "capability": "product integration-test fixture/service credentials",
+        "classification": "separately-governed"
+      },
+      {
+        "capability": "Apple signing and App Store Connect distribution credentials",
+        "classification": "separately-governed"
+      },
+      {
+        "capability": "Android signing and store distribution credentials",
+        "classification": "separately-governed"
+      },
+      {
+        "capability": "physical-device execution and device-provider orchestration",
+        "classification": "separately-governed"
+      },
+      {
+        "capability": "screenshot review and visual-acceptance orchestration",
+        "classification": "separately-governed"
+      },
+      {
+        "capability": "immutable Maven publication/readback archive lifecycle",
+        "classification": "separately-governed"
+      },
+      {
+        "capability": "source snapshot/checkpoint publication and branch deletion",
+        "classification": "separately-governed"
+      },
+      {
+        "capability": "technology-specific dependency caches",
+        "classification": "legacy-only-nonblocking"
+      }
+    ],
+    "retirementGate": "No legacy lane may be deleted until every live caller has an equivalent supported path and the private migration ledger reports zero live callers for that lane."
+  }
 }

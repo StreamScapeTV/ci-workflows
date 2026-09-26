@@ -33,6 +33,7 @@ jobs:
           tests.test_ci_helpers_current
           tests.test_repository_workflow
           tests.test_repository_host_classes
+          tests.test_repository_execution_plan
           tests.test_repository_log_checkpoint
           tests.test_repository_log_capture
           tests.test_public_identity_boundary

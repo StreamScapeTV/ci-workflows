@@ -619,7 +619,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
             job["if"],
             "${{ needs.request.outputs.workflow_key == 'validation.repository' }}",
         )
-        self.assertEqual(job["uses"], "./.github/workflows/repository.yml")
+        self.assertEqual(job["uses"], "./.github/workflows/repository-plan.yml")
         self.assertEqual(
             set(job["with"]),
             {
@@ -1018,10 +1018,28 @@ class RepositoryWorkflowTests(unittest.TestCase):
 
         release_secrets = self.dispatch["jobs"]["repository_release"]["secrets"]
         validation_secrets = self.dispatch["jobs"]["repository"]["secrets"]
-        write_expression = release_secrets["REGISTRY_WRITE_TOKEN"]
-        self.assertIn("fromJSON(needs.request.outputs.inputs_json).host_os == 'linux'", write_expression)
-        self.assertIn("secrets.FORGEJO_REGISTRY_TOKEN", write_expression)
+        self.assertEqual(
+            release_secrets["REGISTRY_WRITE_TOKEN"],
+            "${{ secrets.FORGEJO_REGISTRY_TOKEN }}",
+        )
         self.assertNotIn("REGISTRY_WRITE_TOKEN", validation_secrets)
+
+        plan = yaml.safe_load(
+            (ROOT / ".github/workflows/repository-plan.yml").read_text(encoding="utf-8")
+        )
+        child_secrets = plan["jobs"]["execute"]["secrets"]
+        write_expression = child_secrets["REGISTRY_WRITE_TOKEN"]
+        self.assertIn("matrix.host_os == 'linux'", write_expression)
+        self.assertIn("secrets.REGISTRY_WRITE_TOKEN", write_expression)
+        for secret_name in (
+            "APPLE_TEAM_ID",
+            "APP_STORE_CONNECT_KEY_ID",
+            "APP_STORE_CONNECT_ISSUER_ID",
+            "APP_STORE_CONNECT_API_KEY_P8_BASE64",
+        ):
+            expression = child_secrets[secret_name]
+            self.assertIn("matrix.host_os == 'macos'", expression)
+            self.assertIn(f"secrets.{secret_name}", expression)
 
     def test_trusted_aggregate_capability_context_is_parent_bound_and_lifecycle_separate(self) -> None:
         trusted_id = "22222222-2222-4222-8222-222222222222"
@@ -1052,13 +1070,12 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertNotEqual(dual_lifecycle.returncode, 0)
         self.assertIn("cannot also own Agent State lifecycle", dual_lifecycle.stderr)
 
-        wrong_operation, _ = self.run_repository_request(
+        planned_validation_child, _ = self.run_repository_request(
             operation="build",
-            source_is_tag="true",
+            source_is_tag="false",
             trusted_capability_ci_run_id=trusted_id,
         )
-        self.assertNotEqual(wrong_operation.returncode, 0)
-        self.assertIn("accepted only by full/release operations", wrong_operation.stderr)
+        self.assertEqual(planned_validation_child.returncode, 0, planned_validation_child.stderr)
 
         parent, values = self.run_capability_resolver(
             run_repository="ExampleOrg/library-package",
@@ -1106,7 +1123,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         )
         self.assertNotEqual(wrong_parent.returncode, 0)
         self.assertIn(
-            "trusted aggregate capability parent is not release.library-package/publish",
+            "trusted capability parent is invalid",
             wrong_parent.stderr,
         )
 
@@ -1165,7 +1182,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
             seed["uses"],
             "StreamScapeTV/ci-workflows/actions/google-drive@main",
         )
-        stable_name = "${{ github.run_id }}-${{ github.run_attempt }}-repository-${{ inputs.operation }}.txt"
+        stable_name = "${{ github.run_id }}-${{ github.run_attempt }}-repository-${{ inputs.operation }}-${{ needs.resolve_host.outputs.host_os }}.txt"
         self.assertEqual(seed["with"]["file_name"], stable_name)
         self.assertEqual(final_upload["with"]["file_name"], stable_name)
         self.assertEqual(
@@ -1914,10 +1931,17 @@ class RepositoryWorkflowTests(unittest.TestCase):
         release_secrets = self.dispatch["jobs"]["repository_release"]["secrets"]
         validation_secrets = self.dispatch["jobs"]["repository"]["secrets"]
         for name in secret_names:
-            expression = release_secrets[name]
-            self.assertIn("fromJSON(needs.request.outputs.inputs_json).host_os == 'macos'", expression)
-            self.assertIn(f"secrets.{name}", expression)
+            self.assertEqual(release_secrets[name], f"${{{{ secrets.{name} }}}}")
             self.assertNotIn(name, validation_secrets)
+
+        plan = yaml.safe_load(
+            (ROOT / ".github/workflows/repository-plan.yml").read_text(encoding="utf-8")
+        )
+        child_secrets = plan["jobs"]["execute"]["secrets"]
+        for name in secret_names:
+            expression = child_secrets[name]
+            self.assertIn("matrix.host_os == 'macos'", expression)
+            self.assertIn(f"secrets.{name}", expression)
 
         execute_env = self.steps_by_name["Execute fixed repository-owned entrypoint"]["env"]
         expected_product_vars = {
@@ -1961,8 +1985,16 @@ class RepositoryWorkflowTests(unittest.TestCase):
             ".github/workflows/repository.yml",
         )
         self.assertEqual(
+            inventory["workflows"]["repository_plan"],
+            ".github/workflows/repository-plan.yml",
+        )
+        self.assertEqual(
             inventory["contracts"]["repository_ci_v1"],
             "contracts/repository-ci-v1.json",
+        )
+        self.assertEqual(
+            inventory["scripts"]["repository_execution_plan"],
+            "scripts/ci/repository_execution_plan.py",
         )
         self.assertEqual(
             inventory["scripts"]["repository_log_timeline"],

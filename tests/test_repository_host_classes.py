@@ -69,6 +69,7 @@ class RepositoryHostClassTests(unittest.TestCase):
             "repository": repository,
             "ci_run_id": selected_id,
             "operation": operation,
+            "host_os": host_os,
             "host_class": host_class,
         }
 
@@ -85,7 +86,7 @@ class RepositoryHostClassTests(unittest.TestCase):
                 "url = sys.argv[-1]\n"
                 "if url.endswith('/claim_ci_run'):\n"
                 "    print(json.dumps(claim))\n"
-                "elif url.endswith('/resolve_repository_ci_host_class'):\n"
+                "elif url.endswith('/resolve_repository_ci_host_class') or url.endswith('/resolve_repository_ci_host_class_for_os'):\n"
                 "    print(json.dumps(resolution))\n"
                 "else:\n"
                 "    raise SystemExit(97)\n",
@@ -136,6 +137,10 @@ class RepositoryHostClassTests(unittest.TestCase):
         self.assertEqual(
             self.contract["adoption"]["hostSelection"]["resolver"],
             "resolve_repository_ci_host_class(text,text,uuid,text)",
+        )
+        self.assertEqual(
+            self.contract["adoption"]["hostSelection"]["plannedChildResolver"],
+            "resolve_repository_ci_host_class_for_os(text,text,uuid,text,text)",
         )
 
     def test_execute_job_uses_only_resolver_output(self) -> None:
@@ -237,6 +242,24 @@ class RepositoryHostClassTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(values["host_class"], "macos-hosted")
         self.assertEqual(json.loads(values["runs_on"]), ["macos-latest"])
+
+
+    def test_repository_parent_resolves_selected_child_os_through_service_resolver(self) -> None:
+        trusted_id = "22222222-2222-4222-8222-222222222222"
+        result, values = self.run_resolver(
+            host_class="macos-high-capacity",
+            operation="full",
+            host_os="macos",
+            workflow_key="validation.repository",
+            test_profile="full",
+            lifecycle_ci_run_id="",
+            trusted_capability_ci_run_id=trusted_id,
+            run_host_os="linux",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(values["host_class"], "macos-high-capacity")
+        self.assertEqual(values["host_os"], "macos")
+        self.assertIn("resolve_repository_ci_host_class_for_os", self.script)
 
     def test_docs_use_generic_non_identifying_policy_examples(self) -> None:
         for value in (
