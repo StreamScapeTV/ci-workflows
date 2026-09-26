@@ -232,11 +232,14 @@ jobs:
       ref: ${{ inputs.ref }}
       source_is_tag: true
       expected_source_sha: ${{ needs.plan.outputs.source_sha }}
+      trusted_capability_ci_run_id: ${{ inputs.ci_run_id }}
       ci_run_id: ''
       upload_private_log: true
     secrets:
       SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
       SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+      AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+      AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
       GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
       GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
       GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}

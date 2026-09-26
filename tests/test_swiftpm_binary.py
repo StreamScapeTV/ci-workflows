@@ -7,6 +7,10 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest import mock
+
+from scripts.ci import swiftpm_binary
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/swiftpm_binary.py"
@@ -192,6 +196,236 @@ class SwiftPMBinaryHelperTests(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("approved private Generic Package host", result.stderr)
+
+
+    def test_trusted_repository_policy_selects_credential_free_only_for_valid_grant_without_netrc(self) -> None:
+        repository = "StreamScapeTV/example-swift"
+        base = {
+            "schemaVersion": 3,
+            "repository": repository,
+            "capabilities": [],
+            "hostPolicy": {"operatingSystems": {}},
+        }
+        self.assertEqual(
+            swiftpm_binary.repository_registry_read_policy({"repository_ci": base}, repository),
+            "credential-free",
+        )
+        strict = {**base, "capabilities": ["registry_netrc"]}
+        self.assertEqual(
+            swiftpm_binary.repository_registry_read_policy({"repository_ci": strict}, repository),
+            "authenticated",
+        )
+        for invalid in (
+            {},
+            {"repository_ci": {**base, "repository": "StreamScapeTV/other"}},
+            {"repository_ci": {**base, "capabilities": ["not-a-capability"]}},
+            {"repository_ci": {**base, "capabilities": ["registry_netrc", "registry_netrc"]}},
+            {"repository_ci": {**base, "hostPolicy": "invalid"}},
+        ):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(swiftpm_binary.ContractError):
+                    swiftpm_binary.repository_registry_read_policy(invalid, repository)
+
+    def test_resolve_read_policy_command_emits_only_bounded_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            state = root / "state.json"
+            output = root / "policy.json"
+            state.write_text(
+                json.dumps(
+                    {
+                        "repository_ci": {
+                            "schemaVersion": 1,
+                            "repository": "StreamScapeTV/example-swift",
+                            "capabilities": [],
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = self.run_helper(
+                "resolve-read-policy",
+                "--project-state", str(state),
+                "--repository", "StreamScapeTV/example-swift",
+                "--output", str(output),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                json.loads(output.read_text(encoding="utf-8")),
+                {"schemaVersion": 1, "registryReadPolicy": "credential-free"},
+            )
+
+    def test_remote_read_sends_auth_only_for_authenticated_policy(self) -> None:
+        artifact = b"exact-private-artifact"
+
+        class FakeResponse:
+            status = 200
+
+            def __init__(self) -> None:
+                self.blocks = [artifact, b""]
+
+            def read(self, _size: int = -1) -> bytes:
+                return self.blocks.pop(0) if self.blocks else b""
+
+        connections: list[object] = []
+
+        class FakeConnection:
+            def __init__(self, *_args: object, **_kwargs: object) -> None:
+                self.headers: dict[str, str] = {}
+                connections.append(self)
+
+            def request(self, method: str, path: str, headers: dict[str, str]) -> None:
+                self.method = method
+                self.path = path
+                self.headers = headers
+
+            def getresponse(self) -> FakeResponse:
+                return FakeResponse()
+
+            def close(self) -> None:
+                pass
+
+        url = "https://git.faruqi.dev/api/packages/mimranfaruqi/generic/example/3.4.5/file.zip"
+        with mock.patch.object(swiftpm_binary.http.client, "HTTPSConnection", FakeConnection):
+            status, size, digest = swiftpm_binary.read_remote_identity(
+                url, read_policy="credential-free"
+            )
+            self.assertEqual((status, size, digest), (200, len(artifact), hashlib.sha256(artifact).hexdigest()))
+            self.assertEqual(connections[-1].headers, {})
+            swiftpm_binary.read_remote_identity(
+                url, read_policy="authenticated", username="reader", read_token="secret"
+            )
+            self.assertIn("Authorization", connections[-1].headers)
+
+    def test_upload_remote_always_sends_separate_write_authorization(self) -> None:
+        class FakeResponse:
+            status = 201
+
+            def read(self, _size: int = -1) -> bytes:
+                return b""
+
+        connections: list[object] = []
+
+        class FakeConnection:
+            def __init__(self, *_args: object, **_kwargs: object) -> None:
+                self.headers: dict[str, str] = {}
+                connections.append(self)
+
+            def putrequest(self, method: str, path: str) -> None:
+                self.method = method
+                self.path = path
+
+            def putheader(self, name: str, value: str) -> None:
+                self.headers[name] = value
+
+            def endheaders(self) -> None:
+                pass
+
+            def send(self, _block: bytes) -> None:
+                pass
+
+            def getresponse(self) -> FakeResponse:
+                return FakeResponse()
+
+            def close(self) -> None:
+                pass
+
+        with tempfile.TemporaryDirectory() as td:
+            artifact = Path(td) / "artifact.zip"
+            artifact.write_bytes(b"write-protected")
+            url = "https://git.faruqi.dev/api/packages/mimranfaruqi/generic/example/3.4.5/file.zip"
+            with mock.patch.object(swiftpm_binary.http.client, "HTTPSConnection", FakeConnection):
+                self.assertEqual(
+                    swiftpm_binary.upload_remote(url, artifact, "writer", "write-token"),
+                    201,
+                )
+        self.assertEqual(connections[-1].method, "PUT")
+        self.assertIn("Authorization", connections[-1].headers)
+        self.assertEqual(
+            connections[-1].headers["Authorization"],
+            swiftpm_binary.basic_auth("writer", "write-token"),
+        )
+
+    def test_remote_exact_identity_rejects_wrong_bytes(self) -> None:
+        item = {
+            "target": "Example",
+            "url": "https://git.faruqi.dev/api/packages/mimranfaruqi/generic/example/3.4.5/file.zip",
+            "size": 4,
+            "checksum": hashlib.sha256(b"good").hexdigest(),
+        }
+        with mock.patch.object(
+            swiftpm_binary,
+            "read_remote_identity",
+            return_value=(200, 4, hashlib.sha256(b"evil").hexdigest()),
+        ):
+            with self.assertRaises(swiftpm_binary.ContractError):
+                swiftpm_binary.require_remote_exact(item, read_policy="credential-free")
+
+    def test_publish_credential_free_requires_writes_but_rejects_read_token_injection(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            evidence = root / "evidence"
+            artifact_dir = evidence / "artifacts"
+            artifact_dir.mkdir(parents=True)
+            artifact = artifact_dir / "Example.xcframework.zip"
+            artifact.write_bytes(b"artifact")
+            checksum = hashlib.sha256(artifact.read_bytes()).hexdigest()
+            plan = root / "plan.json"
+            output = root / "receipt.json"
+            plan.write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "packageURL": "https://github.com/StreamScapeTV/example-swift.git",
+                        "version": "3.4.5",
+                        "packageRevision": "a" * 40,
+                        "evidenceRoot": str(evidence),
+                        "artifacts": [
+                            {
+                                "target": "Example",
+                                "file": "artifacts/Example.xcframework.zip",
+                                "url": "https://git.faruqi.dev/api/packages/mimranfaruqi/generic/example/3.4.5/Example.xcframework.zip",
+                                "checksum": checksum,
+                                "size": artifact.stat().st_size,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = SimpleNamespace(plan=str(plan), output=str(output))
+            env = {
+                "CI_SWIFTPM_BINARY_PACKAGE_USERNAME": "writer",
+                "CI_SWIFTPM_BINARY_PACKAGE_TOKEN": "write-token",
+                "CI_SWIFTPM_BINARY_READ_POLICY": "credential-free",
+            }
+            with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(
+                swiftpm_binary, "require_remote_exact", return_value=True
+            ) as exact:
+                swiftpm_binary.command_publish(args)
+            self.assertTrue(output.exists())
+            self.assertEqual(exact.call_args.kwargs["read_policy"], "credential-free")
+            self.assertEqual(exact.call_args.kwargs["read_token"], "")
+
+            with mock.patch.dict(
+                os.environ,
+                {**env, "CI_SWIFTPM_BINARY_PACKAGE_READ_TOKEN": "must-not-be-sent"},
+                clear=True,
+            ):
+                with self.assertRaises(swiftpm_binary.ContractError):
+                    swiftpm_binary.command_publish(args)
+
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "CI_SWIFTPM_BINARY_PACKAGE_USERNAME": "writer",
+                    "CI_SWIFTPM_BINARY_PACKAGE_TOKEN": "write-token",
+                    "CI_SWIFTPM_BINARY_READ_POLICY": "authenticated",
+                },
+                clear=True,
+            ):
+                with self.assertRaises(swiftpm_binary.ContractError):
+                    swiftpm_binary.command_publish(args)
 
     def test_consumer_results_must_match_github_tag_identity_twice(self) -> None:
         with tempfile.TemporaryDirectory() as td:

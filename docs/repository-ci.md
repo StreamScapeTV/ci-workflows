@@ -137,6 +137,14 @@ The frozen v1 non-host capability catalog is:
 Capability authorization is private Agent State policy. Repository source cannot enable a capability,
 choose a secret, select a private host, or provide an environment map.
 
+For Central-managed Swift binary publication, the exact trusted Agent State grant also determines
+registry read authentication without adding a caller-controlled switch. A valid bound grant containing
+`registry_netrc` keeps strict authenticated reads. A valid bound grant without `registry_netrc` permits
+credential-free reads only on the lane's required private network/TLS path and only when the exact
+artifact digest and size match. Missing, malformed, or unbound policy never enables that mode. Registry
+publication remains separately authenticated, and read-only consumers never receive publication
+credentials.
+
 When an authentication capability is active, Central may materialize an ephemeral `HOME`, Git
 configuration, `.netrc`, or Gradle properties for the duration of the operation. These are
 implementation details, not additional repository-CI API variables. Repository code uses normal
