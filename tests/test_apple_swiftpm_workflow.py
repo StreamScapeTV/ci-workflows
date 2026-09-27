@@ -116,7 +116,7 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
                 "import sys\n"
                 "url = sys.argv[-1] if len(sys.argv) > 1 else ''\n"
                 "if url.endswith('/rpc/claim_ci_run'):\n"
-                "    print(json.dumps({\"ok\": True, \"run\": {\"project_key\": \"streamscape-media\", \"repository\": \"StreamScapeTV/streamscape-media\", \"ref\": \"2.1.7\", \"is_tag\": True, \"workflow_key\": \"release.apple\", \"test_profile\": \"swiftpm-package\"}}))\n"
+                "    print(json.dumps({\"ok\": True, \"run\": {\"project_key\": \"fixture-project\", \"repository\": \"StreamScapeTV/example-swift\", \"ref\": \"2.1.7\", \"is_tag\": True, \"workflow_key\": \"release.apple\", \"test_profile\": \"swiftpm-package\"}}))\n"
                 "    raise SystemExit(0)\n"
                 "if url.endswith('/rpc/get_project_state'):\n"
                 "    print(os.environ['PROJECT_STATE_RESPONSE'])\n"
@@ -142,7 +142,7 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
                     "AGENT_STATE_SUPABASE_SECRET_KEY": "fixture-secret",
                     "LIFECYCLE_CI_RUN_ID": "11111111-1111-4111-8111-111111111111",
                     "TRUSTED_CAPABILITY_CI_RUN_ID": "",
-                    "SOURCE_REPOSITORY": "StreamScapeTV/streamscape-media",
+                    "SOURCE_REPOSITORY": "StreamScapeTV/example-swift",
                     "SOURCE_REF": "2.1.7",
                     "SOURCE_IS_TAG": "true",
                     "RUNNER_TEMP": str(root),
@@ -323,11 +323,11 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
 
     def test_read_policy_accepts_actual_project_state_success_envelope_without_ok(self) -> None:
         response = {
-            "project_key": "streamscape-media",
+            "project_key": "fixture-project",
             "state": {
                 "repository_ci": {
                     "schemaVersion": 3,
-                    "repository": "StreamScapeTV/streamscape-media",
+                    "repository": "StreamScapeTV/example-swift",
                     "capabilities": [],
                     "hostPolicy": {"operatingSystems": {}},
                 }
@@ -345,7 +345,7 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
         valid_state = {
             "repository_ci": {
                 "schemaVersion": 3,
-                "repository": "StreamScapeTV/streamscape-media",
+                "repository": "StreamScapeTV/example-swift",
                 "capabilities": [],
                 "hostPolicy": {"operatingSystems": {}},
             }
@@ -354,9 +354,9 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
             "reported-error": {"ok": False, "code": "project_not_found"},
             "missing-project": {"state": valid_state},
             "wrong-project": {"project_key": "other-project", "state": valid_state},
-            "missing-state": {"project_key": "streamscape-media"},
-            "nonobject-state": {"project_key": "streamscape-media", "state": []},
-            "nonobject-envelope": ["streamscape-media", valid_state],
+            "missing-state": {"project_key": "fixture-project"},
+            "nonobject-state": {"project_key": "fixture-project", "state": []},
+            "nonobject-envelope": ["fixture-project", valid_state],
         }
         for name, response in cases.items():
             with self.subTest(name=name):
