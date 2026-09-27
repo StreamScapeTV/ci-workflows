@@ -1041,6 +1041,19 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertLess(script.index('"./${ENTRYPOINT}"'), script.index('project_response="$(curl'))
         self.assertIn('rm -f -- "${protected_state_file}"', script)
 
+    def test_execute_step_shell_parses_with_protected_project_state_heredoc(self) -> None:
+        script = self.steps_by_name["Execute fixed repository-owned entrypoint"]["run"]
+        result = subprocess.run(
+            ["bash", "-n"],
+            input=script,
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("\nPY_PROTECTED_STATE\n", script)
+
     def test_oci_publish_capability_is_release_scoped_and_uses_isolated_tool_auth(self) -> None:
         grant = {
             "repository_ci": {

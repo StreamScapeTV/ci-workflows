@@ -1265,24 +1265,24 @@ jobs:
                 "${protected_agent_state_url%/}/rest/v1/rpc/get_project_state")" || exit 1
               PROJECT_RESPONSE="${project_response}" EXPECTED_PROJECT="${PROTECTED_CONFORMANCE_PROJECT_KEY}" \
                 python3 - "${protected_state_file}" <<'PY_PROTECTED_STATE'
-              from pathlib import Path
-              import json
-              import os
-              import sys
+          from pathlib import Path
+          import json
+          import os
+          import sys
 
-              try:
-                  value = json.loads(os.environ["PROJECT_RESPONSE"])
-              except json.JSONDecodeError as exc:
-                  raise SystemExit("protected deployed conformance received invalid Agent State JSON") from exc
-              if not isinstance(value, dict) or value.get("project_key") != os.environ["EXPECTED_PROJECT"]:
-                  raise SystemExit("protected deployed conformance received mismatched Agent State project configuration")
-              state = value.get("state")
-              if not isinstance(state, dict):
-                  raise SystemExit("protected deployed conformance requires object-shaped Agent State project configuration")
-              path = Path(sys.argv[1])
-              path.write_text(json.dumps(state, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
-              path.chmod(0o600)
-              PY_PROTECTED_STATE
+          try:
+              value = json.loads(os.environ["PROJECT_RESPONSE"])
+          except json.JSONDecodeError as exc:
+              raise SystemExit("protected deployed conformance received invalid Agent State JSON") from exc
+          if not isinstance(value, dict) or value.get("project_key") != os.environ["EXPECTED_PROJECT"]:
+              raise SystemExit("protected deployed conformance received mismatched Agent State project configuration")
+          state = value.get("state")
+          if not isinstance(state, dict):
+              raise SystemExit("protected deployed conformance requires object-shaped Agent State project configuration")
+          path = Path(sys.argv[1])
+          path.write_text(json.dumps(state, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+          path.chmod(0o600)
+          PY_PROTECTED_STATE
               CI_PROTECTED_DEPLOYED_HTTPS_TARGET="${protected_https_target}" \
               CI_PROTECTED_DEPLOYED_WSS_TARGET="${protected_wss_target}" \
               CI_PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64="${protected_http_scenario}" \
