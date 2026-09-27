@@ -336,13 +336,40 @@ jobs:
           esac
 
           project_response="$(rpc get_project_state "$(jq -cn --arg project "${project_key}" '{p_project_key:$project}')")"
-          test "$(jq -r '.ok' <<<"${project_response}")" = true || {
-            echo "Swift binary read policy could not resolve trusted project configuration" >&2
-            exit 1
-          }
+          response_file="${RUNNER_TEMP}/swiftpm-read-policy-project-response.json"
           state_file="${RUNNER_TEMP}/swiftpm-read-policy-project-state.json"
           policy_file="${RUNNER_TEMP}/swiftpm-read-policy.json"
-          jq -c '.state' <<<"${project_response}" >"${state_file}"
+          printf '%s\n' "${project_response}" >"${response_file}"
+          if ! python3 - "${response_file}" "${project_key}" "${state_file}" <<'PY_PROJECT_STATE'
+          from pathlib import Path
+          import json
+          import sys
+
+          response_path = Path(sys.argv[1])
+          expected_project_key = sys.argv[2]
+          state_path = Path(sys.argv[3])
+          try:
+              value = json.loads(response_path.read_text(encoding="utf-8"))
+          except (OSError, json.JSONDecodeError) as error:
+              raise SystemExit("trusted project configuration response is not valid JSON") from error
+          if not isinstance(value, dict):
+              raise SystemExit("trusted project configuration response must be one object")
+          if value.get("ok") is False:
+              raise SystemExit("trusted project configuration response reported failure")
+          if value.get("project_key") != expected_project_key:
+              raise SystemExit("trusted project configuration response is bound to a different project")
+          state = value.get("state")
+          if not isinstance(state, dict):
+              raise SystemExit("trusted project configuration response is missing object-shaped state")
+          state_path.write_text(
+              json.dumps(state, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          PY_PROJECT_STATE
+          then
+            echo "Swift binary read policy could not resolve trusted project configuration" >&2
+            exit 1
+          fi
           if ! python3 central-ci/scripts/ci/swiftpm_binary.py resolve-read-policy \
             --project-state "${state_file}" \
             --repository "${SOURCE_REPOSITORY}" \
@@ -804,6 +831,9 @@ jobs:
             "${RUNNER_TEMP}/swiftpm-binary-prepare.json" \
             "${RUNNER_TEMP}/swiftpm-binary-publication-plan.json" \
             "${RUNNER_TEMP}/swiftpm-binary-publication-receipt.json" \
+            "${RUNNER_TEMP}/swiftpm-read-policy-project-response.json" \
+            "${RUNNER_TEMP}/swiftpm-read-policy-project-state.json" \
+            "${RUNNER_TEMP}/swiftpm-read-policy.json" \
             "${RUNNER_TEMP}/swiftpm-consumer-result-1.json" \
             "${RUNNER_TEMP}/swiftpm-consumer-result-2.json" \
             "${RUNNER_TEMP}/github-swiftpm-askpass.sh" \

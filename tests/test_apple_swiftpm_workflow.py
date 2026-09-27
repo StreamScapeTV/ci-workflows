@@ -93,6 +93,74 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
             if step.get("name") == "Validate private GitHub and artifact read policy"
         )
 
+    def _read_policy_script(self) -> str:
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        return next(
+            step["run"]
+            for step in workflow["jobs"]["publish"]["steps"]
+            if step.get("name") == "Resolve trusted private package read policy"
+        )
+
+    def _run_read_policy_step(
+        self, project_response: object
+    ) -> tuple[subprocess.CompletedProcess[str], dict[str, str], str]:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            curl = fake_bin / "curl"
+            curl.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json\n"
+                "import os\n"
+                "import sys\n"
+                "url = sys.argv[-1] if len(sys.argv) > 1 else ''\n"
+                "if url.endswith('/rpc/claim_ci_run'):\n"
+                "    print(json.dumps({\"ok\": True, \"run\": {\"project_key\": \"streamscape-media\", \"repository\": \"StreamScapeTV/streamscape-media\", \"ref\": \"2.1.7\", \"is_tag\": True, \"workflow_key\": \"release.apple\", \"test_profile\": \"swiftpm-package\"}}))\n"
+                "    raise SystemExit(0)\n"
+                "if url.endswith('/rpc/get_project_state'):\n"
+                "    print(os.environ['PROJECT_STATE_RESPONSE'])\n"
+                "    raise SystemExit(0)\n"
+                "raise SystemExit(97)\n",
+                encoding="utf-8",
+            )
+            curl.chmod(0o755)
+            work = root / "work"
+            work.mkdir()
+            (work / "central-ci").symlink_to(ROOT, target_is_directory=True)
+            github_output = root / "github-output.txt"
+            ci_log = root / "ci.log"
+            ci_log.write_text("", encoding="utf-8")
+            result = subprocess.run(
+                ["bash", "-c", self._read_policy_script()],
+                cwd=work,
+                env={
+                    **os.environ,
+                    "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                    "PROJECT_STATE_RESPONSE": json.dumps(project_response),
+                    "AGENT_STATE_SUPABASE_URL": "https://agent-state.invalid",
+                    "AGENT_STATE_SUPABASE_SECRET_KEY": "fixture-secret",
+                    "LIFECYCLE_CI_RUN_ID": "11111111-1111-4111-8111-111111111111",
+                    "TRUSTED_CAPABILITY_CI_RUN_ID": "",
+                    "SOURCE_REPOSITORY": "StreamScapeTV/streamscape-media",
+                    "SOURCE_REF": "2.1.7",
+                    "SOURCE_IS_TAG": "true",
+                    "RUNNER_TEMP": str(root),
+                    "GITHUB_OUTPUT": str(github_output),
+                    "CI_LOG": str(ci_log),
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            outputs: dict[str, str] = {}
+            if github_output.exists():
+                for line in github_output.read_text(encoding="utf-8").splitlines():
+                    key, separator, value = line.partition("=")
+                    if separator:
+                        outputs[key] = value
+            return result, outputs, ci_log.read_text(encoding="utf-8", errors="replace")
+
     def _run_private_controls(
         self, anonymous_mode: str, read_policy: str = "authenticated"
     ) -> tuple[subprocess.CompletedProcess[str], str, str, str]:
@@ -252,6 +320,60 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
                 curl_trace.read_text(encoding="utf-8", errors="replace") if curl_trace.exists() else "",
                 git_trace.read_text(encoding="utf-8", errors="replace") if git_trace.exists() else "",
             )
+
+    def test_read_policy_accepts_actual_project_state_success_envelope_without_ok(self) -> None:
+        response = {
+            "project_key": "streamscape-media",
+            "state": {
+                "repository_ci": {
+                    "schemaVersion": 3,
+                    "repository": "StreamScapeTV/streamscape-media",
+                    "capabilities": [],
+                    "hostPolicy": {"operatingSystems": {}},
+                }
+            },
+            "review_policy": "self_review_allowed",
+            "review_policy_version": 2,
+            "chat_supervision_version": 1,
+        }
+        result, outputs, private_log = self._run_read_policy_step(response)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(outputs.get("mode"), "credential-free")
+        self.assertIn("registry_read_policy=credential-free source=trusted-agent-state", private_log)
+
+    def test_read_policy_rejects_error_missing_mismatched_or_nonobject_project_state_envelopes(self) -> None:
+        valid_state = {
+            "repository_ci": {
+                "schemaVersion": 3,
+                "repository": "StreamScapeTV/streamscape-media",
+                "capabilities": [],
+                "hostPolicy": {"operatingSystems": {}},
+            }
+        }
+        cases = {
+            "reported-error": {"ok": False, "code": "project_not_found"},
+            "missing-project": {"state": valid_state},
+            "wrong-project": {"project_key": "other-project", "state": valid_state},
+            "missing-state": {"project_key": "streamscape-media"},
+            "nonobject-state": {"project_key": "streamscape-media", "state": []},
+            "nonobject-envelope": ["streamscape-media", valid_state],
+        }
+        for name, response in cases.items():
+            with self.subTest(name=name):
+                result, outputs, _ = self._run_read_policy_step(response)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("mode", outputs)
+                self.assertIn(
+                    "Swift binary read policy could not resolve trusted project configuration",
+                    result.stderr,
+                )
+
+    def test_read_policy_workflow_validates_project_identity_and_object_state_without_ok_requirement(self) -> None:
+        script = self._read_policy_script()
+        self.assertIn('value.get("project_key") != expected_project_key', script)
+        self.assertIn('not isinstance(state, dict)', script)
+        self.assertIn('value.get("ok") is False', script)
+        self.assertNotIn("jq -r '.ok' <<<" + '"${project_response}"', script)
 
     def test_private_controls_cover_github_git_and_generic_artifact_reads(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
