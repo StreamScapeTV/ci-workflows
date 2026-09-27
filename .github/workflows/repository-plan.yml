@@ -78,6 +78,16 @@ name: Repository-owned CI execution plan
         required: false
       APP_STORE_CONNECT_API_KEY_P8_BASE64:
         required: false
+      PROTECTED_DEPLOYED_HTTPS_TARGET:
+        required: false
+      PROTECTED_DEPLOYED_WSS_TARGET:
+        required: false
+      PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64:
+        required: false
+      PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO_GZIP_BASE64:
+        required: false
+      PROTECTED_DEPLOYED_SETUP_CREDENTIAL:
+        required: false
 
 permissions:
   contents: read
@@ -237,6 +247,11 @@ jobs:
       APP_STORE_CONNECT_KEY_ID: ${{ matrix.host_os == 'macos' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
       APP_STORE_CONNECT_ISSUER_ID: ${{ matrix.host_os == 'macos' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
       APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ matrix.host_os == 'macos' && secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 || '' }}
+      PROTECTED_DEPLOYED_HTTPS_TARGET: ${{ matrix.host_os == 'linux' && secrets.PROTECTED_DEPLOYED_HTTPS_TARGET || '' }}
+      PROTECTED_DEPLOYED_WSS_TARGET: ${{ matrix.host_os == 'linux' && secrets.PROTECTED_DEPLOYED_WSS_TARGET || '' }}
+      PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64: ${{ matrix.host_os == 'linux' && secrets.PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64 || '' }}
+      PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO_GZIP_BASE64: ${{ matrix.host_os == 'linux' && secrets.PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO_GZIP_BASE64 || '' }}
+      PROTECTED_DEPLOYED_SETUP_CREDENTIAL: ${{ matrix.host_os == 'linux' && secrets.PROTECTED_DEPLOYED_SETUP_CREDENTIAL || '' }}
 
   settle:
     if: ${{ always() }}

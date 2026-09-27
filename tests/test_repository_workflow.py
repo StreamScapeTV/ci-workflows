@@ -1,4 +1,6 @@
 from pathlib import Path
+import base64
+import gzip
 import hashlib
 import json
 import os
@@ -292,6 +294,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertIn("CI_HOST_CLASS", adoption["scriptEnvironment"])
         self.assertIn("CI_OPERATION", adoption["scriptEnvironment"])
         self.assertIn("CI_INPUTS_JSON", adoption["scriptEnvironment"])
+        self.assertIn("CI_PROTECTED_DEPLOYED_CONFORMANCE", adoption["scriptEnvironment"])
         self.assertGreaterEqual(len(adoption["adoptionSteps"]), 5)
         self.assertIn("raw_argv", adoption["forbiddenCallerSurface"])
         self.assertIn("runner_label", adoption["forbiddenCallerSurface"])
@@ -777,7 +780,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
     def test_private_agent_state_capability_grant_is_exactly_bound_and_fail_closed(self) -> None:
         self.assertEqual(
             set(self.contract["capabilityTypes"]),
-            {"private_network", "github_git", "registry_netrc", "gradle_maven", "registry_oci_publish"},
+            {"private_network", "github_git", "registry_netrc", "gradle_maven", "registry_oci_publish", "protected_deployed_conformance"},
         )
 
         no_run, no_run_values = self.run_capability_resolver(ci_run_id="")
@@ -805,6 +808,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertEqual(trusted_values["registry_netrc"], "true")
         self.assertEqual(trusted_values["gradle_maven"], "false")
         self.assertEqual(trusted_values["registry_oci_publish"], "false")
+        self.assertEqual(trusted_values["protected_deployed_conformance"], "false")
         self.assertEqual(trusted_values["auth_enabled"], "true")
 
         v2, v2_values = self.run_capability_resolver(
@@ -824,6 +828,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertEqual(v2_values["private_network"], "true")
         self.assertEqual(v2_values["gradle_maven"], "true")
         self.assertEqual(v2_values["registry_oci_publish"], "false")
+        self.assertEqual(v2_values["protected_deployed_conformance"], "false")
         self.assertEqual(v2_values["auth_enabled"], "true")
 
         v3, v3_values = self.run_capability_resolver(
@@ -851,6 +856,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertEqual(v3_values["private_network"], "true")
         self.assertEqual(v3_values["github_git"], "true")
         self.assertEqual(v3_values["registry_oci_publish"], "false")
+        self.assertEqual(v3_values["protected_deployed_conformance"], "false")
         self.assertEqual(v3_values["auth_enabled"], "true")
 
         invalid_v3, _ = self.run_capability_resolver(
@@ -916,6 +922,257 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertNotEqual(duplicate_capability.returncode, 0)
         self.assertIn("unique list", duplicate_capability.stderr)
 
+
+    def test_protected_deployed_conformance_is_full_linux_private_network_only(self) -> None:
+        grant = {
+            "repository_ci": {
+                "schemaVersion": 1,
+                "repository": "ExampleOrg/service-backend",
+                "capabilities": ["private_network", "protected_deployed_conformance"],
+            }
+        }
+        full, full_values = self.run_capability_resolver(
+            run_repository="ExampleOrg/service-backend",
+            operation="full",
+            host_os="linux",
+            project_state=grant,
+        )
+        self.assertEqual(full.returncode, 0, full.stderr)
+        self.assertEqual(full_values["private_network"], "true")
+        self.assertEqual(full_values["protected_deployed_conformance"], "true")
+        self.assertEqual(full_values["auth_enabled"], "false")
+        self.assertEqual(full_values["project_key"], "private-project")
+
+        build, build_values = self.run_capability_resolver(
+            run_repository="ExampleOrg/service-backend",
+            operation="build",
+            host_os="linux",
+            project_state=grant,
+        )
+        self.assertEqual(build.returncode, 0, build.stderr)
+        self.assertEqual(build_values["protected_deployed_conformance"], "false")
+
+        macos, macos_values = self.run_capability_resolver(
+            run_repository="ExampleOrg/service-backend",
+            operation="full",
+            host_os="macos",
+            project_state=grant,
+        )
+        self.assertEqual(macos.returncode, 0, macos.stderr)
+        self.assertEqual(macos_values["protected_deployed_conformance"], "false")
+
+        missing_network, _ = self.run_capability_resolver(
+            run_repository="ExampleOrg/service-backend",
+            operation="full",
+            host_os="linux",
+            project_state={
+                "repository_ci": {
+                    "schemaVersion": 1,
+                    "repository": "ExampleOrg/service-backend",
+                    "capabilities": ["protected_deployed_conformance"],
+                }
+            },
+        )
+        self.assertNotEqual(missing_network.returncode, 0)
+        self.assertIn("requires the reviewed private_network capability", missing_network.stderr)
+
+        materialize = self.steps_by_name["Materialize protected deployed conformance bundle"]
+        self.assertEqual(
+            materialize["if"],
+            "${{ steps.capabilities.outputs.protected_deployed_conformance == 'true' }}",
+        )
+        self.assertIn("get_project_state", materialize["run"])
+        self.assertIn("protected_deployed_conformance.py materialize", materialize["run"])
+        self.assertNotIn("jq -r '.ok'", materialize["run"])
+        for secret_name in (
+            "PROTECTED_DEPLOYED_HTTPS_TARGET",
+            "PROTECTED_DEPLOYED_WSS_TARGET",
+            "PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64",
+            "PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO_GZIP_BASE64",
+            "PROTECTED_DEPLOYED_SETUP_CREDENTIAL",
+        ):
+            self.assertIn(secret_name, self.workflow["on"]["workflow_call"]["secrets"])
+
+        execute = self.steps_by_name["Execute fixed repository-owned entrypoint"]
+        self.assertIn("CI_PROTECTED_DEPLOYED_CONFORMANCE", execute["run"])
+        self.assertIn("protected_deployed_conformance.py run", execute["run"])
+        self.assertIn("--source-root .", execute["run"])
+        self.assertIn('--artifact-dir "${CI_ARTIFACT_DIR}"', execute["run"])
+        self.assertNotIn("PROTECTED_DEPLOYED_HTTPS_TARGET", execute["env"])
+        self.assertNotIn("PROTECTED_DEPLOYED_SETUP_CREDENTIAL", execute["env"])
+
+        scrub = self.steps_by_name["Scrub configured CI secrets from private text evidence"]["env"]
+        self.assertIn("CI_SECRET_PROTECTED_DEPLOYED_HTTPS_TARGET", scrub)
+        self.assertIn("CI_SECRET_PROTECTED_DEPLOYED_SETUP_CREDENTIAL", scrub)
+        cleanup = self.steps_by_name["Cleanup ephemeral registry and repository evidence"]["run"]
+        self.assertIn("central-protected-deployed-conformance", cleanup)
+
+        plan = yaml.safe_load(
+            (ROOT / ".github/workflows/repository-plan.yml").read_text(encoding="utf-8")
+        )
+        child_secrets = plan["jobs"]["execute"]["secrets"]
+        for secret_name in (
+            "PROTECTED_DEPLOYED_HTTPS_TARGET",
+            "PROTECTED_DEPLOYED_WSS_TARGET",
+            "PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64",
+            "PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO_GZIP_BASE64",
+            "PROTECTED_DEPLOYED_SETUP_CREDENTIAL",
+        ):
+            self.assertIn("matrix.host_os == 'linux'", child_secrets[secret_name])
+
+        validation_secrets = self.dispatch["jobs"]["repository"]["secrets"]
+        release_secrets = self.dispatch["jobs"]["repository_release"]["secrets"]
+        self.assertIn("PROTECTED_DEPLOYED_HTTPS_TARGET", validation_secrets)
+        self.assertNotIn("PROTECTED_DEPLOYED_HTTPS_TARGET", release_secrets)
+
+    def test_protected_deployed_materialization_accepts_actual_project_state_envelope(self) -> None:
+        step = self.steps_by_name["Materialize protected deployed conformance bundle"]
+        state = {
+            "repository_ci": {
+                "schemaVersion": 1,
+                "repository": "ExampleOrg/service-backend",
+                "capabilities": ["private_network", "protected_deployed_conformance"],
+            },
+            "protected_deployed_conformance": {
+                "schemaVersion": 1,
+                "repository": "ExampleOrg/service-backend",
+                "operation": "full",
+                "entrypoint": {"kind": "python", "path": "scripts/probe.py"},
+                "environmentProjection": {
+                    "httpsTarget": "APP_API_BASE",
+                    "wssTarget": "APP_WS_URL",
+                    "httpScenarioPath": "APP_HTTP_SCENARIO",
+                    "websocketScenarioPath": "APP_WS_SCENARIO",
+                    "setupCredential": "APP_ADMIN_TOKEN",
+                    "releaseVersion": "APP_RELEASE_VERSION",
+                    "releaseSourceSha": "APP_RELEASE_SOURCE_SHA",
+                    "releaseImageDigest": "APP_RELEASE_IMAGE_DIGEST",
+                    "releaseChartDigest": "APP_RELEASE_CHART_DIGEST",
+                    "deployedImageDigest": "APP_DEPLOYED_IMAGE_DIGEST",
+                    "deployedChartDigest": "APP_DEPLOYED_CHART_DIGEST",
+                    "environmentSha256": "APP_ENVIRONMENT_SHA256",
+                    "runId": "APP_RUN_ID",
+                    "liveFlag": "APP_LIVE",
+                },
+                "identity": {
+                    "releaseVersion": "3.2.3",
+                    "releaseSourceSha": "a" * 40,
+                    "releaseImageDigest": "sha256:" + "1" * 64,
+                    "releaseChartDigest": "sha256:" + "2" * 64,
+                    "deployedImageDigest": "sha256:" + "1" * 64,
+                    "deployedChartDigest": "sha256:" + "2" * 64,
+                    "environmentSha256": "3" * 64,
+                },
+                "reset": {
+                    "request": {
+                        "method": "PATCH",
+                        "pathTemplate": "/admin/users/{subject}/subscription",
+                        "subject": {"scenario": "websocket", "jsonPointer": "/user_id"},
+                        "authorization": "setupCredential",
+                        "body": {"status": "inactive"},
+                        "expectedStatus": 200,
+                    },
+                    "verify": {
+                        "path": "/api/v1/subscription/entitlements",
+                        "authorization": {
+                            "scenario": "websocket",
+                            "jsonPointer": "/devices/observer/access_token",
+                        },
+                        "expectedStatus": 200,
+                        "jsonPointer": "/is_entitled",
+                        "equals": False,
+                    },
+                },
+            },
+        }
+        project_response = {
+            "project_key": "private-project",
+            "state": state,
+            "review_policy": "independent_required",
+            "review_policy_version": 1,
+        }
+        def scenario(value):
+            return base64.b64encode(
+                gzip.compress((json.dumps(value, separators=(",", ":")) + "\n").encode())
+            ).decode("ascii")
+        http = {
+            "schema_version": 1,
+            "namespace": "conformance-http",
+            "setup": [],
+            "cases": [],
+            "disabled_cases": [],
+            "cleanup": [],
+        }
+        websocket = {
+            "schema_version": 1,
+            "namespace": "conformance-websocket",
+            "user_id": "synthetic-user",
+            "devices": {
+                "observer": {
+                    "device_id": "synthetic-device",
+                    "access_token": "observer-access-token-123456",
+                }
+            },
+            "cases": [],
+            "cleanup": [],
+            "cleanup_snapshot": {"device": "observer"},
+        }
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            work = root / "work"
+            work.mkdir()
+            (work / "central-ci").symlink_to(ROOT, target_is_directory=True)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            curl = fake_bin / "curl"
+            curl.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json\n"
+                f"value = {project_response!r}\n"
+                "print(json.dumps(value))\n",
+                encoding="utf-8",
+            )
+            curl.chmod(0o755)
+            output = root / "github-output"
+            output.write_text("", encoding="utf-8")
+            result = subprocess.run(
+                ["bash", "-c", step["run"]],
+                cwd=work,
+                env={
+                    **os.environ,
+                    "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                    "PROJECT_KEY": "private-project",
+                    "LIFECYCLE_CI_RUN_ID": "11111111-1111-4111-8111-111111111111",
+                    "TRUSTED_CAPABILITY_CI_RUN_ID": "",
+                    "SOURCE_REPOSITORY": "ExampleOrg/service-backend",
+                    "OPERATION": "full",
+                    "AGENT_STATE_SUPABASE_URL": "https://agent-state.invalid",
+                    "AGENT_STATE_SUPABASE_SECRET_KEY": "fixture-secret",
+                    "CI_PROTECTED_DEPLOYED_HTTPS_TARGET": "http://127.0.0.1:8123",
+                    "CI_PROTECTED_DEPLOYED_WSS_TARGET": "ws://127.0.0.1:8123/api/v1/realtime",
+                    "CI_PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64": scenario(http),
+                    "CI_PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO_GZIP_BASE64": scenario(websocket),
+                    "CI_PROTECTED_DEPLOYED_SETUP_CREDENTIAL": "setup-credential-1234567890",
+                    "RUNNER_TEMP": str(root),
+                    "GITHUB_OUTPUT": str(output),
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            values = dict(
+                line.split("=", 1)
+                for line in output.read_text(encoding="utf-8").splitlines()
+                if "=" in line
+            )
+            self.assertEqual(values["run_id"], "11111111-1111-4111-8111-111111111111")
+            protected_root = Path(values["root"])
+            self.assertTrue((protected_root / "metadata.json").is_file())
+            self.assertEqual(
+                stat.S_IMODE((protected_root / "metadata.json").stat().st_mode),
+                0o600,
+            )
 
     def test_oci_publish_capability_is_release_scoped_and_uses_isolated_tool_auth(self) -> None:
         grant = {
@@ -1106,6 +1363,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         for capability in ("private_network", "github_git", "registry_netrc", "gradle_maven"):
             self.assertEqual(values[capability], "true")
         self.assertEqual(values["registry_oci_publish"], "false")
+        self.assertEqual(values["protected_deployed_conformance"], "false")
         self.assertEqual(values["auth_enabled"], "true")
 
         wrong_parent, _ = self.run_capability_resolver(
@@ -1999,6 +2257,10 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertEqual(
             inventory["scripts"]["repository_log_timeline"],
             "scripts/ci/repository_log_timeline.py",
+        )
+        self.assertEqual(
+            inventory["scripts"]["protected_deployed_conformance"],
+            "scripts/ci/protected_deployed_conformance.py",
         )
         self.assertFalse(
             (ROOT / ".github/workflows/repository-build.yml").exists()

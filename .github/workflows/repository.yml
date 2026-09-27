@@ -90,6 +90,16 @@ name: Repository-owned CI
         required: false
       APP_STORE_CONNECT_API_KEY_P8_BASE64:
         required: false
+      PROTECTED_DEPLOYED_HTTPS_TARGET:
+        required: false
+      PROTECTED_DEPLOYED_WSS_TARGET:
+        required: false
+      PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64:
+        required: false
+      PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO_GZIP_BASE64:
+        required: false
+      PROTECTED_DEPLOYED_SETUP_CREDENTIAL:
+        required: false
 
 permissions:
   contents: read
@@ -681,7 +691,7 @@ jobs:
           trusted = value.get("trustedCapabilityGrant")
           if not isinstance(capability_types, dict) or not isinstance(trusted, dict):
               raise SystemExit("repository CI capability contract is incomplete")
-          expected = {"private_network", "github_git", "registry_netrc", "gradle_maven", "registry_oci_publish"}
+          expected = {"private_network", "github_git", "registry_netrc", "gradle_maven", "registry_oci_publish", "protected_deployed_conformance"}
           if set(capability_types) != expected:
               raise SystemExit("repository CI capability type set is not the reviewed v1 set")
           if trusted.get("source") != "Agent State project configuration":
@@ -704,6 +714,7 @@ jobs:
               for capability in known.split(","):
                   output.write(f"{capability}=false\n")
               output.write("auth_enabled=false\n")
+              output.write("project_key=\n")
           PY_NONE
           }
 
@@ -796,13 +807,13 @@ jobs:
 
           project_response="$(rpc get_project_state "$(jq -cn --arg project "${project_key}" '{p_project_key:$project}')")"
           project_state="$(jq -c '.state // {}' <<<"${project_response}")"
-          PROJECT_STATE="${project_state}" python3 - "${known_capabilities}" "${SOURCE_REPOSITORY}" "${OPERATION}" "${HOST_OS}" "${capability_context}" "${GITHUB_OUTPUT}" <<'PY_CAPABILITIES'
+          PROJECT_STATE="${project_state}" python3 - "${known_capabilities}" "${SOURCE_REPOSITORY}" "${OPERATION}" "${HOST_OS}" "${capability_context}" "${project_key}" "${GITHUB_OUTPUT}" <<'PY_CAPABILITIES'
           from pathlib import Path
           import json
           import os
           import sys
 
-          known_raw, expected_repository, operation, host_os, capability_context, output_path = sys.argv[1:7]
+          known_raw, expected_repository, operation, host_os, capability_context, project_key, output_path = sys.argv[1:8]
           known = set(known_raw.split(","))
           state = json.loads(os.environ["PROJECT_STATE"])
           if not isinstance(state, dict):
@@ -836,6 +847,14 @@ jobs:
               or capability_context not in {"repository_lifecycle", "repository_parent"}
           ):
               enabled_capabilities.discard("registry_oci_publish")
+          if (
+              operation != "full"
+              or host_os != "linux"
+              or capability_context not in {"repository_lifecycle", "repository_parent"}
+          ):
+              enabled_capabilities.discard("protected_deployed_conformance")
+          if "protected_deployed_conformance" in enabled_capabilities and "private_network" not in enabled_capabilities:
+              raise SystemExit("protected deployed conformance requires the reviewed private_network capability")
 
           with Path(output_path).open("a", encoding="utf-8") as output:
               for capability in sorted(known):
@@ -845,6 +864,7 @@ jobs:
                   for value in ("github_git", "registry_netrc", "gradle_maven")
               )
               output.write(f"auth_enabled={'true' if auth_enabled else 'false'}\n")
+              output.write(f"project_key={project_key}\n")
           PY_CAPABILITIES
 
       - name: Connect reviewed private network capability
@@ -853,6 +873,74 @@ jobs:
         env:
           TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+
+      - name: Materialize protected deployed conformance bundle
+        id: protected_conformance
+        if: ${{ steps.capabilities.outputs.protected_deployed_conformance == 'true' }}
+        shell: bash
+        env:
+          PROJECT_KEY: ${{ steps.capabilities.outputs.project_key }}
+          LIFECYCLE_CI_RUN_ID: ${{ inputs.ci_run_id }}
+          TRUSTED_CAPABILITY_CI_RUN_ID: ${{ inputs.trusted_capability_ci_run_id }}
+          SOURCE_REPOSITORY: ${{ inputs.repository }}
+          OPERATION: ${{ inputs.operation }}
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          CI_PROTECTED_DEPLOYED_HTTPS_TARGET: ${{ secrets.PROTECTED_DEPLOYED_HTTPS_TARGET }}
+          CI_PROTECTED_DEPLOYED_WSS_TARGET: ${{ secrets.PROTECTED_DEPLOYED_WSS_TARGET }}
+          CI_PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64: ${{ secrets.PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64 }}
+          CI_PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO_GZIP_BASE64: ${{ secrets.PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO_GZIP_BASE64 }}
+          CI_PROTECTED_DEPLOYED_SETUP_CREDENTIAL: ${{ secrets.PROTECTED_DEPLOYED_SETUP_CREDENTIAL }}
+        run: |
+          set -Eeuo pipefail
+          : "${PROJECT_KEY:?protected deployed conformance requires a resolved Agent State project}"
+          : "${AGENT_STATE_SUPABASE_URL:?Agent State URL is required for protected deployed conformance}"
+          : "${AGENT_STATE_SUPABASE_SECRET_KEY:?Agent State secret is required for protected deployed conformance}"
+          capability_run_id="${TRUSTED_CAPABILITY_CI_RUN_ID:-${LIFECYCLE_CI_RUN_ID}}"
+          test -n "${capability_run_id}" || { echo "protected deployed conformance requires one trusted Agent State CI run" >&2; exit 2; }
+
+          headers=(
+            -H "apikey: ${AGENT_STATE_SUPABASE_SECRET_KEY}"
+            -H "Content-Type: application/json"
+            -H "Content-Profile: agent_api"
+            -H "Accept-Profile: agent_api"
+          )
+          project_response="$(curl --fail --silent --show-error \
+            "${headers[@]}" \
+            --data "$(jq -cn --arg project "${PROJECT_KEY}" '{p_project_key:$project}')" \
+            "${AGENT_STATE_SUPABASE_URL%/}/rest/v1/rpc/get_project_state")"
+          state_file="${RUNNER_TEMP}/central-protected-deployed-project-state.json"
+          PROJECT_RESPONSE="${project_response}" python3 - "${PROJECT_KEY}" "${state_file}" <<'PY_PROJECT_STATE'
+          import json
+          import os
+          from pathlib import Path
+          import sys
+
+          expected_project, output_path = sys.argv[1:3]
+          value = json.loads(os.environ["PROJECT_RESPONSE"])
+          if not isinstance(value, dict) or value.get("project_key") != expected_project:
+              raise SystemExit("protected deployed conformance received mismatched Agent State project configuration")
+          state = value.get("state")
+          if not isinstance(state, dict):
+              raise SystemExit("protected deployed conformance requires object-shaped Agent State project configuration")
+          path = Path(output_path)
+          path.write_text(json.dumps(state, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+          path.chmod(0o600)
+          PY_PROJECT_STATE
+
+          protected_root="${RUNNER_TEMP}/central-protected-deployed-conformance"
+          materialized="$(python3 central-ci/scripts/ci/protected_deployed_conformance.py materialize \
+            --project-state "${state_file}" \
+            --repository "${SOURCE_REPOSITORY}" \
+            --operation "${OPERATION}" \
+            --run-id "${capability_run_id}" \
+            --output-root "${protected_root}")"
+          rm -f -- "${state_file}"
+          test "$(jq -r '.root' <<<"${materialized}")" = "${protected_root}" || exit 1
+          {
+            printf 'root=%s\n' "${protected_root}"
+            printf 'run_id=%s\n' "${capability_run_id}"
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Configure ephemeral generic package-manager authentication
         id: registry_auth
@@ -1056,6 +1144,9 @@ jobs:
           OCI_HELM_REPOSITORY_CONFIG: ${{ steps.oci_publish_auth.outputs.helm_repository_config }}
           OCI_HELM_REPOSITORY_CACHE: ${{ steps.oci_publish_auth.outputs.helm_repository_cache }}
           OCI_REGISTRY_HOST: ${{ steps.oci_publish_auth.outputs.registry_host }}
+          PROTECTED_CONFORMANCE_ENABLED: ${{ steps.capabilities.outputs.protected_deployed_conformance }}
+          PROTECTED_CONFORMANCE_ROOT: ${{ steps.protected_conformance.outputs.root }}
+          PROTECTED_CONFORMANCE_RUN_ID: ${{ steps.protected_conformance.outputs.run_id }}
           CHECKPOINT_ENABLED: ${{ (inputs.ci_run_id != '' || inputs.upload_private_log) && steps.log_seed.outcome == 'success' && 'true' || 'false' }}
           CHECKPOINT_FILE_ID: ${{ steps.log_seed.outputs.file_id }}
           CHECKPOINT_SEED_SHA256: ${{ steps.log_seed.outputs.file_sha256 }}
@@ -1079,6 +1170,11 @@ jobs:
           CI_SECRET_REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           CI_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
           CI_SECRET_REGISTRY_WRITE_TOKEN: ${{ secrets.REGISTRY_WRITE_TOKEN }}
+          CI_SECRET_PROTECTED_DEPLOYED_HTTPS_TARGET: ${{ secrets.PROTECTED_DEPLOYED_HTTPS_TARGET }}
+          CI_SECRET_PROTECTED_DEPLOYED_WSS_TARGET: ${{ secrets.PROTECTED_DEPLOYED_WSS_TARGET }}
+          CI_SECRET_PROTECTED_DEPLOYED_HTTP_SCENARIO: ${{ secrets.PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64 }}
+          CI_SECRET_PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO: ${{ secrets.PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO_GZIP_BASE64 }}
+          CI_SECRET_PROTECTED_DEPLOYED_SETUP_CREDENTIAL: ${{ secrets.PROTECTED_DEPLOYED_SETUP_CREDENTIAL }}
           CI_SECRET_APPLE_TEAM_ID: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APPLE_TEAM_ID || '' }}
           CI_SECRET_APP_STORE_CONNECT_KEY_ID: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
           CI_SECRET_APP_STORE_CONNECT_ISSUER_ID: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
@@ -1094,6 +1190,7 @@ jobs:
           export CI_HOST_CLASS="${HOST_CLASS}"
           export CI_OPERATION="${OPERATION}"
           export CI_INPUTS_JSON="${NORMALIZED_INPUTS}"
+          export CI_PROTECTED_DEPLOYED_CONFORMANCE="${PROTECTED_CONFORMANCE_ENABLED}"
           if test "${OCI_PUBLISH_ENABLED}" = true; then
             test -n "${OCI_AUTH_FILE}" && test -n "${OCI_HELM_REGISTRY_CONFIG}" \
               && test -n "${OCI_REGISTRY_HOST}" || {
@@ -1189,6 +1286,11 @@ jobs:
             CI_SECRET_REGISTRY_USERNAME \
             CI_SECRET_REGISTRY_READ_TOKEN \
             CI_SECRET_REGISTRY_WRITE_TOKEN \
+            CI_SECRET_PROTECTED_DEPLOYED_HTTPS_TARGET \
+            CI_SECRET_PROTECTED_DEPLOYED_WSS_TARGET \
+            CI_SECRET_PROTECTED_DEPLOYED_HTTP_SCENARIO \
+            CI_SECRET_PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO \
+            CI_SECRET_PROTECTED_DEPLOYED_SETUP_CREDENTIAL \
             CI_SECRET_APPLE_TEAM_ID \
             CI_SECRET_APP_STORE_CONNECT_KEY_ID \
             CI_SECRET_APP_STORE_CONNECT_ISSUER_ID \
@@ -1198,6 +1300,19 @@ jobs:
           (
             cd source
             "./${ENTRYPOINT}"
+            product_status=$?
+            if test "${product_status}" -eq 0 && test "${PROTECTED_CONFORMANCE_ENABLED}" = true; then
+              python3 ../central-ci/scripts/ci/protected_deployed_conformance.py run \
+                --source-root . \
+                --config-root "${PROTECTED_CONFORMANCE_ROOT}" \
+                --repository "${{ inputs.repository }}" \
+                --operation "${OPERATION}" \
+                --run-id "${PROTECTED_CONFORMANCE_RUN_ID}" \
+                --log-dir "${CI_LOG_DIR}" \
+                --artifact-dir "${CI_ARTIFACT_DIR}"
+              product_status=$?
+            fi
+            exit "${product_status}"
           ) 2>&1 | python3 central-ci/scripts/ci/repository_log_capture.py \
             --log-path "${CI_LOG}" \
             --overlap-bytes "${capture_overlap_bytes}"
@@ -1261,6 +1376,11 @@ jobs:
           CI_SECRET_REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           CI_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
           CI_SECRET_REGISTRY_WRITE_TOKEN: ${{ secrets.REGISTRY_WRITE_TOKEN }}
+          CI_SECRET_PROTECTED_DEPLOYED_HTTPS_TARGET: ${{ secrets.PROTECTED_DEPLOYED_HTTPS_TARGET }}
+          CI_SECRET_PROTECTED_DEPLOYED_WSS_TARGET: ${{ secrets.PROTECTED_DEPLOYED_WSS_TARGET }}
+          CI_SECRET_PROTECTED_DEPLOYED_HTTP_SCENARIO: ${{ secrets.PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64 }}
+          CI_SECRET_PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO: ${{ secrets.PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO_GZIP_BASE64 }}
+          CI_SECRET_PROTECTED_DEPLOYED_SETUP_CREDENTIAL: ${{ secrets.PROTECTED_DEPLOYED_SETUP_CREDENTIAL }}
           CI_SECRET_APPLE_TEAM_ID: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APPLE_TEAM_ID || '' }}
           CI_SECRET_APP_STORE_CONNECT_KEY_ID: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
           CI_SECRET_APP_STORE_CONNECT_ISSUER_ID: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
@@ -1577,6 +1697,7 @@ jobs:
           rm -rf -- \
             "${RUNNER_TEMP}/central-registry-auth" \
             "${RUNNER_TEMP}/central-oci-publish" \
+            "${RUNNER_TEMP}/central-protected-deployed-conformance" \
             "${RUNNER_TEMP}/repository-ci-logs" \
             "${RUNNER_TEMP}/repository-ci-artifacts"
           rm -f -- \
@@ -1585,6 +1706,7 @@ jobs:
             "${RUNNER_TEMP}/central-repository-ci-log-checkpoint-seed.txt" \
             "${RUNNER_TEMP}/central-repository-ci-log-checkpoint-status.json" \
             "${RUNNER_TEMP}/central-repository-ci-timeline.json" \
+            "${RUNNER_TEMP}/central-protected-deployed-project-state.json" \
             "${RUNNER_TEMP}/central-repository-ci-artifact-selection.json" \
             "${RUNNER_TEMP}/central-repository-ci-evidence.zip"
 

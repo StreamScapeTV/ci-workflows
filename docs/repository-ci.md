@@ -97,7 +97,7 @@ Central sets these host values before invoking the repository entrypoint:
 
 ## Capability lifetime
 
-Shared capabilities such as `private_network`, `github_git`, `registry_netrc`, `gradle_maven`, and `registry_oci_publish` are established by Central before `.ci/*` execution and remain available for the full repository operation and Central cleanup lifecycle. Product scripts consume the resulting environment/tool defaults but never acquire the underlying credentials.
+Shared capabilities such as `private_network`, `github_git`, `registry_netrc`, `gradle_maven`, `registry_oci_publish`, and `protected_deployed_conformance` are established by Central before `.ci/*` execution and remain available for the full repository operation and Central cleanup lifecycle. Product scripts consume the resulting environment/tool defaults but never acquire the underlying credentials.
 
 ## What host-class proof establishes
 
@@ -133,6 +133,7 @@ The frozen v1 non-host capability catalog is:
 - `registry_netrc` — Central configures ephemeral HTTPS package-registry read authentication through the operation's tool defaults.
 - `gradle_maven` — Central configures ephemeral Gradle private-Maven read properties.
 - `registry_oci_publish` — for an authorized Linux repository `release`, Central creates isolated Buildah/Skopeo and Helm registry authentication using the reviewed private registry write credential. Repository code receives authenticated tool defaults plus the fixed registry host, never the raw write token; image/chart namespaces and publication coordinates remain repository-owned.
+- `protected_deployed_conformance` — Linux `full` validation only, and only when the same trusted grant also includes `private_network`. Central resolves a separate private `protected_deployed_conformance` Agent State descriptor bound to the exact repository/run, writes the approved HTTP/WSS scenario documents as mode-0600 files, projects a finite protected bundle into repository-owned environment names, executes one tracked no-argv Python certifier after the ordinary `.ci/test-full.sh` succeeds, stores only bounded private diagnostics/evidence, performs the descriptor's same-origin reset/readback, then deletes the private bundle. Public callers cannot select the target, scenario, credential, entrypoint, environment names, reset target, expected protocol statuses, or pass/defer semantics.
 
 Capability authorization is private Agent State policy. Repository source cannot enable a capability,
 choose a secret, select a private host, or provide an environment map.
@@ -164,6 +165,7 @@ The supported repository-script interface is finite:
 | `CI_ARTIFACT_DIR` | Always | Writable Central-owned directory for bounded artifacts. |
 | `CI_PROGRESS_FILE` | Always | Writable Central-owned text file for progress/heartbeat information. |
 | `CI_OCI_REGISTRY` | `registry_oci_publish` Linux release only | Read-only fixed private OCI registry host. |
+| `CI_PROTECTED_DEPLOYED_CONFORMANCE` | `protected_deployed_conformance` Linux full only | Informational `true`/`false`; protected targets, scenarios, credentials and identity values are passed only to the separately executed protected certifier, not through `CI_INPUTS_JSON`. |
 | `CI_APPLE_TEAM_ID` | Authorized macOS `release` only | Existing Apple signing team identifier supplied by Central. |
 | `CI_APP_STORE_CONNECT_KEY_ID` | Authorized macOS `release` only | Existing App Store Connect API key identifier supplied by Central. |
 | `CI_APP_STORE_CONNECT_ISSUER_ID` | Authorized macOS `release` only | Existing App Store Connect issuer identifier supplied by Central. |
@@ -274,6 +276,14 @@ A generic configuration example is:
 
 This policy is private. Public Central source and documentation do not contain the concrete migration
 ledger or consumer-to-capability/host bindings.
+
+### Protected deployed-conformance descriptor
+
+The generic capability authorization remains in `repository_ci.capabilities`. When `protected_deployed_conformance` is granted, the same private project state must also carry a separate `protected_deployed_conformance` descriptor. It is not a public workflow input. Schema version 1 binds exactly one repository, the `full` operation, one tracked `scripts/*.py` or `tools/*.py` no-argv entrypoint, a finite environment projection, immutable release/deployed identities, and a bounded same-origin reset/readback plan. The confidential target URLs, compressed scenario JSON and setup credential remain fixed Central secrets and are never stored in Agent State.
+
+The environment projection maps only the finite bundle fields (`httpsTarget`, `wssTarget`, the two mode-0600 scenario paths, `setupCredential`, immutable release/deployed identities, environment hash, run id and a fixed live flag) to repository-owned variable names. Central rejects duplicate names and Central-owned prefixes such as `CI_`, `GITHUB_`, `RUNNER_`, `AGENT_STATE_`, registry, Drive or runner credential variables. The protected certifier is executed only after the normal tracked `full` entrypoint succeeds. Its stdout must be one bounded JSON object; protected targets, scenario paths and setup credentials are rejected from the retained evidence.
+
+The reset descriptor is lifecycle-only: it cannot change conformance expectations or pass/defer decisions. It may perform one same-origin authenticated POST/PATCH/DELETE with a subject selected from a protected scenario, followed by one same-origin GET readback whose exact scalar JSON-pointer value is checked. Redirects, transport errors, missing selectors, non-200 statuses, failed readback or incomplete private-file cleanup fail the Repository CI operation.
 
 ## Release authorization boundary
 
