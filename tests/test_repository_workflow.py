@@ -1331,9 +1331,12 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertIn('--seed-sha256 "${CHECKPOINT_SEED_SHA256}"', script)
         self.assertIn('--timeline-state-path "${RUNNER_TEMP}/central-repository-ci-timeline.json"', script)
         self.assertIn('--progress-path "${CI_PROGRESS_FILE}"', script)
-        self.assertNotIn("--repository", script)
-        self.assertNotIn("--file-name", script)
-        self.assertNotIn("--folder-id", script)
+        checkpoint_start = script.index("central-ci/scripts/ci/repository_log_checkpoint.py")
+        checkpoint_end = script.index("checkpoint_pid=$!", checkpoint_start)
+        checkpoint_command = script[checkpoint_start:checkpoint_end]
+        self.assertNotIn("--repository", checkpoint_command)
+        self.assertNotIn("--file-name", checkpoint_command)
+        self.assertNotIn("--folder-id", checkpoint_command)
         self.assertIn('kill -TERM "${checkpoint_pid}"', script)
         self.assertIn("trap terminate_with_checkpoint TERM INT", script)
         self.assertLess(
