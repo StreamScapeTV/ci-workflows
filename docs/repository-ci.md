@@ -97,7 +97,7 @@ Central sets these host values before invoking the repository entrypoint:
 
 ## Capability lifetime
 
-Shared capabilities such as `private_network`, `github_git`, `registry_netrc`, `gradle_maven`, `registry_oci_publish`, and `protected_deployed_conformance` are established by Central before `.ci/*` execution and remain available for the full repository operation and Central cleanup lifecycle. Product scripts consume the resulting environment/tool defaults but never acquire the underlying credentials.
+Shared capability authorization is resolved by Central before `.ci/*` execution. Long-lived operation capabilities such as `private_network`, `github_git`, `registry_netrc`, `gradle_maven`, and `registry_oci_publish` are established for the reviewed execution lifetime. `protected_deployed_conformance` is different by design: the ordinary tracked `full` entrypoint sees only its informational enablement bit; Central materializes the protected bundle only after that entrypoint succeeds, then executes the separately bound certifier and deterministic reset before cleanup. Product scripts never acquire Central infrastructure credentials.
 
 ## What host-class proof establishes
 

@@ -214,8 +214,13 @@ class ProtectedDeployedConformanceTests(unittest.TestCase):
         script.parent.mkdir(parents=True)
         body = f'''from __future__ import annotations\nimport json\nimport os\nfrom pathlib import Path\nimport stat\nassert os.environ["APP_LIVE_E2E"] == "1"\nassert os.environ["APP_RELEASE_VERSION"] == "3.2.3"\nassert os.environ["APP_RELEASE_SOURCE_SHA"] == "{'a'*40}"\nfor name in ("APP_HTTP_SCENARIO", "APP_WS_SCENARIO"):\n    path = Path(os.environ[name])\n    assert path.is_file() and not path.is_symlink()\n    assert stat.S_IMODE(path.stat().st_mode) == 0o600\nassert os.environ["APP_ADMIN_TOKEN"] == "setup-credential-1234567890"\nif {fail!r}:\n    raise SystemExit(7)\nprint(json.dumps({{"schema_version": 1, "outcome": "passed", "release": os.environ["APP_RELEASE_VERSION"], "run_id": os.environ["APP_PROTECTED_RUN_ID"]}}, sort_keys=True, separators=(",", ":")))\n'''
         script.write_text(body, encoding="utf-8")
+        version = subprocess.run(
+            [sys.executable, "-c", "import platform; print(platform.python_version())"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        (source / ".python-version").write_text(version + "\n", encoding="utf-8")
         subprocess.run(["git", "init", "-q"], cwd=source, check=True)
-        subprocess.run(["git", "add", "scripts/protected_probe.py"], cwd=source, check=True)
+        subprocess.run(["git", "add", "scripts/protected_probe.py", ".python-version"], cwd=source, check=True)
         return source
 
     def test_materialize_creates_only_private_bounded_files(self) -> None:
@@ -281,6 +286,16 @@ class ProtectedDeployedConformanceTests(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("material is absent", result.stderr)
+
+    def test_materialize_rejects_deployed_identity_mismatch_before_network(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            state = _project_state()
+            state["protected_deployed_conformance"]["identity"]["deployedImageDigest"] = "sha256:" + "9" * 64
+            result, output_root = self._materialize(root, state=state)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("deployed image identity does not match", result.stderr)
+            self.assertFalse(output_root.exists())
 
     def test_run_executes_tracked_certifier_writes_bounded_evidence_and_resets(self) -> None:
         with tempfile.TemporaryDirectory() as td:

@@ -32,7 +32,9 @@ CAPABILITY = "protected_deployed_conformance"
 CONFIG_KEY = "protected_deployed_conformance"
 SCHEMA_VERSION = 1
 MAX_SCENARIO_BYTES = 512 * 1024
+MAX_SCENARIO_TRANSPORT_BYTES = 1024 * 1024
 MAX_CHILD_TEXT_BYTES = 4 * 1024 * 1024
+MAX_EVIDENCE_BYTES = 256 * 1024
 MAX_SETUP_CREDENTIAL_BYTES = 4096
 MAX_RESET_BODY_BYTES = 4096
 RUN_TIMEOUT_SECONDS = 30 * 60
@@ -189,7 +191,7 @@ def _safe_url(value: str, *, websocket: bool) -> str:
 
 
 def _decode_scenario(raw: str, label: str) -> tuple[bytes, dict[str, Any]]:
-    if not raw or len(raw) > 64 * 1024:
+    if not raw or len(raw.encode("ascii", errors="ignore")) > MAX_SCENARIO_TRANSPORT_BYTES:
         raise ProtectedConformanceError(f"{label} protected scenario transport is missing or oversized")
     try:
         compressed = base64.b64decode(raw, validate=True)
@@ -328,6 +330,10 @@ def _validate_config(project_state: dict[str, Any], *, repository: str, operatio
     if len(set(normalized_projection.values())) != len(normalized_projection):
         raise ProtectedConformanceError("protected environment projection names must be unique")
     identity = _validate_identity(value.get("identity"))
+    if identity["deployedImageDigest"] != identity["releaseImageDigest"]:
+        raise ProtectedConformanceError("protected deployed image identity does not match the immutable release")
+    if identity["deployedChartDigest"] != identity["releaseChartDigest"]:
+        raise ProtectedConformanceError("protected deployed chart identity does not match the immutable release")
     reset = _validate_reset(value.get("reset"))
     return {
         "entrypoint": entrypoint_path,
@@ -459,6 +465,39 @@ def _tracked_entrypoint(source_root: Path, relative: str) -> Path:
     if tracked.returncode != 0:
         raise ProtectedConformanceError("protected entrypoint is not tracked in the exact source")
     return resolved
+
+
+def _repository_python(source_root: Path) -> str:
+    version_file = source_root / ".python-version"
+    if version_file.is_symlink() or not version_file.is_file():
+        raise ProtectedConformanceError("protected Python certifier requires one tracked .python-version file")
+    tracked = subprocess.run(
+        ["git", "-C", str(source_root), "ls-files", "--error-unmatch", "--", ".python-version"],
+        capture_output=True, text=True, check=False,
+    )
+    if tracked.returncode != 0:
+        raise ProtectedConformanceError("protected Python certifier .python-version is not tracked")
+    version = version_file.read_text(encoding="utf-8").strip()
+    if re.fullmatch(r"3\.[0-9]{1,2}\.[0-9]{1,2}", version) is None:
+        raise ProtectedConformanceError("protected Python certifier .python-version is invalid")
+    major_minor = ".".join(version.split(".")[:2])
+    candidates = [
+        f"/opt/hostedtoolcache/Python/{version}/x64/bin/python",
+        f"/opt/hostedtoolcache/Python/{version}/arm64/bin/python",
+        f"python{major_minor}",
+        "python",
+    ]
+    for candidate in candidates:
+        try:
+            probe = subprocess.run(
+                [candidate, "-c", "import platform; print(platform.python_version())"],
+                capture_output=True, text=True, check=False, timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if probe.returncode == 0 and probe.stdout.strip() == version:
+            return candidate
+    raise ProtectedConformanceError("protected Python certifier exact tracked interpreter is unavailable")
 
 
 def _protected_strings(value: Any) -> set[str]:
@@ -654,6 +693,7 @@ def run(args: argparse.Namespace) -> int:
     if metadata.get("runId") != args.run_id:
         raise ProtectedConformanceError("protected deployed-conformance metadata run identity is invalid")
     entrypoint = _tracked_entrypoint(source_root, str(metadata.get("entrypoint", "")))
+    interpreter = _repository_python(source_root)
 
     log_dir = Path(args.log_dir)
     artifact_dir = Path(args.artifact_dir)
@@ -707,7 +747,7 @@ def run(args: argparse.Namespace) -> int:
     try:
         try:
             result = subprocess.run(
-                [sys.executable, str(entrypoint)],
+                [interpreter, str(entrypoint)],
                 cwd=source_root,
                 env=child_env,
                 text=True,
@@ -721,7 +761,9 @@ def run(args: argparse.Namespace) -> int:
             else:
                 evidence = _loads_object(result.stdout.strip(), "protected deployed-conformance evidence")
                 serialized = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
-                if any(secret in serialized for secret in protected_evidence_values):
+                if len(serialized.encode("utf-8")) > MAX_EVIDENCE_BYTES:
+                    child_error = "protected deployed-conformance evidence exceeds the reviewed bound"
+                elif any(secret in serialized for secret in protected_evidence_values):
                     child_error = "protected deployed-conformance evidence contains confidential material"
                 else:
                     _write_private(evidence_path, (serialized + "\n").encode())
