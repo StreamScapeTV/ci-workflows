@@ -44,17 +44,6 @@ class AndroidSearchPerformanceProfileContractTest(unittest.TestCase):
         self.assertNotIn("TEST_FILTER", body)
         self.assertNotIn("inputs.", body)
 
-    def test_full_excludes_host_sensitive_performance_class(self) -> None:
-        body = self.profile_body("full")
-        self.assertIn("android-full-correctness.init.gradle", body)
-        self.assertIn("excludeTestsMatching", body)
-        self.assertIn("${performance_test_class}", body)
-        self.assertIn('--init-script "${correctness_init_script}"', body)
-        self.assertIn("compileDebugKotlin", body)
-        self.assertIn("testDebugUnitTest", body)
-        self.assertIn("lintDebug", body)
-        self.assertIn("assembleDebug", body)
-
     def test_profile_does_not_broaden_default_branch_dependency_cache(self) -> None:
         steps = self.workflow["jobs"]["ci"]["steps"]
         save_step = next(
@@ -63,7 +52,6 @@ class AndroidSearchPerformanceProfileContractTest(unittest.TestCase):
             if step.get("name") == "Save IPTV Android default-branch dependency cache"
         )
         self.assertNotIn("search-performance", save_step["if"])
-        self.assertIn("inputs.test_profile == 'full'", save_step["if"])
         self.assertIn("inputs.test_profile == 'release'", save_step["if"])
 
 
@@ -238,7 +226,7 @@ class AndroidSharedCacheContractTest(unittest.TestCase):
         self.assertNotIn("~/.gradle/caches/build-cache-1", self.workflow_text)
         self.assertNotIn("iptv-android-default-gradle-build-", self.workflow_text)
 
-    def test_only_default_branch_full_or_release_can_save_dependency_cache(self) -> None:
+    def test_only_default_branch_release_can_save_dependency_cache(self) -> None:
         step = self.by_name["Save IPTV Android default-branch dependency cache"]
         condition = step["if"]
         self.assertIn(
@@ -246,7 +234,6 @@ class AndroidSharedCacheContractTest(unittest.TestCase):
             condition,
         )
         self.assertIn("steps.commands.outcome == 'success'", condition)
-        self.assertIn("inputs.test_profile == 'full'", condition)
         self.assertIn("inputs.test_profile == 'release'", condition)
         self.assertIn("cache-hit != 'true'", condition)
 

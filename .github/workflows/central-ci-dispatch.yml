@@ -50,6 +50,33 @@ jobs:
           echo "legacy validation workflow is retired; use validation.repository with the repository-owned .ci entrypoint" >&2
           exit 2
 
+      - name: Reject retired legacy validation profile pair
+        if: >-
+          ${{
+            (steps.claim.outputs.workflow_key == 'validation.android' && steps.claim.outputs.test_profile == 'full') ||
+            (steps.claim.outputs.workflow_key == 'validation.apple' && steps.claim.outputs.test_profile == 'build') ||
+            (steps.claim.outputs.workflow_key == 'validation.python' && steps.claim.outputs.test_profile == 'release-gates')
+          }}
+        shell: bash
+        env:
+          WORKFLOW_KEY: ${{ steps.claim.outputs.workflow_key }}
+          TEST_PROFILE: ${{ steps.claim.outputs.test_profile }}
+        run: |
+          set -Eeuo pipefail
+          case "${WORKFLOW_KEY}/${TEST_PROFILE}" in
+            validation.android/full)
+              echo "validation.android/full is retired; use validation.repository/full" >&2
+              ;;
+            validation.apple/build)
+              echo "validation.apple/build is retired; use validation.repository/build" >&2
+              ;;
+            validation.python/release-gates)
+              echo "validation.python/release-gates is retired; use validation.repository/full" >&2
+              ;;
+            *) echo "unsupported retired legacy profile pair" >&2 ;;
+          esac
+          exit 2
+
       - name: Resolve tag-driven release identity
         id: tag_release
         if: >-
