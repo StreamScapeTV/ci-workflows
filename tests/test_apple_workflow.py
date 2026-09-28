@@ -44,26 +44,8 @@ class AppleWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(
             execute["runs-on"],
-            "${{ fromJSON(((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && (inputs.test_profile == 'build' || inputs.test_profile == 'native-component')) && '[\"macOS\",\"ARM64\"]' || '[\"macos-latest\"]') }}",
+            "${{ fromJSON(((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && inputs.test_profile == 'native-component') && '[\"macOS\",\"ARM64\"]' || '[\"macos-latest\"]') }}",
         )
-
-    def test_media_native_build_uses_fixed_self_hosted_mac_without_central_cache(self) -> None:
-        execute = self.workflow["jobs"]["execute"]
-        runner = execute["runs-on"]
-        self.assertIn("StreamScapeTV/streamscape-media", runner)
-        self.assertIn("inputs.test_profile == 'build'", runner)
-        self.assertIn("[\"macOS\",\"ARM64\"]", runner)
-        self.assertIn("[\"macos-latest\"]", runner)
-        self.assertNotIn("self-hosted", runner)
-        self.assertNotIn("runner_label", self.text)
-
-        cache_scope = next(
-            step
-            for step in execute["steps"]
-            if step.get("name") == "Resolve Apple default-branch dependency cache scope"
-        )
-        self.assertIn("inputs.test_profile != 'build'", cache_scope["if"])
-
 
     def test_native_component_uses_bounded_product_wrapper_and_native_runner(self) -> None:
         inputs = self.workflow["on"]["workflow_call"]["inputs"]
@@ -107,7 +89,7 @@ class AppleWorkflowTests(unittest.TestCase):
         self.assertEqual(command["env"]["NATIVE_COMPONENT"], "${{ inputs.native_component }}")
         script = command["run"]
         start = script.index("native-component)")
-        end = script.index("build|test|simulator)", start)
+        end = script.index("test|simulator)", start)
         block = script[start:end]
         self.assertIn('wrapper="scripts/ci/run-apple-native-component-validation.sh"', block)
         self.assertIn('export CI_APPLE_NATIVE_COMPONENT="${NATIVE_COMPONENT}"', block)
@@ -187,8 +169,6 @@ capture before {safe_expansion} after
             for step in jobs["plan"]["steps"]
             if step.get("name") == "Resolve fixed Apple execution lanes"
         )["run"]
-        self.assertIn("build)", plan_script)
-        self.assertIn('{"include":[{"lane":"hosted-build","cache_save":false}]}', plan_script)
         self.assertIn("test)", plan_script)
         self.assertIn('{"include":[{"lane":"hosted-test","cache_save":false}]}', plan_script)
         self.assertIn("simulator)", plan_script)
@@ -197,16 +177,16 @@ capture before {safe_expansion} after
         execute_steps = jobs["execute"]["steps"]
         by_name = {step.get("name"): step for step in execute_steps if step.get("name")}
         cache_prepare = by_name["Resolve Apple default-branch dependency cache scope"]
-        for profile in ("build", "test", "simulator"):
+        for profile in ("test", "simulator"):
             self.assertIn(f"inputs.test_profile != '{profile}'", cache_prepare["if"])
 
         command_step = by_name["Run fixed Apple lane"]
         script = command_step["run"]
-        self.assertIn('build|test|simulator)', script)
+        self.assertIn('test|simulator)', script)
         self.assertIn('wrapper="scripts/ci/run-apple-hosted-validation.sh"', script)
         self.assertIn('export CI_APPLE_HOSTED_PROFILE="${TEST_PROFILE}"', script)
         self.assertIn('run_logged "apple-${TEST_PROFILE}" bash "${wrapper}"', script)
-        generic_start = script.index('build|test|simulator)')
+        generic_start = script.index('test|simulator)')
         generic_end = script.index('swiftpm_xcode_args=()', generic_start)
         generic_block = script[generic_start:generic_end]
         self.assertNotIn("streamscape-media", generic_block.lower())
