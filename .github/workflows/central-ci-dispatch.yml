@@ -38,21 +38,16 @@ jobs:
           phase: claim
           ci_run_id: ${{ inputs.ci_run_id }}
 
-      - name: Reject retired legacy workflow/profile
+      - name: Reject retired legacy validation workflow
         if: >-
           ${{
             steps.claim.outputs.workflow_key == 'validation.node' ||
             steps.claim.outputs.workflow_key == 'validation.flutter' ||
-            steps.claim.outputs.workflow_key == 'validation.apple' ||
-            steps.claim.outputs.workflow_key == 'validation.container-service' ||
-            (
-              steps.claim.outputs.workflow_key == 'release.apple' &&
-              steps.claim.outputs.test_profile == 'testflight'
-            )
+            steps.claim.outputs.workflow_key == 'validation.container-service'
           }}
         shell: bash
         run: |
-          echo "legacy workflow/profile is retired; use validation.repository or release.repository with the repository-owned .ci entrypoint" >&2
+          echo "legacy validation workflow is retired; use validation.repository with the repository-owned .ci entrypoint" >&2
           exit 2
 
       - name: Resolve tag-driven release identity
@@ -124,9 +119,19 @@ jobs:
                   raise SystemExit("release.android tag build must be below 2100000000 so the post-publication next versionCode remains valid")
               normalized_inputs = {"build_number": build_number}
           elif workflow == "release.apple":
-              if profile not in {"binary-package", "swiftpm-package"}:
-                  raise SystemExit("release.apple supports only binary-package and swiftpm-package profiles; application publication uses release.repository")
-              normalized_inputs = {}
+              if profile == "testflight":
+                  match = mobile_pattern.fullmatch(ref)
+                  if match is None:
+                      raise SystemExit("release.apple/testflight tag must match <marketing-version>_<positive-build> without a v prefix")
+                  release_version = match.group("version")
+                  build_number = match.group("build")
+                  if int(build_number) >= 9999999999:
+                      raise SystemExit("release.apple/testflight tag build must leave room for the next bounded build number")
+                  normalized_inputs = {"build_number": build_number}
+              elif profile in {"binary-package", "swiftpm-package"}:
+                  normalized_inputs = {}
+              else:
+                  raise SystemExit("release.apple supports only testflight, binary-package and swiftpm-package profiles")
           elif workflow == "release.maven":
               if profile != "publish":
                   raise SystemExit("release.maven supports only the publish profile")
@@ -156,96 +161,133 @@ jobs:
               print(f"release_version={release_version}", file=output)
           PY_TAG_RELEASE
 
-      - name: Validate remaining Android legacy targeted request
-        if: ${{ steps.claim.outputs.workflow_key == 'validation.android' }}
+      - name: Validate native targeted test request
+        if: ${{ steps.claim.outputs.workflow_key == 'validation.android' || steps.claim.outputs.workflow_key == 'validation.apple' }}
         shell: bash
         env:
+          WORKFLOW_KEY: ${{ steps.claim.outputs.workflow_key }}
           TEST_PROFILE: ${{ steps.claim.outputs.test_profile }}
           REPOSITORY: ${{ steps.claim.outputs.repository }}
           INPUTS_JSON: ${{ steps.claim.outputs.inputs_json }}
         run: |
           set -Eeuo pipefail
-          python3 - <<'PY_VALIDATE_ANDROID_TARGETED'
+          python3 - <<'PY_VALIDATE_NATIVE_TARGETED'
           import json
           import os
           import re
 
+          workflow = os.environ.get("WORKFLOW_KEY", "")
           profile = os.environ.get("TEST_PROFILE", "")
           repository = os.environ.get("REPOSITORY", "")
           try:
               inputs = json.loads(os.environ.get("INPUTS_JSON", "{}"))
           except json.JSONDecodeError as exc:
-              raise SystemExit("Android validation inputs must be one JSON object") from exc
+              raise SystemExit("native validation inputs must be one JSON object") from exc
           if not isinstance(inputs, dict):
-              raise SystemExit("Android validation inputs must be one JSON object")
+              raise SystemExit("native validation inputs must be one JSON object")
 
           selector_payload = inputs.get("test_selectors", "[]")
           platform = inputs.get("test_platform", "")
           legacy_filter = inputs.get("test_filter", "")
-          if inputs.get("native_component") not in (None, ""):
-              raise SystemExit("native_component is not supported by validation.android")
+          native_component = inputs.get("native_component", "")
+          if profile != "native-component" and native_component not in (None, ""):
+              raise SystemExit("native_component is accepted only by Apple native-component")
 
           if profile == "physical-performance":
+              if workflow != "validation.android":
+                  raise SystemExit("physical-performance is supported only by validation.android")
               if repository != "StreamScapeTV/iptv-android":
                   raise SystemExit("Android physical-performance is bounded to StreamScapeTV/iptv-android")
               if inputs:
                   raise SystemExit("Android physical-performance accepts no semantic inputs")
           elif profile == "screenshot-review":
-              if repository != "StreamScapeTV/iptv-android":
-                  raise SystemExit("Android screenshot-review is bounded to StreamScapeTV/iptv-android")
-              if set(inputs) - {"test_selectors"}:
-                  raise SystemExit("Android screenshot-review accepts only test_selectors")
-              if not isinstance(selector_payload, str) or len(selector_payload) > 2048:
-                  raise SystemExit("Android screenshot-review test_selectors must be one bounded JSON-array string")
-              try:
-                  selectors = json.loads(selector_payload)
-              except json.JSONDecodeError as exc:
-                  raise SystemExit("Android screenshot-review test_selectors must be valid JSON") from exc
-              if not isinstance(selectors, list) or len(selectors) > 20:
-                  raise SystemExit("Android screenshot-review accepts zero through 20 canonical screen ids")
-              if any(
-                  not isinstance(value, str)
-                  or re.fullmatch(r"[a-z0-9][a-z0-9.-]{0,127}", value) is None
-                  or not value.startswith(("mobile.", "tv."))
-                  for value in selectors
-              ):
-                  raise SystemExit("Android screenshot-review selectors must be bounded mobile.* or tv.* canonical ids")
-              if len(selectors) != len(set(selectors)):
-                  raise SystemExit("Android screenshot-review selectors must be unique")
-          elif profile == "targeted-tests":
-              if legacy_filter not in (None, ""):
-                  raise SystemExit("targeted-tests does not accept legacy test_filter")
-              if not isinstance(selector_payload, str) or len(selector_payload) > 2048:
-                  raise SystemExit("targeted-tests test_selectors must be one bounded JSON-array string")
-              try:
-                  selectors = json.loads(selector_payload)
-              except json.JSONDecodeError as exc:
-                  raise SystemExit("targeted-tests test_selectors must be valid JSON") from exc
-              if not isinstance(selectors, list) or not 1 <= len(selectors) <= 20:
-                  raise SystemExit("targeted-tests requires 1 through 20 selectors")
-              if any(not isinstance(value, str) for value in selectors):
-                  raise SystemExit("targeted-tests selectors must be strings")
-              if len(selectors) != len(set(selectors)):
-                  raise SystemExit("targeted-tests selectors must be unique")
-              if platform == "jvm":
-                  pattern = re.compile(r"[A-Za-z0-9_.$*?-]{1,240}")
-              elif platform == "instrumentation":
-                  pattern = re.compile(r"(?:[A-Za-z_][A-Za-z0-9_$]*\.)+[A-Za-z_][A-Za-z0-9_$]*(?:#[A-Za-z_][A-Za-z0-9_$]*)?")
+              allowed_repository = {
+                  "validation.apple": "StreamScapeTV/iptv-apple",
+                  "validation.android": "StreamScapeTV/iptv-android",
+              }.get(workflow)
+              if allowed_repository is None:
+                  raise SystemExit("screenshot-review is supported only by validation.apple or validation.android")
+              if repository != allowed_repository:
+                  raise SystemExit(f"screenshot-review is bounded to {allowed_repository} for {workflow}")
+              if workflow == "validation.apple":
+                  if inputs:
+                      raise SystemExit("Apple screenshot-review accepts no semantic inputs")
               else:
-                  raise SystemExit("Android targeted-tests requires test_platform=jvm or instrumentation")
-              if any(not pattern.fullmatch(value) or value.startswith("-") for value in selectors):
-                  raise SystemExit("Android targeted-tests contains an invalid selector")
-          elif profile == "targeted-unit":
+                  if set(inputs) - {"test_selectors"}:
+                      raise SystemExit("Android screenshot-review accepts only test_selectors")
+                  if not isinstance(selector_payload, str) or len(selector_payload) > 2048:
+                      raise SystemExit("Android screenshot-review test_selectors must be one bounded JSON-array string")
+                  try:
+                      selectors = json.loads(selector_payload)
+                  except json.JSONDecodeError as exc:
+                      raise SystemExit("Android screenshot-review test_selectors must be valid JSON") from exc
+                  if not isinstance(selectors, list) or len(selectors) > 20:
+                      raise SystemExit("Android screenshot-review accepts zero through 20 canonical screen ids")
+                  if any(
+                      not isinstance(value, str)
+                      or re.fullmatch(r"[a-z0-9][a-z0-9.-]{0,127}", value) is None
+                      or not value.startswith(("mobile.", "tv."))
+                      for value in selectors
+                  ):
+                      raise SystemExit("Android screenshot-review selectors must be bounded mobile.* or tv.* canonical ids")
+                  if len(selectors) != len(set(selectors)):
+                      raise SystemExit("Android screenshot-review selectors must be unique")
+          elif profile == "native-component":
+              if workflow != "validation.apple":
+                  raise SystemExit("native-component is supported only by validation.apple")
+              if set(inputs) != {"native_component"}:
+                  raise SystemExit("native-component requires exactly inputs.native_component")
+              if not isinstance(native_component, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", native_component):
+                  raise SystemExit("native-component requires one bounded semantic native_component selector")
+          elif profile in {"targeted-tests", "candidate"}:
+              if profile == "candidate" and workflow != "validation.apple":
+                  raise SystemExit("candidate is supported only by validation.apple")
+              if legacy_filter not in (None, ""):
+                  raise SystemExit(f"{profile} does not accept legacy test_filter")
+              if not isinstance(selector_payload, str) or len(selector_payload) > 2048:
+                  raise SystemExit(f"{profile} test_selectors must be one bounded JSON-array string")
+              try:
+                  selectors = json.loads(selector_payload)
+              except json.JSONDecodeError as exc:
+                  raise SystemExit(f"{profile} test_selectors must be valid JSON") from exc
+              if not isinstance(selectors, list) or not 1 <= len(selectors) <= 20:
+                  raise SystemExit(f"{profile} requires 1 through 20 selectors")
+              if any(not isinstance(value, str) for value in selectors):
+                  raise SystemExit(f"{profile} selectors must be strings")
+              if len(selectors) != len(set(selectors)):
+                  raise SystemExit(f"{profile} selectors must be unique")
+
+              if workflow == "validation.android":
+                  if platform == "jvm":
+                      pattern = re.compile(r"[A-Za-z0-9_.$*?-]{1,240}")
+                  elif platform == "instrumentation":
+                      pattern = re.compile(r"(?:[A-Za-z_][A-Za-z0-9_$]*\.)+[A-Za-z_][A-Za-z0-9_$]*(?:#[A-Za-z_][A-Za-z0-9_$]*)?")
+                  else:
+                      raise SystemExit("Android targeted-tests requires test_platform=jvm or instrumentation")
+                  if any(not pattern.fullmatch(value) or value.startswith("-") for value in selectors):
+                      raise SystemExit("Android targeted-tests contains an invalid selector")
+              elif workflow == "validation.apple":
+                  if profile == "targeted-tests":
+                      if platform not in {"macos", "ios", "tvos"}:
+                          raise SystemExit("Apple targeted-tests requires test_platform=macos, ios, or tvos")
+                  elif platform not in (None, ""):
+                      raise SystemExit("Apple candidate fixes macOS tests and does not accept test_platform")
+                  pattern = re.compile(r"[A-Za-z0-9_.$/-]{1,240}")
+                  if any(not pattern.fullmatch(value) or value.startswith("-") or "/" not in value for value in selectors):
+                      raise SystemExit(f"Apple {profile} contains an invalid selector")
+              else:
+                  raise SystemExit("unsupported native targeted workflow")
+          elif workflow == "validation.android" and profile == "targeted-unit":
               if selector_payload not in (None, "[]") or platform not in (None, ""):
                   raise SystemExit("legacy targeted-unit does not accept new targeted-tests inputs")
               if not isinstance(legacy_filter, str) or not re.fullmatch(r"[A-Za-z0-9_.$*?-]{1,240}", legacy_filter):
                   raise SystemExit("legacy targeted-unit requires one bounded test_filter")
           else:
               if selector_payload not in (None, "[]") or platform not in (None, ""):
-                  raise SystemExit("targeted test inputs are accepted only by Android targeted-tests")
+                  raise SystemExit("targeted test inputs are accepted only by targeted-tests or Apple candidate")
               if legacy_filter not in (None, ""):
                   raise SystemExit("test_filter is accepted only by legacy Android targeted-unit")
-          PY_VALIDATE_ANDROID_TARGETED
+          PY_VALIDATE_NATIVE_TARGETED
 
       - name: Validate generic repository-owned CI request
         if: ${{ steps.claim.outputs.workflow_key == 'validation.repository' }}
@@ -512,7 +554,7 @@ jobs:
               raise SystemExit("release.android build_number exceeds the maximum Android versionCode 2100000000")
           PY_VALIDATE_ANDROID_RELEASE
 
-      - name: Validate Apple specialist package release request
+      - name: Validate Apple release request
         if: ${{ steps.claim.outputs.workflow_key == 'release.apple' }}
         shell: bash
         env:
@@ -524,6 +566,7 @@ jobs:
           from pathlib import Path
           import json
           import os
+          import re
 
           profile = os.environ.get("TEST_PROFILE", "")
           raw_inputs = Path(".central-tag-release-inputs.json").read_text(encoding="utf-8") if Path(".central-tag-release-inputs.json").is_file() else os.environ["INPUTS_JSON"]
@@ -533,10 +576,17 @@ jobs:
               raise SystemExit("release.apple inputs must be one JSON object") from exc
           if not isinstance(inputs, dict):
               raise SystemExit("release.apple inputs must be one JSON object")
-          if profile not in {"binary-package", "swiftpm-package"}:
-              raise SystemExit("release.apple supports only binary-package and swiftpm-package profiles; application publication uses release.repository")
-          if inputs:
-              raise SystemExit(f"release.apple/{profile} accepts no semantic inputs")
+          if profile == "testflight":
+              if set(inputs) != {"build_number"}:
+                  raise SystemExit("release.apple/testflight requires exactly inputs.build_number")
+              build_number = inputs["build_number"]
+              if not isinstance(build_number, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}", build_number):
+                  raise SystemExit("release.apple/testflight build_number must be one non-empty bounded release identifier")
+          elif profile in {"binary-package", "swiftpm-package"}:
+              if inputs:
+                  raise SystemExit(f"release.apple/{profile} accepts no semantic inputs")
+          else:
+              raise SystemExit("release.apple supports only testflight, binary-package and swiftpm-package profiles")
           PY_VALIDATE_APPLE_RELEASE
 
   repository:
@@ -607,6 +657,41 @@ jobs:
       APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
+
+  apple:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'validation.apple' }}
+    concurrency:
+      group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
+      cancel-in-progress: true
+    uses: ./.github/workflows/apple.yml
+    with:
+      repository: ${{ needs.request.outputs.repository }}
+      ref: ${{ needs.request.outputs.ref }}
+      source_is_tag: ${{ needs.request.outputs.is_tag == 'true' }}
+      test_profile: ${{ needs.request.outputs.test_profile }}
+      test_selectors: ${{ fromJSON(needs.request.outputs.inputs_json).test_selectors || '[]' }}
+      test_platform: ${{ fromJSON(needs.request.outputs.inputs_json).test_platform || '' }}
+      native_component: ${{ fromJSON(needs.request.outputs.inputs_json).native_component || '' }}
+      ci_run_id: ${{ inputs.ci_run_id }}
+    secrets: inherit
+
+  apple_release:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'release.apple' && needs.request.outputs.test_profile == 'testflight' }}
+    concurrency:
+      group: central-release-${{ needs.request.outputs.repository }}-${{ needs.request.outputs.workflow_key }}-${{ needs.request.outputs.test_profile }}
+      cancel-in-progress: false
+    uses: ./.github/workflows/apple.yml
+    with:
+      repository: ${{ needs.request.outputs.repository }}
+      ref: ${{ needs.request.outputs.ref }}
+      source_is_tag: ${{ needs.request.outputs.is_tag == 'true' }}
+      test_profile: testflight
+      release_version: ${{ needs.request.outputs.release_version }}
+      build_number: ${{ fromJSON(needs.request.outputs.inputs_json).build_number }}
+      ci_run_id: ${{ inputs.ci_run_id }}
+    secrets: inherit
 
   apple_binary:
     needs: request
@@ -1222,6 +1307,8 @@ jobs:
       - request
       - repository
       - repository_release
+      - apple
+      - apple_release
       - android
       - android_release
       - python
@@ -1241,6 +1328,8 @@ jobs:
           needs.request.result != 'success' ||
           needs.repository.result == 'cancelled' ||
           needs.repository_release.result == 'cancelled' ||
+          needs.apple.result == 'cancelled' ||
+          needs.apple_release.result == 'cancelled' ||
           needs.android.result == 'cancelled' ||
           needs.android_release.result == 'cancelled' ||
           needs.python.result == 'cancelled' ||
