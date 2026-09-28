@@ -27,7 +27,7 @@ class CiHelperTests(_prior.CiHelperTests):
         inventory = yaml.safe_load((_prior.ROOT / "INVENTORY.yaml").read_text())
         self.assertEqual(
             set(inventory["workflows"]),
-            {"apple", "repository", "repository_plan", "apple_binary", "apple_swiftpm", "library_package_release", "android", "python", "maven", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "source_snapshot_delete", "source_snapshot", "source_checkpoint_publish", "central_dispatch", "ci_log_retention", "github_issue_dependency_projection", "self_check", "runner_images"},
+            {"repository", "repository_plan", "apple_binary", "apple_swiftpm", "library_package_release", "android", "python", "maven", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "source_snapshot_delete", "source_snapshot", "source_checkpoint_publish", "central_dispatch", "ci_log_retention", "github_issue_dependency_projection", "self_check", "runner_images"},
         )
         self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git", "source_snapshot"})
         self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility", "ci_log_reconcile", "github_issue_dependency_projection", "repository_log_checkpoint", "repository_log_capture", "repository_log_timeline", "repository_execution_plan", "protected_deployed_conformance", "source_snapshot_delete", "source_snapshot_lifecycle", "source_checkpoint_publish", "swiftpm_binary"})
@@ -41,7 +41,7 @@ class CiHelperTests(_prior.CiHelperTests):
 
     def test_workflows_use_no_reusable_prefix(self) -> None:
         names = {p.name for p in (_prior.ROOT / ".github/workflows").glob("*.yml")}
-        self.assertEqual(len(names), 21)
+        self.assertEqual(len(names), 20)
         self.assertNotIn("broker.yml", names)
         self.assertFalse(any(name.startswith("reusable-") for name in names))
         self.assertIn("source-snapshot-delete.yml", names)
@@ -57,7 +57,6 @@ class CiHelperTests(_prior.CiHelperTests):
 
     def test_long_running_execution_jobs_have_five_hour_ceiling(self) -> None:
         expected = {
-            "apple.yml": ("execute",),
             "repository.yml": ("execute",),
             "android.yml": ("ci",),
             "python.yml": ("ci",),
@@ -74,9 +73,6 @@ class CiHelperTests(_prior.CiHelperTests):
             for job in jobs:
                 self.assertEqual(workflow["jobs"][job]["timeout-minutes"], 300, f"{filename}:{job}")
 
-        apple = yaml.safe_load((workflows / "apple.yml").read_text())
-        self.assertEqual(apple["jobs"]["plan"]["timeout-minutes"], 10)
-        self.assertEqual(apple["jobs"]["finish"]["timeout-minutes"], 10)
         for filename, job, minutes in (
             ("branch-delete.yml", "delete", 10),
             ("source-snapshot-delete.yml", "delete", 10),
@@ -107,7 +103,6 @@ class CiHelperTests(_prior.CiHelperTests):
         jobs = workflow["jobs"]
         validation_jobs = (
             "repository",
-            "apple",
             "android",
             "python",
             "container_service",
@@ -116,7 +111,6 @@ class CiHelperTests(_prior.CiHelperTests):
         )
         serialized_release_jobs = (
             "repository_release",
-            "apple_release",
             "android_release",
             "maven",
             "apple_binary",
@@ -135,7 +129,7 @@ class CiHelperTests(_prior.CiHelperTests):
             )
             self.assertFalse(jobs[name]["concurrency"]["cancel-in-progress"])
 
-        template = jobs["apple"]["concurrency"]["group"]
+        template = jobs["repository"]["concurrency"]["group"]
 
         def rendered_group(workflow_key: str, active_key: str = "same-source") -> str:
             return (
@@ -144,10 +138,10 @@ class CiHelperTests(_prior.CiHelperTests):
                 .replace("${{ inputs.active_key }}", active_key)
             )
 
-        self.assertEqual(rendered_group("validation.apple"), rendered_group("validation.apple"))
-        self.assertNotEqual(rendered_group("validation.apple"), rendered_group("validation.android"))
-        self.assertNotEqual(rendered_group("release.apple"), rendered_group("release.android"))
-        self.assertNotEqual(rendered_group("validation.apple"), rendered_group("release.apple"))
+        self.assertEqual(rendered_group("validation.repository"), rendered_group("validation.repository"))
+        self.assertNotEqual(rendered_group("validation.repository"), rendered_group("validation.android"))
+        self.assertNotEqual(rendered_group("release.repository"), rendered_group("release.android"))
+        self.assertNotEqual(rendered_group("validation.repository"), rendered_group("release.repository"))
 
         branch_delete = jobs["branch_delete"]["concurrency"]
         self.assertEqual(branch_delete["group"], "central-ci-maintenance-${{ inputs.active_key }}")
@@ -160,7 +154,7 @@ class CiHelperTests(_prior.CiHelperTests):
         snapshot = jobs["source_snapshot"]["concurrency"]
         self.assertEqual(snapshot["group"], "central-ci-snapshot-${{ inputs.active_key }}")
         self.assertTrue(snapshot["cancel-in-progress"])
-        self.assertNotEqual(snapshot["group"], jobs["apple"]["concurrency"]["group"])
+        self.assertNotEqual(snapshot["group"], jobs["repository"]["concurrency"]["group"])
 
         settlement = jobs["settle_cancelled"]
         self.assertNotIn("concurrency", settlement)
@@ -277,7 +271,7 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertNotIn("--retry-connrefused", text)
 
     def test_persistent_dependency_cache_is_limited_to_remaining_legacy_native_lanes(self) -> None:
-        cache_capable = ("apple", "android")
+        cache_capable = ("android",)
         for name in cache_capable:
             text = (_prior.ROOT / ".github/workflows" / f"{name}.yml").read_text()
             self.assertIn("actions/cache/restore@v4", text, name)
@@ -288,9 +282,6 @@ class CiHelperTests(_prior.CiHelperTests):
             self.assertNotIn("actions/cache/restore@v4", text, name)
             self.assertNotIn("actions/cache/save@v4", text, name)
 
-        apple = (_prior.ROOT / ".github/workflows/apple.yml").read_text()
-        self.assertNotIn("dependency-cache", apple)
-        self.assertNotIn("apple-develop-cache", apple)
 
     def test_source_snapshot_auto_refreshes_integration_pushes(self) -> None:
         workflow_path = _prior.ROOT / ".github/workflows/source-snapshot.yml"
