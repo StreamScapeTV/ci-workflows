@@ -14,12 +14,37 @@ generic working-copy, Agent State, Google Drive, branch/PR, cross-project,
 validation, merge, and cleanup rules. This file adds only `ci-workflows`-specific
 constraints.
 
+## Canonical feature specifications
+
+- `feature-specs/**` is the canonical architecture and product-behavior authority
+  for this repository. Read every applicable feature specification before
+  planning, implementing, reviewing, or changing Central CI behavior.
+- Current source, workflow YAML, tests, documentation, issues, pull requests,
+  comments, historical behavior, and implementation convenience do not override
+  an applicable feature specification.
+- Implementing behavior that conflicts with an applicable feature specification
+  is forbidden. If current code or requested work conflicts with a spec, stop the
+  conflicting implementation and surface the mismatch instead of silently
+  redefining the architecture.
+- Changes to `feature-specs/**` require the owner's explicit permission. Do not
+  infer permission from an issue, failing test, migration, review finding,
+  implementation need, or cross-project request. When the owner explicitly
+  authorizes a spec change, the durable carrier must state that authority and its
+  bounded scope.
+- Workflow YAML remains the exact runtime/API source of truth only within the
+  architecture and behavior allowed by the applicable feature specifications.
+  Runtime YAML cannot redefine or override those specifications.
+- The feature-spec authority/index is `feature-specs/README.md`. The canonical
+  simple release model is `feature-specs/release.md`.
+
 ## Workflow architecture
 
 Keep Central CI small, conventional, and fixed-profile.
 
-- Workflow YAML is the source of truth for each workflow's inputs, secrets,
-  outputs, permissions, jobs, and behavior.
+- Subject to the applicable `feature-specs/**`, workflow YAML is the exact
+  runtime/API source of truth for each workflow's inputs, secrets, outputs,
+  permissions, jobs, and behavior. Workflow YAML must not contradict or extend
+  architecture beyond the canonical feature specifications.
 - Product repositories remain thin callers. Expose only bounded semantic
   selectors and parameters required by a reviewed profile.
 - Never expose arbitrary commands, script paths, environment maps, runner or
