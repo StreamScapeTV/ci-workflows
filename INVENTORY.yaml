@@ -1,7 +1,6 @@
 version: 1
 repository: StreamScapeTV/ci-workflows
 workflows:
-  apple: .github/workflows/apple.yml
   repository: .github/workflows/repository.yml
   repository_plan: .github/workflows/repository-plan.yml
   android: .github/workflows/android.yml
