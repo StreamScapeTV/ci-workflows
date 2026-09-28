@@ -51,7 +51,7 @@ Concrete runner labels and machines are Central implementation details and are n
 
 For direct single-OS child execution, Central resolves the effective class through the service-only Agent State `resolve_repository_ci_host_class` decision for the exact project, repository, CI run, and operation. For a tracked multi-OS parent plan, each child uses the service-only `resolve_repository_ci_host_class_for_os` decision bound to the same parent plus the selected child OS. Decisions are replay-safe and OS/class compatibility remains fail-closed. The existing `host_os` request value is a compatibility fallback only when `.ci/execution-plan.json` is absent; it is never a runner-label or host-class input.
 
-The legacy library-package aggregate still uses its fixed hosted Linux/macOS readiness split until that parent receives its own repository-CI lifecycle. It cannot request the high-capacity class.
+The library-package aggregate keeps its fixed reviewed child operating-system roles, but every generic repository child resolves its execution class through the same trusted OS-aware repository policy as planned Repository CI. The aggregate caller still supplies only the bounded child OS and operation; it cannot provide a host class, runner label, or machine identity. A repository may therefore select `macos-high-capacity` for aggregate macOS readiness or release preparation through private Agent State policy while Linux remains independently resolved for the admitted Linux child.
 
 ## Trusted Agent State policy
 
