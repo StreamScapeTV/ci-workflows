@@ -110,8 +110,6 @@ class CiHelperTests(_prior.CiHelperTests):
             "apple",
             "android",
             "python",
-            "node",
-            "flutter",
             "container_service",
             "public_native_image_chart",
             "oci_reproducibility",
@@ -278,14 +276,14 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertNotIn("--retry-all-errors", text)
         self.assertNotIn("--retry-connrefused", text)
 
-    def test_persistent_dependency_cache_is_limited_to_apple_android_and_node(self) -> None:
-        cache_capable = ("apple", "android", "node")
+    def test_persistent_dependency_cache_is_limited_to_remaining_legacy_native_lanes(self) -> None:
+        cache_capable = ("apple", "android")
         for name in cache_capable:
             text = (_prior.ROOT / ".github/workflows" / f"{name}.yml").read_text()
             self.assertIn("actions/cache/restore@v4", text, name)
             self.assertIn("actions/cache/save@v4", text, name)
 
-        for name in ("python", "flutter"):
+        for name in ("python",):
             text = (_prior.ROOT / ".github/workflows" / f"{name}.yml").read_text()
             self.assertNotIn("actions/cache/restore@v4", text, name)
             self.assertNotIn("actions/cache/save@v4", text, name)
