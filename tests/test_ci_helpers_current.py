@@ -170,6 +170,23 @@ class CiHelperTests(_prior.CiHelperTests):
             self.assertIn(f"needs.{name}.result == 'cancelled'", settlement["if"])
         self.assertEqual(settlement["steps"][-1]["with"]["phase"], "cancel-if-active")
 
+    def test_retired_legacy_profile_pairs_fail_closed_with_repository_replacements(self) -> None:
+        workflow = yaml.safe_load((_prior.ROOT / ".github/workflows/central-ci-dispatch.yml").read_text())
+        step = next(
+            step for step in workflow["jobs"]["request"]["steps"]
+            if step.get("name") == "Reject retired legacy validation profile pair"
+        )
+        condition = step["if"]
+        script = step["run"]
+        for workflow_key, profile, replacement in (
+            ("validation.android", "full", "validation.repository/full"),
+            ("validation.apple", "build", "validation.repository/build"),
+            ("validation.python", "release-gates", "validation.repository/full"),
+        ):
+            self.assertIn(workflow_key, condition)
+            self.assertIn(profile, condition)
+            self.assertIn(replacement, script)
+
     def test_android_release_is_bounded_to_play_internal_draft(self) -> None:
         dispatch_path = _prior.ROOT / ".github/workflows/central-ci-dispatch.yml"
         dispatch = yaml.safe_load(dispatch_path.read_text())
