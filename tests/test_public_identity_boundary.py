@@ -10,7 +10,6 @@ ROOT = Path(__file__).resolve().parents[1]
 GENERIC_EXECUTION_SURFACES = (
     ROOT / ".github/workflows/repository.yml",
     ROOT / ".github/workflows/repository-plan.yml",
-    ROOT / ".github/workflows/central-ci-dispatch.yml",
     ROOT / "contracts/repository-ci-v1.json",
 )
 
