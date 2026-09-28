@@ -48,8 +48,8 @@ class PythonWorkflowTests(unittest.TestCase):
         source = WORKFLOW.read_text()
         self.assertNotIn('python-version: "3.12"', source)
         self.assertNotIn("inputs.python_version", source)
-        self.assertIn("release-gates)", source)
-        self.assertIn("bash scripts/run_release_gates.sh", source)
+        self.assertNotIn("release-gates)", source)
+        self.assertNotIn("bash scripts/run_release_gates.sh", source)
         self.assertIn("agent-state-issue-reconcile)", source)
 
 
