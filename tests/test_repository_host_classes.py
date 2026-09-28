@@ -228,10 +228,32 @@ class RepositoryHostClassTests(unittest.TestCase):
         self.assertEqual(values["host_class"], "macos-high-capacity")
         self.assertEqual(values["host_os"], "macos")
 
-    def test_library_package_parent_keeps_bounded_hosted_compatibility_only(self) -> None:
+    def test_library_package_parent_resolves_children_through_repository_host_policy(self) -> None:
         trusted_id = "22222222-2222-4222-8222-222222222222"
-        result, values = self.run_resolver(
-            operation="full",
+        cases = (
+            ("full", "macos", "macos-high-capacity", ["macOS", "ARM64"]),
+            ("release", "macos", "macos-high-capacity", ["macOS", "ARM64"]),
+            ("full", "linux", "linux-hosted", ["ubuntu-24.04"]),
+        )
+        for operation, host_os, host_class, expected_runs_on in cases:
+            with self.subTest(operation=operation, host_os=host_os):
+                result, values = self.run_resolver(
+                    host_class=host_class,
+                    operation=operation,
+                    host_os=host_os,
+                    workflow_key="release.library-package",
+                    test_profile="publish",
+                    source_is_tag="true",
+                    lifecycle_ci_run_id="",
+                    trusted_capability_ci_run_id=trusted_id,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(values["host_class"], host_class)
+                self.assertEqual(values["host_os"], host_os)
+                self.assertEqual(json.loads(values["runs_on"]), expected_runs_on)
+
+        unsupported, _ = self.run_resolver(
+            operation="build",
             host_os="macos",
             workflow_key="release.library-package",
             test_profile="publish",
@@ -239,9 +261,12 @@ class RepositoryHostClassTests(unittest.TestCase):
             lifecycle_ci_run_id="",
             trusted_capability_ci_run_id=trusted_id,
         )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(values["host_class"], "macos-hosted")
-        self.assertEqual(json.loads(values["runs_on"]), ["macos-latest"])
+        self.assertNotEqual(unsupported.returncode, 0)
+        self.assertIn(
+            "supports only full readiness or release preparation",
+            unsupported.stderr,
+        )
+        self.assertIn("resolve_repository_ci_host_class_for_os", self.script)
 
 
     def test_repository_parent_resolves_selected_child_os_through_service_resolver(self) -> None:
