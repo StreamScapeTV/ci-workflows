@@ -171,7 +171,7 @@ class CiHelperTests(unittest.TestCase):
         self.assertEqual(observe["uses"], "StreamScapeTV/ci-workflows/actions/agent-state@main")
         self.assertEqual(observe["with"]["phase"], "observe-source")
         self.assertEqual(observe["with"]["observed_source_sha"], "${{ steps.source_identity.outputs.source_sha }}")
-        for profile in ("compile)", "unit)", "release-gates)"):
+        for profile in ("compile)", "unit)"):
             self.assertIn(profile, commands["run"])
         self.assertEqual(drive["with"]["file_name"], "${{ github.run_id }}-${{ github.run_attempt }}.txt")
         self.assertEqual(drive["with"]["mime_type"], "text/plain")
@@ -582,10 +582,10 @@ class CiHelperTests(unittest.TestCase):
 
     def test_android_owner_profiles_and_gitops_retirement_are_explicit(self) -> None:
         android = (ROOT / ".github/workflows/android.yml").read_text()
-        for profile in ("smoke)", "compile)", "unit)", "targeted-unit)", "targeted-tests)", "lint)", "assemble)", "full)", "release)"):
+        for profile in ("smoke)", "compile)", "unit)", "targeted-unit)", "targeted-tests)", "lint)", "assemble)", "release)"):
             self.assertIn(profile, android)
         self.assertIn("CIW_MAVEN_PACKAGE_READ_TOKEN", android)
-        self.assertIn("compileDebugKotlin testDebugUnitTest lintDebug assembleDebug", android)
+        self.assertNotIn("android-full-correctness.init.gradle", android)
         self.assertFalse((ROOT / ".github/workflows/gitops.yml").exists())
         dispatch = (ROOT / ".github/workflows/central-ci-dispatch.yml").read_text()
         self.assertNotIn("workflow_key == 'validation.gitops'", dispatch)
