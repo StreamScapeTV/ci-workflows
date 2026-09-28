@@ -315,7 +315,7 @@ class MavenWorkflowTests(unittest.TestCase):
         self.assertIn("maven", settlement["needs"])
         self.assertIn("needs.maven.result == 'cancelled'", settlement["if"])
 
-        for name in ("android", "python"):
+        for name in ("android", "apple", "python"):
             self.assertNotIn("build_number", jobs[name]["with"])
 
 
