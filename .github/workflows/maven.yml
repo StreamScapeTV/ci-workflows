@@ -19,6 +19,10 @@ name: Maven publication
         type: string
         required: false
         default: ""
+      trusted_capability_ci_run_id:
+        type: string
+        required: false
+        default: ""
       build_number:
         type: string
         required: true
@@ -77,8 +81,89 @@ permissions:
   contents: read
 
 jobs:
-  publish:
+  resolve_host:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      host_class: ${{ steps.host.outputs.host_class }}
+      runs_on: ${{ steps.host.outputs.runs_on }}
+    steps:
+      - name: Resolve Maven publication host
+        id: host
+        shell: bash
+        env:
+          TRUSTED_CAPABILITY_CI_RUN_ID: ${{ inputs.trusted_capability_ci_run_id }}
+          SOURCE_REPOSITORY: ${{ inputs.repository }}
+          SOURCE_REF: ${{ inputs.ref }}
+          SOURCE_IS_TAG: ${{ inputs.source_is_tag }}
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        run: |
+          set -Eeuo pipefail
+          emit_host() {
+            local host_class="$1"
+            local runs_on
+            case "${host_class}" in
+              linux-hosted) runs_on='["ubuntu-24.04"]' ;;
+              macos-hosted) runs_on='["macos-latest"]' ;;
+              macos-high-capacity) runs_on='["macOS","ARM64"]' ;;
+              *) echo "Maven publication resolved an unsupported host class" >&2; exit 2 ;;
+            esac
+            {
+              printf 'host_class=%s\n' "${host_class}"
+              printf 'runs_on=%s\n' "${runs_on}"
+            } >> "${GITHUB_OUTPUT}"
+          }
+
+          if test -z "${TRUSTED_CAPABILITY_CI_RUN_ID}"; then
+            emit_host linux-hosted
+            exit 0
+          fi
+
+          : "${AGENT_STATE_SUPABASE_URL:?Agent State URL is required for trusted Maven host resolution}"
+          : "${AGENT_STATE_SUPABASE_SECRET_KEY:?Agent State secret is required for trusted Maven host resolution}"
+          test -n "${SOURCE_REPOSITORY}" && test -n "${SOURCE_REF}" && test "${SOURCE_IS_TAG}" = true || {
+            echo "trusted Maven aggregate host resolution requires one immutable repository tag" >&2
+            exit 2
+          }
+
+          headers=(
+            -H "apikey: ${AGENT_STATE_SUPABASE_SECRET_KEY}"
+            -H "Content-Type: application/json"
+            -H "Content-Profile: agent_api"
+            -H "Accept-Profile: agent_api"
+          )
+          rpc() {
+            curl --fail --silent --show-error               "${headers[@]}"               --data "$2"               "${AGENT_STATE_SUPABASE_URL%/}/rest/v1/rpc/$1"
+          }
+
+          claim="$(rpc claim_ci_run "$(jq -cn --arg id "${TRUSTED_CAPABILITY_CI_RUN_ID}" '{p_ci_run_id:$id}')")"
+          test "$(jq -r '.ok' <<<"${claim}")" = true || {
+            echo "Maven publication could not replay the trusted aggregate Agent State claim" >&2
+            exit 1
+          }
+          run="$(jq -c '.run' <<<"${claim}")"
+          project_key="$(jq -r '.project_key // empty' <<<"${run}")"
+          test -n "${project_key}"             && test "$(jq -r '.repository // empty' <<<"${run}")" = "${SOURCE_REPOSITORY}"             && test "$(jq -r '.ref // empty' <<<"${run}")" = "${SOURCE_REF}"             && test "$(jq -r '.is_tag | tostring' <<<"${run}")" = true             && test "$(jq -r '.workflow_key // empty' <<<"${run}")" = release.library-package             && test "$(jq -r '.test_profile // empty' <<<"${run}")" = publish || {
+            echo "Maven publication trusted parent is not the exact release.library-package/publish request" >&2
+            exit 1
+          }
+
+          resolution="$(rpc resolve_repository_ci_host_class_for_os "$(jq -cn             --arg project "${project_key}"             --arg repository "${SOURCE_REPOSITORY}"             --arg id "${TRUSTED_CAPABILITY_CI_RUN_ID}"             '{p_project_key:$project,p_repository:$repository,p_ci_run_id:$id,p_operation:"release",p_host_os:"macos"}')")"
+          test "$(jq -r '.ok' <<<"${resolution}")" = true || {
+            code="$(jq -r '.code // "invalid_response"' <<<"${resolution}" 2>/dev/null || true)"
+            echo "Maven publication trusted host-class resolution failed closed: ${code}" >&2
+            exit 1
+          }
+          test "$(jq -r '.project_key // empty' <<<"${resolution}")" = "${project_key}"             && test "$(jq -r '.repository // empty' <<<"${resolution}")" = "${SOURCE_REPOSITORY}"             && test "$(jq -r '.ci_run_id // empty' <<<"${resolution}")" = "${TRUSTED_CAPABILITY_CI_RUN_ID}"             && test "$(jq -r '.operation // empty' <<<"${resolution}")" = release             && test "$(jq -r '.host_os // empty' <<<"${resolution}")" = macos || {
+            echo "Maven publication trusted host-class resolution returned mismatched identity" >&2
+            exit 1
+          }
+          emit_host "$(jq -r '.host_class // empty' <<<"${resolution}")"
+
+  publish:
+    needs: resolve_host
+    runs-on: ${{ fromJSON(needs.resolve_host.outputs.runs_on) }}
     timeout-minutes: 300
     outputs:
       source_sha: ${{ steps.source_identity.outputs.source_sha }}

@@ -17,16 +17,20 @@ class MavenWorkflowTests(unittest.TestCase):
     def setUp(self) -> None:
         self.text = WORKFLOW.read_text(encoding="utf-8")
         self.workflow = yaml.safe_load(self.text)
+        self.resolve = self.workflow["jobs"]["resolve_host"]
         self.job = self.workflow["jobs"]["publish"]
 
     def step(self, name: str) -> dict:
         return next(step for step in self.job["steps"] if step.get("name") == name)
 
+    def resolve_step(self, name: str) -> dict:
+        return next(step for step in self.resolve["steps"] if step.get("name") == name)
+
     def test_api_is_product_neutral_and_bounded(self) -> None:
         call = self.workflow["on"]["workflow_call"]
         self.assertEqual(
             set(call["inputs"]),
-            {"repository", "ref", "source_is_tag", "expected_source_sha", "build_number", "ci_run_id", "upload_private_log"},
+            {"repository", "ref", "source_is_tag", "expected_source_sha", "trusted_capability_ci_run_id", "build_number", "ci_run_id", "upload_private_log"},
         )
         self.assertEqual(
             set(call["secrets"]),
@@ -48,7 +52,12 @@ class MavenWorkflowTests(unittest.TestCase):
             },
         )
         self.assertTrue(all(not value["required"] for value in call["secrets"].values()))
-        self.assertEqual(self.job["runs-on"], "ubuntu-24.04")
+        self.assertEqual(self.resolve["runs-on"], "ubuntu-24.04")
+        self.assertEqual(self.job["needs"], "resolve_host")
+        self.assertEqual(
+            self.job["runs-on"],
+            "${{ fromJSON(needs.resolve_host.outputs.runs_on) }}",
+        )
         self.assertEqual(set(self.workflow["on"]), {"workflow_call"})
 
         self.assertNotRegex(self.text, r"(?:inputs\.repository|SOURCE_REPOSITORY).{0,120}(?:==|!=|=~)\s*[\'\"]StreamScapeTV/[A-Za-z0-9_.-]+")
@@ -66,6 +75,99 @@ class MavenWorkflowTests(unittest.TestCase):
             "release_command",
         ):
             self.assertNotIn(forbidden, self.text)
+
+    def test_aggregate_parent_resolves_maven_to_reviewed_macos_release_class(self) -> None:
+        step = self.resolve_step("Resolve Maven publication host")
+        script = step["run"]
+        self.assertIn("resolve_repository_ci_host_class_for_os", script)
+        self.assertIn('p_operation:"release"', script)
+        self.assertIn('p_host_os:"macos"', script)
+        self.assertIn("release.library-package", script)
+        self.assertIn("macos-high-capacity", script)
+
+        def run(*, trusted: bool, host_class: str = "macos-high-capacity", workflow: str = "release.library-package"):
+            trusted_id = "22222222-2222-4222-8222-222222222222"
+            claim = {
+                "ok": True,
+                "code": "ok",
+                "replayed": True,
+                "run": {
+                    "project_key": "fixture-project",
+                    "repository": "ExampleOrg/example-repository",
+                    "ref": "2.1.9",
+                    "is_tag": True,
+                    "workflow_key": workflow,
+                    "test_profile": "publish",
+                },
+            }
+            resolution = {
+                "ok": True,
+                "code": "ok",
+                "project_key": "fixture-project",
+                "repository": "ExampleOrg/example-repository",
+                "ci_run_id": trusted_id,
+                "operation": "release",
+                "host_os": "macos",
+                "host_class": host_class,
+            }
+            with tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                fake_bin = root / "bin"
+                fake_bin.mkdir()
+                curl = fake_bin / "curl"
+                curl.write_text(
+                    "#!/usr/bin/env python3\n"
+                    "import json, sys\n"
+                    f"claim = {claim!r}\n"
+                    f"resolution = {resolution!r}\n"
+                    "url = sys.argv[-1]\n"
+                    "if url.endswith('/claim_ci_run'):\n"
+                    "    print(json.dumps(claim))\n"
+                    "elif url.endswith('/resolve_repository_ci_host_class_for_os'):\n"
+                    "    print(json.dumps(resolution))\n"
+                    "else:\n"
+                    "    raise SystemExit(97)\n",
+                    encoding="utf-8",
+                )
+                curl.chmod(0o755)
+                output = root / "github-output"
+                output.write_text("", encoding="utf-8")
+                completed = subprocess.run(
+                    ["bash", "-c", script],
+                    cwd=ROOT,
+                    env={
+                        **os.environ,
+                        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                        "TRUSTED_CAPABILITY_CI_RUN_ID": trusted_id if trusted else "",
+                        "SOURCE_REPOSITORY": "ExampleOrg/example-repository",
+                        "SOURCE_REF": "2.1.9",
+                        "SOURCE_IS_TAG": "true",
+                        "AGENT_STATE_SUPABASE_URL": "https://agent-state.invalid",
+                        "AGENT_STATE_SUPABASE_SECRET_KEY": "fixture-secret",
+                        "GITHUB_OUTPUT": str(output),
+                    },
+                    capture_output=True,
+                    text=True,
+                )
+                values = {}
+                for line in output.read_text(encoding="utf-8").splitlines():
+                    key, value = line.split("=", 1)
+                    values[key] = value
+                return completed, values
+
+        standalone, standalone_values = run(trusted=False)
+        self.assertEqual(standalone.returncode, 0, standalone.stderr)
+        self.assertEqual(standalone_values["host_class"], "linux-hosted")
+        self.assertEqual(json.loads(standalone_values["runs_on"]), ["ubuntu-24.04"])
+
+        aggregate, aggregate_values = run(trusted=True)
+        self.assertEqual(aggregate.returncode, 0, aggregate.stderr)
+        self.assertEqual(aggregate_values["host_class"], "macos-high-capacity")
+        self.assertEqual(json.loads(aggregate_values["runs_on"]), ["macOS", "ARM64"])
+
+        wrong_parent, _ = run(trusted=True, workflow="release.maven")
+        self.assertNotEqual(wrong_parent.returncode, 0)
+        self.assertIn("not the exact release.library-package/publish request", wrong_parent.stderr)
 
     def test_source_admission_and_fixed_wrapper_contract(self) -> None:
         checkout = self.step("Check out source")
@@ -333,7 +435,8 @@ class MavenWorkflowTests(unittest.TestCase):
             self.assertEqual(step["with"]["subdirectory"], "${{ steps.evidence.outputs.publication_id }}")
             self.assertEqual(step["with"]["file_name"], file_name)
             self.assertTrue(step["with"]["immutable"])
-        self.assertNotIn("latest", self.text.lower())
+        self.assertNotIn("latest", str(archive).lower())
+        self.assertNotIn("latest", str(manifest).lower())
 
     def test_evidence_result_parser_executes_fail_closed(self) -> None:
         run = self.step("Validate optional immutable publication evidence")["run"]

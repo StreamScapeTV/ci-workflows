@@ -43,29 +43,60 @@ class LibraryPackageReleaseWorkflowTests(unittest.TestCase):
 
     def test_shared_readiness_and_release_prepare_gate_both_publications(self) -> None:
         jobs = self.workflow["jobs"]
-        for name, host in (("readiness_macos", "macos"), ("readiness_linux", "linux")):
-            job = jobs[name]
-            self.assertEqual(job["uses"], "./.github/workflows/repository.yml")
-            self.assertEqual(job["with"]["operation"], "full")
-            self.assertEqual(job["with"]["host_os"], host)
-            self.assertEqual(job["with"]["semantic_inputs_json"], "{}")
-            self.assertEqual(job["with"]["ci_run_id"], "")
-            self.assertEqual(
-                job["with"]["trusted_capability_ci_run_id"],
-                "${{ inputs.ci_run_id }}",
-            )
-            self.assertEqual(job["with"]["expected_source_sha"], "${{ needs.plan.outputs.source_sha }}")
-            for secret in (
-                "AGENT_STATE_SUPABASE_URL",
-                "AGENT_STATE_SUPABASE_SECRET_KEY",
-                "TS_OAUTH_CLIENT_ID",
-                "TS_OAUTH_SECRET",
-                "REGISTRY_USERNAME",
-                "REGISTRY_READ_TOKEN",
-            ):
-                self.assertIn(secret, job["secrets"])
+        self.assertNotIn("readiness_macos", jobs)
+        self.assertNotIn("readiness_linux", jobs)
+
+        plan = jobs["plan"]
+        self.assertEqual(
+            plan["outputs"]["readiness_matrix"],
+            "${{ steps.readiness_plan.outputs.readiness_matrix }}",
+        )
+        parser_checkout = next(
+            step for step in plan["steps"]
+            if step.get("name") == "Check out reviewed Central execution-plan parser"
+        )
+        self.assertEqual(parser_checkout["with"]["repository"], "StreamScapeTV/ci-workflows")
+        self.assertEqual(parser_checkout["with"]["ref"], "${{ github.sha }}")
+        readiness_plan = next(
+            step for step in plan["steps"]
+            if step.get("name") == "Select bounded aggregate readiness execution plan"
+        )["run"]
+        for value in (
+            ".ci/execution-plan.json",
+            "repository_execution_plan.py --operation full",
+            "aggregate-two-os-compatibility",
+            "readiness_matrix",
+        ):
+            self.assertIn(value, readiness_plan)
+
+        readiness = jobs["readiness"]
+        self.assertEqual(readiness["uses"], "./.github/workflows/repository.yml")
+        self.assertFalse(readiness["strategy"]["fail-fast"])
+        self.assertEqual(
+            readiness["strategy"]["matrix"],
+            "${{ fromJSON(needs.plan.outputs.readiness_matrix) }}",
+        )
+        self.assertEqual(readiness["with"]["operation"], "full")
+        self.assertEqual(readiness["with"]["host_os"], "${{ matrix.host_os }}")
+        self.assertEqual(readiness["with"]["semantic_inputs_json"], "{}")
+        self.assertEqual(readiness["with"]["ci_run_id"], "")
+        self.assertEqual(
+            readiness["with"]["trusted_capability_ci_run_id"],
+            "${{ inputs.ci_run_id }}",
+        )
+        self.assertEqual(readiness["with"]["expected_source_sha"], "${{ needs.plan.outputs.source_sha }}")
+        for secret in (
+            "AGENT_STATE_SUPABASE_URL",
+            "AGENT_STATE_SUPABASE_SECRET_KEY",
+            "TS_OAUTH_CLIENT_ID",
+            "TS_OAUTH_SECRET",
+            "REGISTRY_USERNAME",
+            "REGISTRY_READ_TOKEN",
+        ):
+            self.assertIn(secret, readiness["secrets"])
+
         prepare = jobs["release_prepare"]
-        self.assertEqual(set(prepare["needs"]), {"plan", "readiness_macos", "readiness_linux"})
+        self.assertEqual(set(prepare["needs"]), {"plan", "readiness"})
         self.assertEqual(prepare["with"]["operation"], "release")
         self.assertEqual(prepare["with"]["host_os"], "macos")
         self.assertTrue(prepare["with"]["release_authorized"])
@@ -99,13 +130,19 @@ class LibraryPackageReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("apple_swiftpm", maven["needs"])
         self.assertEqual(maven["with"]["build_number"], "${{ inputs.ref }}")
         self.assertEqual(maven["with"]["ci_run_id"], "")
+        self.assertEqual(
+            maven["with"]["trusted_capability_ci_run_id"],
+            "${{ inputs.ci_run_id }}",
+        )
         self.assertEqual(maven["with"]["expected_source_sha"], "${{ needs.plan.outputs.source_sha }}")
+        self.assertIn("AGENT_STATE_SUPABASE_URL", maven["secrets"])
+        self.assertIn("AGENT_STATE_SUPABASE_SECRET_KEY", maven["secrets"])
 
     def test_only_aggregate_finishes_outer_agent_state_row(self) -> None:
         finish = self.workflow["jobs"]["finish"]
         self.assertEqual(finish["if"], "${{ always() }}")
         status = finish["steps"][0]["with"]["status"]
-        for name in ("plan", "readiness_macos", "readiness_linux", "release_prepare", "apple_swiftpm", "maven"):
+        for name in ("plan", "readiness", "release_prepare", "apple_swiftpm", "maven"):
             self.assertIn(f"needs.{name}.result == 'success'", status)
         self.assertEqual(finish["steps"][0]["with"]["ci_run_id"], "${{ inputs.ci_run_id }}")
 
