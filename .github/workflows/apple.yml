@@ -1,0 +1,1810 @@
+# LEGACY_MIGRATION_RESIDUE: Concrete consumer identity below is retained only for still-live compatibility; do not add new identity-coupled behavior, and remove it only after the private migration ledger proves zero callers.
+name: Apple CI
+
+"on":
+  workflow_call:
+    inputs:
+      repository:
+        type: string
+        required: false
+        default: ""
+      ref:
+        type: string
+        required: false
+        default: ""
+      source_is_tag:
+        type: boolean
+        required: false
+        default: false
+      test_profile:
+        type: string
+        required: true
+      test_selectors:
+        type: string
+        required: false
+        default: "[]"
+      test_platform:
+        type: string
+        required: false
+        default: ""
+      native_component:
+        type: string
+        required: false
+        default: ""
+      release_version:
+        type: string
+        required: false
+        default: ""
+      build_number:
+        type: string
+        required: false
+        default: ""
+      ci_run_id:
+        type: string
+        required: false
+        default: ""
+      upload_private_log:
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      SOURCE_APP_ID:
+        required: false
+      SOURCE_APP_PRIVATE_KEY:
+        required: false
+      AGENT_STATE_SUPABASE_URL:
+        required: false
+      AGENT_STATE_SUPABASE_SECRET_KEY:
+        required: false
+      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID:
+        required: false
+      GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID:
+        required: false
+      GOOGLE_DRIVE_CLIENT_ID:
+        required: false
+      GOOGLE_DRIVE_CLIENT_SECRET:
+        required: false
+      GOOGLE_DRIVE_REFRESH_TOKEN:
+        required: false
+      TS_OAUTH_CLIENT_ID:
+        required: false
+      TS_OAUTH_SECRET:
+        required: false
+      FORGEJO_REGISTRY_USERNAME:
+        required: false
+      CIW_MAVEN_PACKAGE_READ_TOKEN:
+        required: false
+      STREAMSCAPE_API_BASE:
+        required: false
+      STREAMSCAPE_EMAIL:
+        required: false
+      STREAMSCAPE_PASSWORD:
+        required: false
+      STREAMSCAPE_DEMO_EMAIL:
+        required: false
+      STREAMSCAPE_DEMO_PASSWORD:
+        required: false
+      XTREAM_URL:
+        required: false
+      XTREAM_USERNAME:
+        required: false
+      XTREAM_PASSWORD:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
+      APP_STORE_CONNECT_KEY_ID:
+        required: false
+      APP_STORE_CONNECT_ISSUER_ID:
+        required: false
+      APP_STORE_CONNECT_API_KEY_P8_BASE64:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.profile.outputs.matrix }}
+      screenshot_source_sha: ${{ steps.screenshot_source.outputs.source_sha }}
+    steps:
+      - name: Mark Agent State run as running
+        if: ${{ inputs.ci_run_id != '' }}
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: start
+          ci_run_id: ${{ inputs.ci_run_id }}
+
+      - name: Resolve fixed Apple execution lanes
+        id: profile
+        shell: bash
+        env:
+          TEST_PROFILE: ${{ inputs.test_profile }}
+          TEST_SELECTORS: ${{ inputs.test_selectors }}
+          TEST_PLATFORM: ${{ inputs.test_platform }}
+          NATIVE_COMPONENT: ${{ inputs.native_component }}
+          SOURCE_IS_TAG: ${{ inputs.source_is_tag }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+          SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
+        run: |
+          set -Eeuo pipefail
+          if test "${TEST_PROFILE}" = testflight; then
+            case "${SOURCE_IS_TAG:-false}" in
+              true)
+                [[ "${RELEASE_VERSION:-}" =~ ^[0-9]+(\.[0-9]+){1,3}$ ]] || {
+                  echo "Tag-driven TestFlight release requires a bounded dotted release_version" >&2
+                  exit 2
+                }
+                ;;
+              false)
+                test -z "${RELEASE_VERSION:-}" || {
+                  echo "Manual TestFlight release does not accept release_version" >&2
+                  exit 2
+                }
+                ;;
+              *) echo "TestFlight source_is_tag must be true or false" >&2; exit 2 ;;
+            esac
+          else
+            test -z "${RELEASE_VERSION:-}" || {
+              echo "release_version is accepted only by testflight" >&2
+              exit 2
+            }
+          fi
+          case "${TEST_PROFILE}" in
+            screenshot-review)
+              test "${SOURCE_REPOSITORY}" = "StreamScapeTV/iptv-apple" || {
+                echo "screenshot-review is currently bounded to StreamScapeTV/iptv-apple" >&2
+                exit 2
+              }
+              test "${TEST_SELECTORS}" = "[]" || {
+                echo "screenshot-review does not accept test_selectors" >&2
+                exit 2
+              }
+              test -z "${TEST_PLATFORM}" || {
+                echo "screenshot-review does not accept test_platform" >&2
+                exit 2
+              }
+              test -z "${NATIVE_COMPONENT:-}" || {
+                echo "screenshot-review does not accept native_component" >&2
+                exit 2
+              }
+              test -z "${BUILD_NUMBER:-}" || {
+                echo "screenshot-review does not accept build_number" >&2
+                exit 2
+              }
+              ;;
+            targeted-tests)
+              test -z "${NATIVE_COMPONENT:-}" || {
+                echo "native_component is accepted only by native-component" >&2
+                exit 2
+              }
+              ;;
+            candidate)
+              test -z "${TEST_PLATFORM}" || {
+                echo "candidate fixes macOS test execution and does not accept test_platform" >&2
+                exit 2
+              }
+              test -z "${NATIVE_COMPONENT:-}" || {
+                echo "native_component is accepted only by native-component" >&2
+                exit 2
+              }
+              ;;
+            native-component)
+              test "${TEST_SELECTORS}" = "[]" || {
+                echo "native-component does not accept test_selectors" >&2
+                exit 2
+              }
+              test -z "${TEST_PLATFORM}" || {
+                echo "native-component does not accept test_platform" >&2
+                exit 2
+              }
+              [[ "${NATIVE_COMPONENT:-}" =~ ^[a-z][a-z0-9-]{0,63}$ ]] || {
+                echo "native-component requires one bounded semantic native_component selector" >&2
+                exit 2
+              }
+              ;;
+            *)
+              test "${TEST_SELECTORS}" = "[]" || {
+                echo "test_selectors is accepted only by targeted-tests or candidate" >&2
+                exit 2
+              }
+              test -z "${TEST_PLATFORM}" || {
+                echo "test_platform is accepted only by targeted-tests" >&2
+                exit 2
+              }
+              test -z "${NATIVE_COMPONENT:-}" || {
+                echo "native_component is accepted only by native-component" >&2
+                exit 2
+              }
+              ;;
+          esac
+          case "${TEST_PROFILE}" in
+            screenshot-review)
+              matrix='{"include":[{"lane":"screenshot-ios","cache_save":false},{"lane":"screenshot-tvos","cache_save":false}]}'
+              ;;
+            build)
+              matrix='{"include":[{"lane":"hosted-build","cache_save":false}]}'
+              ;;
+            native-component)
+              matrix='{"include":[{"lane":"native-component","cache_save":false}]}'
+              ;;
+            test)
+              matrix='{"include":[{"lane":"hosted-test","cache_save":false}]}'
+              ;;
+            simulator)
+              matrix='{"include":[{"lane":"hosted-simulator","cache_save":false}]}'
+              ;;
+            host)
+              matrix='{"include":[{"lane":"macos-test","cache_save":true}]}'
+              ;;
+            targeted-tests)
+              case "${TEST_PLATFORM}" in
+                macos) matrix='{"include":[{"lane":"macos-targeted-tests","cache_save":false}]}' ;;
+                ios) matrix='{"include":[{"lane":"ios-targeted-tests","cache_save":false}]}' ;;
+                tvos) matrix='{"include":[{"lane":"tvos-targeted-tests","cache_save":false}]}' ;;
+                *) echo "targeted-tests requires test_platform=macos, ios, or tvos" >&2; exit 2 ;;
+              esac
+              ;;
+            candidate)
+              matrix='{"include":[{"lane":"ios-build","cache_save":false},{"lane":"tvos-build","cache_save":false},{"lane":"macos-targeted-tests","cache_save":true}]}'
+              ;;
+            full)
+              matrix='{"include":[{"lane":"ios-build","cache_save":false},{"lane":"tvos-build","cache_save":false},{"lane":"macos-test","cache_save":true}]}'
+              ;;
+            release-build)
+              matrix='{"include":[{"lane":"release-build","cache_save":true}]}'
+              ;;
+            testflight)
+              matrix='{"include":[{"lane":"testflight","cache_save":false}]}'
+              ;;
+            swift-package)
+              matrix='{"include":[{"lane":"swift-package","cache_save":false}]}'
+              ;;
+            *)
+              printf 'Unsupported Apple test_profile: %s\n' "${TEST_PROFILE}" >&2
+              exit 2
+              ;;
+          esac
+          if test "${TEST_PROFILE}" = targeted-tests || test "${TEST_PROFILE}" = candidate; then
+            TEST_SELECTORS_JSON="${TEST_SELECTORS}" TEST_PROFILE_NAME="${TEST_PROFILE}" python3 - <<'PY_TEST_SELECTORS'
+          import json
+          import os
+          import re
+
+          profile = os.environ.get("TEST_PROFILE_NAME", "targeted-tests")
+          raw = os.environ.get("TEST_SELECTORS_JSON", "")
+          if len(raw) > 2048:
+              raise SystemExit(f"{profile} test_selectors payload is too large")
+          try:
+              values = json.loads(raw)
+          except json.JSONDecodeError as exc:
+              raise SystemExit(f"{profile} test_selectors must be valid JSON") from exc
+          if not isinstance(values, list) or not 1 <= len(values) <= 20:
+              raise SystemExit(f"{profile} requires 1 through 20 test selectors")
+          if any(not isinstance(value, str) for value in values):
+              raise SystemExit(f"{profile} selectors must be strings")
+          if len(values) != len(set(values)):
+              raise SystemExit(f"{profile} test selectors must be unique")
+          pattern = re.compile(r"[A-Za-z0-9_.$/-]{1,240}")
+          for value in values:
+              if (
+                  not pattern.fullmatch(value)
+                  or value.startswith("-")
+                  or "/" not in value
+              ):
+                  raise SystemExit(f"{profile} contains an invalid Apple test selector")
+          PY_TEST_SELECTORS
+          fi
+          printf 'matrix=%s\n' "${matrix}" >> "${GITHUB_OUTPUT}"
+
+      - name: Prepare screenshot-review source token
+        id: screenshot_source_token
+        if: ${{ inputs.test_profile == 'screenshot-review' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.SOURCE_APP_ID }}
+          private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          owner: StreamScapeTV
+
+      - name: Resolve screenshot-review source identity
+        id: screenshot_source
+        if: ${{ inputs.test_profile == 'screenshot-review' }}
+        shell: bash
+        env:
+          SOURCE_REF: ${{ inputs.ref }}
+          SOURCE_TOKEN: ${{ steps.screenshot_source_token.outputs.token }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${SOURCE_REF}" || {
+            echo "screenshot-review requires an explicit product source ref" >&2
+            exit 2
+          }
+          test -n "${SOURCE_TOKEN}" || {
+            echo "screenshot-review source identity requires the fixed source token" >&2
+            exit 2
+          }
+          case "${SOURCE_REF}" in
+            refs/heads/*) source_ref="${SOURCE_REF#refs/heads/}" ;;
+            refs/tags/*|refs/pull/*)
+              echo "screenshot-review accepts a product branch ref, not a tag or pull ref" >&2
+              exit 2
+              ;;
+            *) source_ref="${SOURCE_REF}" ;;
+          esac
+          encoded_ref="$(SOURCE_REF_VALUE="${source_ref}" python3 - <<'PY_SCREENSHOT_REF'
+          import os
+          import urllib.parse
+
+          print(urllib.parse.quote(os.environ["SOURCE_REF_VALUE"], safe=""))
+          PY_SCREENSHOT_REF
+          )"
+          response="$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer ${SOURCE_TOKEN}" \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/StreamScapeTV/iptv-apple/commits/${encoded_ref}")"
+          source_sha="$(printf '%s' "${response}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("sha", ""))')"
+          [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "screenshot-review source ref did not resolve to one exact lowercase commit SHA" >&2
+            exit 2
+          }
+          printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Record screenshot-review source SHA
+        if: ${{ inputs.test_profile == 'screenshot-review' && inputs.ci_run_id != '' }}
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: observe-source
+          ci_run_id: ${{ inputs.ci_run_id }}
+          observed_source_sha: ${{ steps.screenshot_source.outputs.source_sha }}
+
+  execute:
+    needs: plan
+    name: ${{ matrix.lane }}
+    runs-on: ${{ fromJSON(((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && (inputs.test_profile == 'build' || inputs.test_profile == 'native-component')) && '["macOS","ARM64"]' || '["macos-latest"]') }}
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - name: Initialize CI log
+        shell: bash
+        env:
+          LANE: ${{ matrix.lane }}
+        run: |
+          log="${RUNNER_TEMP}/central-ci-${LANE}.log"
+          : > "${log}"
+          printf 'CI_LOG=%s\n' "${log}" >> "${GITHUB_ENV}"
+
+      - name: Prepare source token
+        id: source
+        if: ${{ inputs.repository != '' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.SOURCE_APP_ID }}
+          private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          owner: StreamScapeTV
+          permission-contents: read
+          permission-metadata: read
+
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repository || github.repository }}
+          ref: ${{ inputs.test_profile == 'screenshot-review' && needs.plan.outputs.screenshot_source_sha || inputs.source_is_tag && format('refs/tags/{0}', inputs.ref) || inputs.ref || github.sha }}
+          token: ${{ steps.source.outputs.token || github.token }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Resolve observed source SHA
+        id: source_identity
+        shell: bash
+        env:
+          TEST_PROFILE: ${{ inputs.test_profile }}
+          EXPECTED_SCREENSHOT_SOURCE_SHA: ${{ needs.plan.outputs.screenshot_source_sha }}
+        run: |
+          set -Eeuo pipefail
+          source_sha="$(git rev-parse HEAD)"
+          [[ "${source_sha}" =~ ^[0-9A-Fa-f]{40}$ ]] || exit 2
+          if test "${TEST_PROFILE}" = screenshot-review; then
+            test -n "${EXPECTED_SCREENSHOT_SOURCE_SHA}" || {
+              echo "screenshot-review has no plan-pinned source SHA" >&2
+              exit 2
+            }
+            test "${source_sha}" = "${EXPECTED_SCREENSHOT_SOURCE_SHA}" || {
+              echo "screenshot-review checkout moved from the plan-pinned product source SHA" >&2
+              exit 1
+            }
+          fi
+          printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Record observed source SHA
+        if: ${{ inputs.ci_run_id != '' && inputs.test_profile != 'screenshot-review' }}
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: observe-source
+          ci_run_id: ${{ inputs.ci_run_id }}
+          observed_source_sha: ${{ steps.source_identity.outputs.source_sha }}
+
+      - name: Resolve Apple default-branch dependency cache scope
+        id: apple_default_cache
+        if: >-
+          ${{ inputs.test_profile != 'build'
+              && inputs.test_profile != 'native-component'
+              && inputs.test_profile != 'screenshot-review'
+              && inputs.test_profile != 'test'
+              && inputs.test_profile != 'simulator'
+              && inputs.test_profile != 'testflight' }}
+        shell: bash
+        env:
+          REQUEST_REPOSITORY: ${{ inputs.repository }}
+          REQUEST_REF: ${{ inputs.ref }}
+          REQUEST_IS_TAG: ${{ inputs.source_is_tag }}
+          CALLER_REPOSITORY: ${{ github.repository }}
+          CALLER_REF: ${{ github.ref }}
+          SOURCE_TOKEN: ${{ steps.source.outputs.token }}
+        run: |
+          set -Eeuo pipefail
+          source_repository="${REQUEST_REPOSITORY:-${CALLER_REPOSITORY}}"
+          source_ref="${REQUEST_REF:-${CALLER_REF}}"
+          source_is_tag="${REQUEST_IS_TAG}"
+          case "${source_ref}" in
+            refs/heads/*) source_ref="${source_ref#refs/heads/}" ;;
+            refs/tags/*) source_is_tag=true ;;
+          esac
+          source_is_pr=false
+          case "${REQUEST_REF}" in
+            refs/pull/*) source_is_pr=true ;;
+          esac
+          checkout_branch="$(git symbolic-ref --quiet --short HEAD || true)"
+
+          restore_eligible=false
+          if test "${source_repository}" = "StreamScapeTV/iptv-apple" &&
+            test "${source_is_tag}" != "true"; then
+            restore_eligible=true
+          fi
+
+          fingerprint_ready=false
+          if test -f scripts/bootstrap-streamscape-media-binary.sh &&
+            test -f streamscapetv.xcodeproj/project.pbxproj; then
+            fingerprint_ready=true
+          fi
+
+          default_branch=""
+          if test "${restore_eligible}" = "true" &&
+            test "${fingerprint_ready}" = "true" &&
+            test -n "${SOURCE_TOKEN}"; then
+            repository_json="$(curl --fail --silent --show-error --header "Authorization: Bearer ${SOURCE_TOKEN}" --header 'Accept: application/vnd.github+json' --header 'X-GitHub-Api-Version: 2022-11-28' "https://api.github.com/repos/${source_repository}" || true)"
+            if test -n "${repository_json}"; then
+              default_branch="$(printf '%s' "${repository_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("default_branch", ""))' 2>/dev/null || true)"
+            fi
+          fi
+
+          restore_enabled=false
+          if test "${restore_eligible}" = "true" &&
+            test "${fingerprint_ready}" = "true" &&
+            test -n "${default_branch}"; then
+            restore_enabled=true
+          fi
+
+          save_enabled=false
+          if test "${restore_enabled}" = "true" &&
+            test "${source_ref}" = "${default_branch}" &&
+            test "${checkout_branch}" = "${default_branch}" &&
+            test "${source_is_pr}" != "true"; then
+            save_enabled=true
+          fi
+
+          swiftpm_clones_dir="${RUNNER_TEMP}/streamscapetv-swiftpm-clones"
+          mkdir -p "${swiftpm_clones_dir}"
+          {
+            printf 'restore_eligible=%s\n' "${restore_eligible}"
+            printf 'restore_enabled=%s\n' "${restore_enabled}"
+            printf 'save_enabled=%s\n' "${save_enabled}"
+            printf 'default_branch=%s\n' "${default_branch}"
+            printf 'swiftpm_clones_dir=%s\n' "${swiftpm_clones_dir}"
+          } >> "${GITHUB_OUTPUT}"
+          {
+            printf 'SWIFTPM_CLONES_DIR=%s\n' "${swiftpm_clones_dir}"
+            printf 'APPLE_DEFAULT_CACHE_ENABLED=%s\n' "${restore_enabled}"
+          } >> "${GITHUB_ENV}"
+
+          if test "${restore_enabled}" = "true"; then
+            dependency_fingerprint="$(python3 - \
+              scripts/bootstrap-streamscape-media-binary.sh \
+              streamscapetv.xcodeproj/project.pbxproj <<'PY_APPLE_DEPENDENCY_FINGERPRINT'
+          from __future__ import annotations
+
+          from pathlib import Path
+          import hashlib
+          import re
+          import sys
+
+          bootstrap_path = Path(sys.argv[1])
+          project_path = Path(sys.argv[2])
+          bootstrap = bootstrap_path.read_text(encoding="utf-8")
+          project = project_path.read_text(encoding="utf-8")
+
+          def section_body(name: str) -> str:
+              match = re.search(
+                  rf"/\* Begin {re.escape(name)} section \*/(?P<body>.*?)/\* End {re.escape(name)} section \*/",
+                  project,
+                  flags=re.S,
+              )
+              return match.group("body") if match is not None else ""
+
+          def object_blocks(section: str) -> list[str]:
+              blocks: list[str] = []
+              current: list[str] = []
+              depth = 0
+              for line in section.splitlines():
+                  if depth == 0:
+                      if "= {" not in line:
+                          continue
+                      current = [line]
+                      depth = line.count("{") - line.count("}")
+                  else:
+                      current.append(line)
+                      depth += line.count("{") - line.count("}")
+                  if current and depth == 0:
+                      blocks.append("\n".join(current))
+                      current = []
+              if current or depth != 0:
+                  raise SystemExit("Apple Swift package reference section is malformed")
+              return blocks
+
+          records: list[str] = []
+          for name in (
+              "RELEASE_REPOSITORY",
+              "RELEASE_TAG",
+              "RELEASE_COMMIT",
+              "ASSET_NAME",
+              "ASSET_SHA256",
+          ):
+              match = re.search(rf"(?m)^{re.escape(name)}=(?P<value>.+?)\s*$", bootstrap)
+              if match is None:
+                  raise SystemExit(f"Apple Streamscape Media bootstrap is missing {name}")
+              records.append(f"media:{name}={match.group('value').strip()}")
+
+          for block in object_blocks(section_body("XCLocalSwiftPackageReference")):
+              path_match = re.search(r"(?m)^\s*relativePath\s*=\s*([^;]+);\s*$", block)
+              if path_match is None:
+                  raise SystemExit("Apple local Swift package reference has no relativePath")
+              path_value = " ".join(path_match.group(1).split())
+              records.append(f"local:{path_value}")
+
+          for block in object_blocks(section_body("XCRemoteSwiftPackageReference")):
+              fields = {
+                  key: " ".join(value.split())
+                  for key, value in re.findall(
+                      r"(?m)^\s*([A-Za-z][A-Za-z0-9_]*)\s*=\s*([^;]+);\s*$",
+                      block,
+                  )
+                  if key != "isa"
+              }
+              repository_url = fields.get("repositoryURL")
+              if not repository_url:
+                  raise SystemExit("Apple remote Swift package reference has no repositoryURL")
+              records.append(
+                  "remote:" + "|".join(f"{key}={fields[key]}" for key in sorted(fields))
+              )
+
+          digest = hashlib.sha256()
+          for record in sorted(records):
+              digest.update(b"\0package\0")
+              digest.update(record.encode("utf-8"))
+          print(digest.hexdigest())
+          PY_APPLE_DEPENDENCY_FINGERPRINT
+            )"
+            xcode_fingerprint="$(xcodebuild -version | /usr/bin/shasum -a 256 | awk '{print $1}')"
+            architecture="$(uname -m)"
+            cache_key="iptv-apple-default-deps-v4-${architecture}-${xcode_fingerprint}-${dependency_fingerprint}"
+            printf 'key=%s\n' "${cache_key}" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Restore Apple default-branch dependency cache
+        id: apple_default_cache_restore
+        if: ${{ steps.apple_default_cache.outputs.restore_enabled == 'true' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            Vendor/StreamscapeMediaApple
+            ${{ steps.apple_default_cache.outputs.swiftpm_clones_dir }}
+          key: ${{ steps.apple_default_cache.outputs.key }}
+
+      - name: Record Apple default-branch cache restore
+        if: ${{ steps.apple_default_cache.outputs.restore_enabled == 'true' }}
+        shell: bash
+        env:
+          CACHE_HIT: ${{ steps.apple_default_cache_restore.outputs.cache-hit }}
+          DEFAULT_BRANCH: ${{ steps.apple_default_cache.outputs.default_branch }}
+        run: |
+          set -Eeuo pipefail
+          {
+            printf '\n===== apple-default-cache =====\n'
+            printf 'default_branch=%s\n' "${DEFAULT_BRANCH}"
+            printf 'cache_hit=%s\n' "${CACHE_HIT:-false}"
+          } >> "${CI_LOG}"
+
+      - name: Connect to private Git service for Apple dependency materialization
+        if: >-
+          ${{ (inputs.repository || github.repository) == 'StreamScapeTV/iptv-apple'
+              && inputs.test_profile != 'build'
+              && inputs.test_profile != 'native-component'
+              && inputs.test_profile != 'test'
+              && inputs.test_profile != 'simulator'
+              && inputs.test_profile != 'swift-package' }}
+        uses: StreamScapeTV/ci-workflows/actions/private-git@main
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+
+      - name: Materialize fixed Streamscape Media Apple dependency
+        if: >-
+          ${{ (inputs.repository || github.repository) == 'StreamScapeTV/iptv-apple'
+              && inputs.test_profile != 'build'
+              && inputs.test_profile != 'native-component'
+              && inputs.test_profile != 'test'
+              && inputs.test_profile != 'simulator'
+              && inputs.test_profile != 'swift-package' }}
+        shell: bash
+        env:
+          CI_APPLE_BINARY_PACKAGE_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          CI_APPLE_BINARY_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+          CI_APPLE_BINARY_PACKAGE_HOST: git.faruqi.dev
+          CI_APPLE_BINARY_PACKAGE_BASE_PATH: /api/packages/mimranfaruqi/generic
+        run: |
+          set -Eeuo pipefail
+          test -n "${CI_APPLE_BINARY_PACKAGE_USERNAME}" || {
+            echo 'Missing fixed Forgejo package username for Apple dependency materialization' >&2
+            exit 1
+          }
+          test -n "${CI_APPLE_BINARY_PACKAGE_READ_TOKEN}" || {
+            echo 'Missing fixed Forgejo package read token for Apple dependency materialization' >&2
+            exit 1
+          }
+
+          helper="scripts/bootstrap-streamscape-media-binary.sh"
+          test -f "${helper}" || {
+            printf 'Missing required Apple bootstrap helper: %s\n' "${helper}" >&2
+            exit 1
+          }
+
+          printf '\n===== prepare-media =====\n' >> "${CI_LOG}"
+          if ! bash "${helper}" >> "${CI_LOG}" 2>&1; then
+            echo 'prepare-media failed; inspect the private Google Drive CI log.' >&2
+            exit 1
+          fi
+
+      - name: Prepare fixed TestFlight release context
+        id: testflight_prepare
+        if: ${{ inputs.test_profile == 'testflight' }}
+        shell: bash
+        env:
+          SOURCE_IS_TAG: ${{ inputs.source_is_tag }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${BUILD_NUMBER}" || {
+            printf 'TestFlight requires an explicit caller build_number.\n' >&2
+            exit 2
+          }
+          if (( ${#BUILD_NUMBER} > 64 )) || [[ ! "${BUILD_NUMBER}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]]; then
+            printf 'TestFlight build_number must be a bounded scalar release identifier.\n' >&2
+            exit 2
+          fi
+          case "${SOURCE_IS_TAG}" in
+            true)
+              [[ "${RELEASE_VERSION}" =~ ^[0-9]+(\.[0-9]+){1,3}$ ]] || {
+                printf 'Tag-driven TestFlight release requires a bounded dotted release_version.\n' >&2
+                exit 2
+              }
+              [[ "${BUILD_NUMBER}" =~ ^[1-9][0-9]{0,9}$ ]] || {
+                printf 'Tag-driven TestFlight build_number must be a positive decimal build.\n' >&2
+                exit 2
+              }
+              (( BUILD_NUMBER < 9999999999 )) || {
+                printf 'Tag-driven TestFlight build_number must leave room for the next bounded build.\n' >&2
+                exit 2
+              }
+              ;;
+            false)
+              test -z "${RELEASE_VERSION}" || {
+                printf 'Manual TestFlight release does not accept release_version.\n' >&2
+                exit 2
+              }
+              ;;
+            *) printf 'TestFlight source_is_tag must be true or false.\n' >&2; exit 2 ;;
+          esac
+          test -n "${APP_STORE_CONNECT_KEY_ID}"
+          test -n "${APP_STORE_CONNECT_API_KEY_P8_BASE64}"
+
+          release_root="${RUNNER_TEMP}/central-apple-testflight"
+          key_path="${release_root}/AuthKey.p8"
+          rm -rf -- "${release_root}"
+          mkdir -p "${release_root}"
+          chmod 700 "${release_root}"
+
+          KEY_PATH="${key_path}" python3 - <<'PY_KEY'
+          import base64
+          import os
+          from pathlib import Path
+
+          raw = os.environ["APP_STORE_CONNECT_API_KEY_P8_BASE64"]
+          try:
+              key = base64.b64decode(raw, validate=True)
+          except Exception as error:
+              raise SystemExit("App Store Connect API key is not valid base64") from error
+          if not key.startswith(b"-----BEGIN PRIVATE KEY-----") or b"-----END PRIVATE KEY-----" not in key:
+              raise SystemExit("decoded App Store Connect API key is not a PKCS#8 private key")
+          path = Path(os.environ["KEY_PATH"])
+          path.write_bytes(key)
+          path.chmod(0o600)
+          PY_KEY
+
+          test "$(stat -f '%Lp' "${key_path}")" = 600
+          {
+            printf 'CI_APPLE_TESTFLIGHT_SOURCE_IS_TAG=%s\n' "${SOURCE_IS_TAG}"
+            printf 'CI_APPLE_TESTFLIGHT_RELEASE_VERSION=%s\n' "${RELEASE_VERSION}"
+            printf 'CI_APPLE_TESTFLIGHT_BUILD_NUMBER=%s\n' "${BUILD_NUMBER}"
+            printf 'CI_APPLE_TESTFLIGHT_AUTH_KEY_PATH=%s\n' "${key_path}"
+            printf 'CI_APPLE_TESTFLIGHT_TEMP_DIR=%s\n' "${release_root}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Preflight tag-driven Apple post-publication bump
+        id: mobile_bump_contract
+        if: ${{ inputs.test_profile == 'testflight' && inputs.source_is_tag }}
+        shell: bash
+        env:
+          SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
+          SOURCE_TOKEN: ${{ steps.source.outputs.token || github.token }}
+        run: |
+          set -Eeuo pipefail
+          [[ "${SOURCE_REPOSITORY}" =~ ^StreamScapeTV/[A-Za-z0-9_.-]{1,100}$ ]] || {
+            echo "Tag-driven TestFlight release requires one bounded StreamScapeTV repository" >&2
+            exit 2
+          }
+          wrapper="scripts/ci/advance-mobile-build.sh"
+          test -f "${wrapper}" && test ! -L "${wrapper}" || {
+            echo "Tag-driven TestFlight release requires the regular product-owned mobile build bump wrapper" >&2
+            exit 2
+          }
+          git ls-files --error-unmatch -- "${wrapper}" >/dev/null 2>&1 || {
+            echo "Mobile build bump wrapper must be tracked product source" >&2
+            exit 2
+          }
+          test -n "${SOURCE_TOKEN}" || {
+            echo "Tag-driven TestFlight release requires the fixed source token before publication" >&2
+            exit 2
+          }
+          repository_json="$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer ${SOURCE_TOKEN}" \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${SOURCE_REPOSITORY}")"
+          default_branch="$(printf '%s' "${repository_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("default_branch", ""))')"
+          test -n "${default_branch}" && git check-ref-format --branch "${default_branch}" >/dev/null || {
+            echo "Tag-driven TestFlight release could not resolve the product default development branch" >&2
+            exit 2
+          }
+          printf 'repository_name=%s\n' "${SOURCE_REPOSITORY#StreamScapeTV/}" >> "${GITHUB_OUTPUT}"
+          printf 'default_branch=%s\n' "${default_branch}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run fixed Apple lane
+        id: commands
+        shell: bash
+        env:
+          EXECUTION_LANE: ${{ matrix.lane }}
+          TEST_PROFILE: ${{ inputs.test_profile }}
+          TEST_SELECTORS: ${{ inputs.test_selectors }}
+          NATIVE_COMPONENT: ${{ inputs.native_component }}
+          SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
+          OBSERVED_SOURCE_SHA: ${{ steps.source_identity.outputs.source_sha }}
+          GH_TOKEN: ${{ steps.source.outputs.token || github.token }}
+          STREAMSCAPE_API_BASE: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_API_BASE || '' }}
+          STREAMSCAPE_EMAIL: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_EMAIL || '' }}
+          STREAMSCAPE_PASSWORD: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_PASSWORD || '' }}
+          STREAMSCAPE_DEMO_EMAIL: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_DEMO_EMAIL || '' }}
+          STREAMSCAPE_DEMO_PASSWORD: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_DEMO_PASSWORD || '' }}
+          XTREAM_URL: ${{ inputs.test_profile == 'screenshot-review' && secrets.XTREAM_URL || '' }}
+          XTREAM_USERNAME: ${{ inputs.test_profile == 'screenshot-review' && secrets.XTREAM_USERNAME || '' }}
+          XTREAM_PASSWORD: ${{ inputs.test_profile == 'screenshot-review' && secrets.XTREAM_PASSWORD || '' }}
+          CI_APPLE_TESTFLIGHT_SOURCE_IS_TAG: ${{ env.CI_APPLE_TESTFLIGHT_SOURCE_IS_TAG }}
+          CI_APPLE_TESTFLIGHT_RELEASE_VERSION: ${{ env.CI_APPLE_TESTFLIGHT_RELEASE_VERSION }}
+          CI_APPLE_TESTFLIGHT_TEAM_ID: ${{ inputs.test_profile == 'testflight' && secrets.APPLE_TEAM_ID || '' }}
+          CI_APPLE_TESTFLIGHT_KEY_ID: ${{ inputs.test_profile == 'testflight' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
+          CI_APPLE_TESTFLIGHT_ISSUER_ID: ${{ inputs.test_profile == 'testflight' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
+        run: |
+          set -Eeuo pipefail
+          run_logged() {
+            local label="$1"
+            shift
+            local started_at="${SECONDS}"
+            printf '\n===== %s =====\n' "${label}" >> "${CI_LOG}"
+            if ! "$@" >> "${CI_LOG}" 2>&1; then
+              printf 'duration_seconds=%s\n' "$((SECONDS - started_at))" >> "${CI_LOG}"
+              printf '%s failed; inspect the private Google Drive CI log.\n' "${label}" >&2
+              return 1
+            fi
+            printf 'duration_seconds=%s\n' "$((SECONDS - started_at))" >> "${CI_LOG}"
+          }
+
+          run_screenshot_logged() {
+            local label="$1"
+            local platform="$2"
+            shift 2
+            local max_attempts=1
+            if test "${platform}" = ios; then
+              max_attempts=2
+            fi
+            local attempt=1
+            while test "${attempt}" -le "${max_attempts}"; do
+              local started_at="${SECONDS}"
+              local attempt_log="${RUNNER_TEMP}/${label}-attempt-${attempt}.log"
+              : > "${attempt_log}"
+              printf '\n===== %s attempt=%s =====\n' "${label}" "${attempt}" >> "${CI_LOG}"
+              set +e
+              "$@" >> "${attempt_log}" 2>&1
+              local status=$?
+              set -e
+              cat "${attempt_log}" >> "${CI_LOG}"
+              printf 'duration_seconds=%s\n' "$((SECONDS - started_at))" >> "${CI_LOG}"
+              if test "${status}" -eq 0; then
+                rm -f -- "${attempt_log}"
+                return 0
+              fi
+              if test "${platform}" = ios &&
+                test "${attempt}" -eq 1 &&
+                grep -Eq 'Failed to get background assertion for target app|DebuggerLLDB\.DebuggerVersionStore\.StoreError' "${attempt_log}"; then
+                printf 'Known transient hosted iOS simulator launch failure detected; retrying the fixed product wrapper once with a fresh product-owned simulator.\n' >> "${CI_LOG}"
+                rm -f -- "${attempt_log}"
+                rm -rf -- "${CI_APPLE_SCREENSHOT_OUTPUT_DIR}"
+                rm -f -- "${CI_APPLE_SCREENSHOT_PACKAGE_PATH}"
+                attempt=$((attempt + 1))
+                continue
+              fi
+              rm -f -- "${attempt_log}"
+              printf '%s failed; inspect the private Google Drive CI log.\n' "${label}" >&2
+              return "${status}"
+            done
+            return 1
+          }
+
+          case "${TEST_PROFILE}" in
+            screenshot-review)
+              test "${SOURCE_REPOSITORY}" = "StreamScapeTV/iptv-apple"
+              [[ "${OBSERVED_SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]] || {
+                echo "screenshot-review requires the exact observed lowercase source SHA" >&2
+                exit 2
+              }
+              case "${EXECUTION_LANE}" in
+                screenshot-ios) screenshot_platform=ios ;;
+                screenshot-tvos) screenshot_platform=tvos ;;
+                *) echo "unsupported screenshot-review lane: ${EXECUTION_LANE}" >&2; exit 2 ;;
+              esac
+              wrapper="scripts/ci/run-apple-screenshot-review.sh"
+              test -f "${wrapper}" || {
+                printf 'Missing fixed Apple screenshot-review wrapper: %s\n' "${wrapper}" >&2
+                exit 2
+              }
+              test ! -L "${wrapper}" || {
+                printf 'Apple screenshot-review wrapper must not be a symlink: %s\n' "${wrapper}" >&2
+                exit 2
+              }
+              git ls-files --error-unmatch -- "${wrapper}" >/dev/null 2>&1 || {
+                printf 'Apple screenshot-review wrapper must be tracked source: %s\n' "${wrapper}" >&2
+                exit 2
+              }
+              screenshot_root="${RUNNER_TEMP}/central-apple-screenshot-review"
+              screenshot_output="${screenshot_root}/${screenshot_platform}"
+              screenshot_package="${screenshot_root}/${screenshot_platform}.zip"
+              rm -rf -- "${screenshot_output}"
+              rm -f -- "${screenshot_package}"
+              mkdir -p -- "${screenshot_root}"
+              workspace_dirty="$(git status --porcelain --untracked-files=normal)"
+              test -z "${workspace_dirty}" || {
+                echo "screenshot-review requires a clean exact-source checkout after dependency materialization" >&2
+                printf '%s\n' "${workspace_dirty}" >&2
+                exit 1
+              }
+              export PYTHONDONTWRITEBYTECODE=1
+              export CI_APPLE_SCREENSHOT_PLATFORM="${screenshot_platform}"
+              export CI_APPLE_SCREENSHOT_OUTPUT_DIR="${screenshot_output}"
+              export CI_APPLE_SCREENSHOT_PACKAGE_PATH="${screenshot_package}"
+              run_screenshot_logged "apple-screenshot-${screenshot_platform}" "${screenshot_platform}" bash "${wrapper}"
+              test -s "${screenshot_package}"
+              {
+                printf 'screenshot_platform=%s\n' "${screenshot_platform}"
+                printf 'screenshot_package_path=%s\n' "${screenshot_package}"
+                printf 'screenshot_file_name=%s.zip\n' "${screenshot_platform}"
+              } >> "${GITHUB_OUTPUT}"
+              exit 0
+              ;;
+            testflight)
+              wrapper="scripts/ci/run-apple-testflight.sh"
+              test -f "${wrapper}" || {
+                printf 'Missing fixed Apple TestFlight wrapper: %s\n' "${wrapper}" >&2
+                exit 2
+              }
+              test ! -L "${wrapper}" || {
+                printf 'Apple TestFlight wrapper must not be a symlink: %s\n' "${wrapper}" >&2
+                exit 2
+              }
+              git ls-files --error-unmatch -- "${wrapper}" >/dev/null 2>&1 || {
+                printf 'Apple TestFlight wrapper must be tracked source: %s\n' "${wrapper}" >&2
+                exit 2
+              }
+              case "${CI_APPLE_TESTFLIGHT_SOURCE_IS_TAG:-}" in true|false) ;; *) echo "TestFlight source identity mode is unavailable" >&2; exit 2 ;; esac
+              if test "${CI_APPLE_TESTFLIGHT_SOURCE_IS_TAG}" = true; then
+                test -n "${CI_APPLE_TESTFLIGHT_RELEASE_VERSION:-}"
+              else
+                test -z "${CI_APPLE_TESTFLIGHT_RELEASE_VERSION:-}"
+              fi
+              test -n "${CI_APPLE_TESTFLIGHT_BUILD_NUMBER:-}"
+              test -n "${CI_APPLE_TESTFLIGHT_AUTH_KEY_PATH:-}"
+              test -f "${CI_APPLE_TESTFLIGHT_AUTH_KEY_PATH}"
+              test -n "${CI_APPLE_TESTFLIGHT_TEMP_DIR:-}"
+              test -n "${CI_APPLE_TESTFLIGHT_TEAM_ID}"
+              test -n "${CI_APPLE_TESTFLIGHT_KEY_ID}"
+              test -n "${CI_APPLE_TESTFLIGHT_ISSUER_ID}"
+              run_logged apple-testflight bash "${wrapper}"
+              exit 0
+              ;;
+            native-component)
+              wrapper="scripts/ci/run-apple-native-component-validation.sh"
+              test -f "${wrapper}" || {
+                printf 'Missing fixed Apple native-component wrapper: %s\n' "${wrapper}" >&2
+                exit 2
+              }
+              test ! -L "${wrapper}" || {
+                printf 'Apple native-component wrapper must not be a symlink: %s\n' "${wrapper}" >&2
+                exit 2
+              }
+              git ls-files --error-unmatch -- "${wrapper}" >/dev/null 2>&1 || {
+                printf 'Apple native-component wrapper must be tracked source: %s\n' "${wrapper}" >&2
+                exit 2
+              }
+              export CI_APPLE_NATIVE_COMPONENT="${NATIVE_COMPONENT}"
+              run_logged "apple-native-component" bash "${wrapper}"
+              exit 0
+              ;;
+            build|test|simulator)
+              wrapper="scripts/ci/run-apple-hosted-validation.sh"
+              test -f "${wrapper}" || {
+                printf 'Missing fixed Apple hosted validation wrapper: %s\n' "${wrapper}" >&2
+                exit 2
+              }
+              export CI_APPLE_HOSTED_PROFILE="${TEST_PROFILE}"
+              run_logged "apple-${TEST_PROFILE}" bash "${wrapper}"
+              exit 0
+              ;;
+          esac
+
+          swiftpm_xcode_args=()
+          if test "${APPLE_DEFAULT_CACHE_ENABLED:-false}" = "true"; then
+            swiftpm_xcode_args=(-clonedSourcePackagesDirPath "${SWIFTPM_CLONES_DIR}")
+          fi
+
+          resolve_ios_targeted_simulator_profile() {
+            local runtime_json device_type_json
+            runtime_json="$(xcrun simctl list runtimes --json)"
+            device_type_json="$(xcrun simctl list devicetypes --json)"
+            IOS_TARGETED_RUNTIME_ID="$(SIMCTL_RUNTIMES_JSON="${runtime_json}" python3 - <<'PY_IOS_RUNTIME'
+          import json
+          import os
+          import re
+
+          data = json.loads(os.environ["SIMCTL_RUNTIMES_JSON"])
+          candidates = []
+          for runtime in data.get("runtimes", []):
+              identifier = runtime.get("identifier")
+              version = runtime.get("version", "")
+              if (
+                  isinstance(identifier, str)
+                  and ".iOS-" in identifier
+                  and runtime.get("isAvailable", True) is not False
+              ):
+                  parts = tuple(int(part) for part in re.findall(r"\d+", version))
+                  candidates.append((parts, identifier))
+          if not candidates:
+              raise SystemExit("No available iOS Simulator runtime found")
+          print(max(candidates)[1])
+          PY_IOS_RUNTIME
+            )"
+            IOS_TARGETED_DEVICE_TYPE_ID="$(SIMCTL_DEVICE_TYPES_JSON="${device_type_json}" python3 - <<'PY_IOS_DEVICE'
+          import json
+          import os
+
+          data = json.loads(os.environ["SIMCTL_DEVICE_TYPES_JSON"])
+          devices = [
+              item
+              for item in data.get("devicetypes", [])
+              if isinstance(item.get("name"), str)
+              and item["name"].startswith("iPhone ")
+              and isinstance(item.get("identifier"), str)
+          ]
+          preferred = next((item for item in devices if item["name"] == "iPhone 17"), None)
+          selected = preferred or (max(devices, key=lambda item: (item["name"], item["identifier"])) if devices else None)
+          if selected is None:
+              raise SystemExit("No available iPhone Simulator device type found")
+          print(selected["identifier"])
+          PY_IOS_DEVICE
+            )"
+            export IOS_TARGETED_RUNTIME_ID IOS_TARGETED_DEVICE_TYPE_ID
+            printf '\n===== ios-targeted-simulator-profile =====\n' >> "${CI_LOG}"
+            printf 'runtime_id=%s\n' "${IOS_TARGETED_RUNTIME_ID}" >> "${CI_LOG}"
+            printf 'device_type_id=%s\n' "${IOS_TARGETED_DEVICE_TYPE_ID}" >> "${CI_LOG}"
+          }
+
+          create_ios_targeted_simulator() {
+            local attempt="$1"
+            local name="central-ios-targeted-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-${attempt}"
+            local udid
+            udid="$(xcrun simctl create "${name}" "${IOS_TARGETED_DEVICE_TYPE_ID}" "${IOS_TARGETED_RUNTIME_ID}")"
+            [[ "${udid}" =~ ^[0-9A-Fa-f-]{36}$ ]] || {
+              printf 'simctl create returned an invalid simulator UDID\n' >&2
+              return 1
+            }
+            xcrun simctl boot "${udid}" >/dev/null 2>&1 || true
+            if ! xcrun simctl bootstatus "${udid}" -b >> "${CI_LOG}" 2>&1; then
+              printf 'Fresh iOS targeted-test simulator failed boot readiness: %s\n' "${udid}" >> "${CI_LOG}"
+              xcrun simctl shutdown "${udid}" >/dev/null 2>&1 || true
+              xcrun simctl delete "${udid}" >/dev/null 2>&1 || true
+              return 1
+            fi
+            printf '%s\n' "${udid}"
+          }
+
+          destroy_ios_targeted_simulator() {
+            local udid="$1"
+            test -n "${udid}" || return 0
+            xcrun simctl shutdown "${udid}" >/dev/null 2>&1 || true
+            xcrun simctl delete "${udid}" >/dev/null 2>&1 || true
+          }
+
+          append_ios_targeted_simulator_diagnostics() {
+            local attempt="$1"
+            local udid="$2"
+            {
+              printf '\n===== ios-targeted-simulator-diagnostics attempt=%s =====\n' "${attempt}"
+              xcodebuild -version || true
+              printf 'runtime_id=%s\n' "${IOS_TARGETED_RUNTIME_ID:-unknown}"
+              printf 'device_type_id=%s\n' "${IOS_TARGETED_DEVICE_TYPE_ID:-unknown}"
+              printf 'simulator_udid=%s\n' "${udid:-unknown}"
+              xcrun simctl list devices 2>&1 | tail -n 200 || true
+              if test -n "${udid}"; then
+                xcrun simctl spawn "${udid}" log show \
+                  --style compact \
+                  --last 2m \
+                  --predicate 'process == "SpringBoard" OR process == "launchd_sim" OR process CONTAINS[c] "xctrunner"' \
+                  2>&1 | tail -n 300 || true
+              fi
+            } >> "${CI_LOG}" 2>&1
+          }
+
+          is_ios_targeted_infrastructure_launch_failure() {
+            local attempt_log="$1"
+            if grep -Eq '(^|[[:space:]])dyld(\[[0-9]+\])?: Library not loaded:[[:space:]]+[^[:space:]]+' "${attempt_log}"; then
+              printf 'Deterministic product dependency loader failure evidence detected; simulator retry suppressed.\n' >> "${CI_LOG}"
+              return 1
+            fi
+            local pre_xctest_bootstrap=false
+            if grep -Eqi 'Early unexpected exit, operation never finished bootstrapping|before establishing connection' "${attempt_log}" &&
+              ! grep -Eq 'Test Case .+ (started|passed|failed|crashed)|XCTAssert[A-Za-z0-9_]* failed|(^|[[:space:]])(fatal error:|Fatal error:)|Terminating app due to uncaught exception|EXC_[A-Z0-9_]+' "${attempt_log}"; then
+              pre_xctest_bootstrap=true
+            fi
+            if test "${pre_xctest_bootstrap}" = true; then
+              printf 'Pre-XCTest test-host bootstrap infrastructure failure detected.\n' >> "${CI_LOG}"
+              return 0
+            fi
+            if grep -Eq 'XCTAssert[A-Za-z0-9_]* failed|(^|[[:space:]])(fatal error:|Fatal error:)|Terminating app due to uncaught exception|EXC_[A-Z0-9_]+|signal SIG[A-Z]+|Test Case .+ crashed' "${attempt_log}"; then
+              printf 'Product XCTest failure evidence detected; simulator retry suppressed.\n' >> "${CI_LOG}"
+              return 1
+            fi
+            grep -Eq 'Failed to launch app with identifier: .*\.xctrunner|NSMachErrorDomain Code=-308|\(ipc/mig\) server died|Failed to get background assertion for target app|DebuggerLLDB\.DebuggerVersionStore\.StoreError' "${attempt_log}"
+          }
+
+          run_ios_targeted_tests() {
+            resolve_ios_targeted_simulator_profile
+            local attempt=1
+            while test "${attempt}" -le 2; do
+              local ios_targeted_udid=""
+              local started_at="${SECONDS}"
+              local attempt_log="${RUNNER_TEMP}/ios-targeted-tests-attempt-${attempt}.log"
+              : > "${attempt_log}"
+              printf '\n===== ios-targeted-tests attempt=%s =====\n' "${attempt}" >> "${CI_LOG}"
+              ios_targeted_udid="$(create_ios_targeted_simulator "${attempt}")" || {
+                append_ios_targeted_simulator_diagnostics "${attempt}" "${ios_targeted_udid}"
+                printf 'ios-targeted-tests simulator provisioning failed; inspect the private Google Drive CI log.\n' >&2
+                return 1
+              }
+
+              set +e
+              xcodebuild test \
+                -workspace streamscapetv.xcworkspace \
+                -scheme streamscapetv \
+                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
+                -destination "platform=iOS Simulator,id=${ios_targeted_udid}" \
+                -parallel-testing-enabled NO \
+                -maximum-parallel-testing-workers 1 \
+                CODE_SIGNING_ALLOWED=NO \
+                "${targeted_test_args[@]}" >> "${attempt_log}" 2>&1
+              local status=$?
+              set -e
+
+              cat "${attempt_log}" >> "${CI_LOG}"
+              printf 'duration_seconds=%s\n' "$((SECONDS - started_at))" >> "${CI_LOG}"
+              append_ios_targeted_simulator_diagnostics "${attempt}" "${ios_targeted_udid}"
+              destroy_ios_targeted_simulator "${ios_targeted_udid}"
+
+              if test "${status}" -eq 0; then
+                rm -f -- "${attempt_log}"
+                return 0
+              fi
+              if test "${attempt}" -eq 1 && is_ios_targeted_infrastructure_launch_failure "${attempt_log}"; then
+                printf 'Known hosted iOS xctrunner/CoreSimulator launch failure detected; retrying unchanged selectors once on a fresh simulator.\n' >> "${CI_LOG}"
+                rm -f -- "${attempt_log}"
+                attempt=$((attempt + 1))
+                continue
+              fi
+              rm -f -- "${attempt_log}"
+              printf 'ios-targeted-tests failed; inspect the private Google Drive CI log.\n' >&2
+              return "${status}"
+            done
+            return 1
+          }
+
+          targeted_test_args=()
+          if test "${TEST_PROFILE}" = targeted-tests || test "${TEST_PROFILE}" = candidate; then
+            test_selectors=()
+            while IFS= read -r selector; do
+              test_selectors+=("${selector}")
+            done < <(
+              TEST_SELECTORS_JSON="${TEST_SELECTORS}" python3 - <<'PY_TEST_SELECTORS'
+          import json
+          import os
+          import re
+
+          values = json.loads(os.environ.get("TEST_SELECTORS_JSON", ""))
+          if not isinstance(values, list) or not 1 <= len(values) <= 20:
+              raise SystemExit("invalid targeted-tests selector list")
+          if any(not isinstance(value, str) for value in values):
+              raise SystemExit("invalid targeted-tests selector list")
+          if len(values) != len(set(values)):
+              raise SystemExit("invalid targeted-tests selector list")
+          pattern = re.compile(r"[A-Za-z0-9_.$/-]{1,240}")
+          for value in values:
+              if (
+                  not pattern.fullmatch(value)
+                  or value.startswith("-")
+                  or "/" not in value
+              ):
+                  raise SystemExit("invalid Apple targeted-tests selector")
+              print(value)
+          PY_TEST_SELECTORS
+            )
+            test "${#test_selectors[@]}" -ge 1
+            for selector in "${test_selectors[@]}"; do
+              targeted_test_args+=("-only-testing:${selector}")
+            done
+          fi
+
+          case "${EXECUTION_LANE}" in
+            macos-test)
+              run_logged macos-test xcodebuild test \
+                -workspace streamscapetv.xcworkspace \
+                -scheme streamscapetv \
+                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
+                -destination 'platform=macOS' \
+                -parallel-testing-enabled NO \
+                -skip-testing:streamscapetvUITests \
+                CODE_SIGNING_ALLOWED=NO
+              ;;
+            macos-targeted-tests)
+              run_logged macos-targeted-tests xcodebuild test \
+                -workspace streamscapetv.xcworkspace \
+                -scheme streamscapetv \
+                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
+                -destination 'platform=macOS' \
+                CODE_SIGNING_ALLOWED=NO \
+                "${targeted_test_args[@]}"
+              ;;
+            ios-targeted-tests)
+              run_ios_targeted_tests
+              ;;
+            tvos-targeted-tests)
+              run_logged tvos-targeted-tests xcodebuild test \
+                -workspace streamscapetv.xcworkspace \
+                -scheme streamscapetv \
+                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
+                -destination 'platform=tvOS Simulator,name=Apple TV' \
+                CODE_SIGNING_ALLOWED=NO \
+                "${targeted_test_args[@]}"
+              ;;
+            ios-build)
+              run_logged ios-build xcodebuild build \
+                -workspace streamscapetv.xcworkspace \
+                -scheme streamscapetv \
+                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
+                -destination 'generic/platform=iOS Simulator' \
+                CODE_SIGNING_ALLOWED=NO
+              ;;
+            tvos-build)
+              run_logged tvos-build xcodebuild build \
+                -workspace streamscapetv.xcworkspace \
+                -scheme streamscapetv \
+                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
+                -destination 'generic/platform=tvOS Simulator' \
+                CODE_SIGNING_ALLOWED=NO
+              ;;
+            release-build)
+              run_logged ios-release-build xcodebuild build \
+                -workspace streamscapetv.xcworkspace \
+                -scheme streamscapetv \
+                -configuration Release \
+                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
+                -destination 'generic/platform=iOS Simulator' \
+                CODE_SIGNING_ALLOWED=NO
+              run_logged tvos-release-build xcodebuild build \
+                -workspace streamscapetv.xcworkspace \
+                -scheme streamscapetv \
+                -configuration Release \
+                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
+                -destination 'generic/platform=tvOS Simulator' \
+                CODE_SIGNING_ALLOWED=NO
+              run_logged macos-release-build xcodebuild build \
+                -workspace streamscapetv.xcworkspace \
+                -scheme streamscapetv \
+                -configuration Release \
+                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
+                -destination 'platform=macOS' \
+                CODE_SIGNING_ALLOWED=NO
+              ;;
+            swift-package)
+              run_logged swift-package swift test
+              ;;
+            *)
+              printf 'Unsupported Apple execution lane: %s\n' "${EXECUTION_LANE}" >&2
+              exit 2
+              ;;
+          esac
+
+      - name: Validate screenshot-review package identity
+        id: screenshot_package
+        if: ${{ inputs.test_profile == 'screenshot-review' && steps.commands.outcome == 'success' }}
+        shell: bash
+        env:
+          SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
+          OBSERVED_SOURCE_SHA: ${{ steps.source_identity.outputs.source_sha }}
+          SCREENSHOT_PLATFORM: ${{ steps.commands.outputs.screenshot_platform }}
+          SCREENSHOT_PACKAGE_PATH: ${{ steps.commands.outputs.screenshot_package_path }}
+          SCREENSHOT_FILE_NAME: ${{ steps.commands.outputs.screenshot_file_name }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY_SCREENSHOT_PACKAGE'
+          import json
+          import os
+          import re
+          import zipfile
+          from pathlib import Path
+
+          repository = os.environ["SOURCE_REPOSITORY"]
+          source_sha = os.environ["OBSERVED_SOURCE_SHA"]
+          platform = os.environ["SCREENSHOT_PLATFORM"]
+          package = Path(os.environ["SCREENSHOT_PACKAGE_PATH"])
+          file_name = os.environ["SCREENSHOT_FILE_NAME"]
+          if repository != "StreamScapeTV/iptv-apple":
+              raise SystemExit("screenshot-review package repository mismatch")
+          if re.fullmatch(r"[0-9a-f]{40}", source_sha) is None:
+              raise SystemExit("screenshot-review package has invalid observed source SHA")
+          if platform not in {"ios", "tvos"} or file_name != f"{platform}.zip":
+              raise SystemExit("screenshot-review package lane identity mismatch")
+          if package.name != file_name or not package.is_file():
+              raise SystemExit("screenshot-review package path/name mismatch")
+          expected_root = "repositories/iptv-apple/screenshots"
+          expected_path = f"{expected_root}/{file_name}"
+          try:
+              with zipfile.ZipFile(package) as archive:
+                  if archive.testzip() is not None:
+                      raise SystemExit("screenshot-review ZIP contains a corrupt member")
+                  if archive.namelist().count("index.json") != 1:
+                      raise SystemExit("screenshot-review ZIP must contain exactly one index.json")
+                  index = json.loads(archive.read("index.json"))
+          except (OSError, zipfile.BadZipFile, json.JSONDecodeError, KeyError) as error:
+              raise SystemExit("screenshot-review ZIP/index.json is invalid") from error
+          if not isinstance(index, dict):
+              raise SystemExit("screenshot-review index must be one object")
+          checks = {
+              "source_sha": source_sha,
+              "platform": platform,
+              "drive_root": expected_root,
+              "drive_package_path": expected_path,
+          }
+          for key, expected in checks.items():
+              if index.get(key) != expected:
+                  raise SystemExit(f"screenshot-review {key} mismatch")
+          if "drive_source_folder" in index:
+              raise SystemExit("screenshot-review index must not encode source SHA as a Drive folder")
+          direct_dir = package.parent / "direct-evidence"
+          direct_dir.mkdir(parents=True, exist_ok=False)
+          captures = index.get("captures")
+          if not isinstance(captures, list) or not 1 <= len(captures) <= 20:
+              raise SystemExit("screenshot-review index must contain 1 through 20 captures")
+          seen_screen_ids = set()
+          expected_prefixes = ("mobile.", "tablet.") if platform == "ios" else ("tv.",)
+          with zipfile.ZipFile(package) as archive:
+              names = set(archive.namelist())
+              for capture in captures:
+                  if not isinstance(capture, dict):
+                      raise SystemExit("screenshot-review capture identity is malformed")
+                  screen_id = capture.get("screen_id")
+                  screenshot_member = capture.get("screenshot")
+                  metadata_member = capture.get("metadata")
+                  if (
+                      not isinstance(screen_id, str)
+                      or not screen_id.startswith(expected_prefixes)
+                      or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,191}", screen_id) is None
+                      or screen_id in seen_screen_ids
+                  ):
+                      raise SystemExit("screenshot-review capture screen identity is invalid")
+                  seen_screen_ids.add(screen_id)
+                  for member in (screenshot_member, metadata_member):
+                      if not isinstance(member, str) or member not in names or member.startswith("/") or ".." in Path(member).parts:
+                          raise SystemExit("screenshot-review capture member path is invalid")
+                  metadata = json.loads(archive.read(metadata_member))
+                  if metadata.get("screen_id") != screen_id or metadata.get("source_sha") != source_sha:
+                      raise SystemExit("screenshot-review per-screen metadata provenance mismatch")
+                  image_bytes = archive.read(screenshot_member)
+                  if len(image_bytes) < 64 or not image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+                      raise SystemExit("screenshot-review capture is not a valid PNG payload")
+                  (direct_dir / f"{screen_id}.png").write_bytes(image_bytes)
+                  (direct_dir / f"{screen_id}.json").write_text(
+                      json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+                      encoding="utf-8",
+                  )
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"package_path={package}\n")
+              output.write(f"file_name={file_name}\n")
+              output.write(f"source_sha={source_sha}\n")
+              output.write(f"platform={platform}\n")
+              output.write(f"evidence_dir={direct_dir}\n")
+          PY_SCREENSHOT_PACKAGE
+
+      - name: Upload direct screenshot-review evidence to repository review folder
+        if: ${{ inputs.test_profile == 'screenshot-review' && steps.screenshot_package.outcome == 'success' }}
+        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+        with:
+          repository: ${{ inputs.repository || github.repository }}
+          operation: upload-directory
+          destination_kind: repository-screenshots
+          subdirectory: review/${{ steps.screenshot_package.outputs.platform }}
+          file_path: ${{ steps.screenshot_package.outputs.evidence_dir }}
+
+      - name: Clean screenshot-review package state
+        if: ${{ always() && inputs.test_profile == 'screenshot-review' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf -- "${RUNNER_TEMP}/central-apple-screenshot-review"
+          test ! -e "${RUNNER_TEMP}/central-apple-screenshot-review"
+
+      - name: Clean TestFlight credential and release state
+        id: testflight_cleanup
+        if: ${{ always() && inputs.test_profile == 'testflight' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          release_root="${RUNNER_TEMP}/central-apple-testflight"
+          rm -rf -- "${release_root}"
+          test ! -e "${release_root}"
+
+      - name: Check out Apple development branch for isolated bump staging
+        id: mobile_bump_stage_checkout
+        if: ${{ inputs.test_profile == 'testflight' && inputs.source_is_tag && steps.commands.outcome == 'success' && steps.testflight_cleanup.outcome == 'success' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repository || github.repository }}
+          ref: ${{ steps.mobile_bump_contract.outputs.default_branch }}
+          token: ${{ steps.source.outputs.token || github.token }}
+          fetch-depth: 1
+          path: central-mobile-build-bump-stage-source
+          persist-credentials: false
+
+      - name: Prepare Git-metadata-free Apple build bump staging
+        id: mobile_bump_stage
+        if: ${{ inputs.test_profile == 'testflight' && inputs.source_is_tag && steps.mobile_bump_stage_checkout.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          source_checkout="${GITHUB_WORKSPACE}/central-mobile-build-bump-stage-source"
+          staging="${RUNNER_TEMP}/central-mobile-build-bump-stage"
+          expected_head="$(git -C "${source_checkout}" rev-parse HEAD)"
+          [[ "${expected_head}" =~ ^[0-9a-f]{40}$ ]]
+          test -z "$(git -C "${source_checkout}" status --porcelain --untracked-files=all)" || {
+            echo "Apple development branch staging checkout is not clean" >&2
+            exit 1
+          }
+          rm -rf -- "${staging}"
+          mkdir -p "${staging}"
+          tar -C "${source_checkout}" --exclude='./.git' -cf - . | tar -C "${staging}" -xf -
+          test -z "$(find "${staging}" -name .git -print -quit)" || {
+            echo "Apple mobile build staging copy unexpectedly contains Git metadata" >&2
+            exit 1
+          }
+          printf 'expected_head=%s\n' "${expected_head}" >> "${GITHUB_OUTPUT}"
+          rm -rf -- "${source_checkout}"
+          test ! -e "${source_checkout}"
+
+      - name: Run product-owned Apple build bump in isolated staging tree
+        id: mobile_bump_product
+        if: ${{ inputs.test_profile == 'testflight' && inputs.source_is_tag && steps.mobile_bump_stage.outcome == 'success' }}
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          RELEASE_BUILD_NUMBER: ${{ inputs.build_number }}
+        run: |
+          set -Eeuo pipefail
+          staging="${RUNNER_TEMP}/central-mobile-build-bump-stage"
+          wrapper="${GITHUB_WORKSPACE}/scripts/ci/advance-mobile-build.sh"
+          test -d "${staging}" && test -z "$(find "${staging}" -name .git -print -quit)" || {
+            echo "Apple product build bump staging tree must remain Git-metadata-free" >&2
+            exit 1
+          }
+          export CI_MOBILE_RELEASE_VERSION="${RELEASE_VERSION}"
+          export CI_MOBILE_RELEASE_BUILD_NUMBER="${RELEASE_BUILD_NUMBER}"
+          export CI_MOBILE_BUMP_WORKTREE="${staging}"
+          printf '\n===== apple-mobile-build-bump-product =====\n' >> "${CI_LOG}"
+          if ! env -u TARGET_TOKEN -u GH_TOKEN -u GITHUB_TOKEN -u GITHUB_ENV -u GITHUB_PATH -u GITHUB_OUTPUT -u GITHUB_STATE bash "${wrapper}" >> "${CI_LOG}" 2>&1; then
+            echo "TestFlight publication succeeded, but the isolated next development build-number mutation failed; rerun the same tag to repair without republishing" >&2
+            exit 1
+          fi
+          test -z "$(find "${staging}" -name .git -print -quit)" || {
+            echo "Apple mobile build bump wrapper must not create Git metadata; Central owns repository transport" >&2
+            exit 1
+          }
+
+      - name: Check out current Apple development branch for post-publication bump
+        id: mobile_bump_checkout
+        if: ${{ inputs.test_profile == 'testflight' && inputs.source_is_tag && steps.mobile_bump_product.outcome == 'success' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repository || github.repository }}
+          ref: ${{ steps.mobile_bump_contract.outputs.default_branch }}
+          token: ${{ steps.source.outputs.token || github.token }}
+          fetch-depth: 1
+          path: central-mobile-build-bump
+          persist-credentials: false
+
+      - name: Validate Apple staged build bump output
+        id: mobile_bump_validate
+        if: ${{ inputs.test_profile == 'testflight' && inputs.source_is_tag && steps.mobile_bump_checkout.outcome == 'success' }}
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ steps.mobile_bump_stage.outputs.expected_head }}
+        run: |
+          set -Eeuo pipefail
+          target="${GITHUB_WORKSPACE}/central-mobile-build-bump"
+          staging="${RUNNER_TEMP}/central-mobile-build-bump-stage"
+          baseline="${RUNNER_TEMP}/central-mobile-build-bump-baseline"
+          diff_file="${RUNNER_TEMP}/central-mobile-build-bump.diff"
+          test "$(git -C "${target}" rev-parse HEAD)" = "${EXPECTED_HEAD}" || {
+            echo "Apple development branch moved while the isolated bump wrapper ran; rerun the same tag to repair without republishing" >&2
+            exit 1
+          }
+          test -z "$(git -C "${target}" status --porcelain --untracked-files=all)" || {
+            echo "Post-publication Apple build bump validation checkout is not clean" >&2
+            exit 1
+          }
+          test -d "${staging}" && test -z "$(find "${staging}" -name .git -print -quit)" || {
+            echo "Apple staged build bump output contains forbidden Git metadata" >&2
+            exit 1
+          }
+          rm -rf -- "${baseline}"
+          mkdir -p "${baseline}"
+          tar -C "${target}" --exclude='./.git' -cf - . | tar -C "${baseline}" -xf -
+          set +e
+          git diff --no-index --no-renames --name-status -- "${baseline}" "${staging}" > "${diff_file}"
+          diff_status=$?
+          set -e
+          test "${diff_status}" -le 1 || {
+            echo "Apple staged build bump comparison failed" >&2
+            exit 1
+          }
+          if test "${diff_status}" = 0; then
+            printf 'changed=false\ncanonical_path=\n' >> "${GITHUB_OUTPUT}"
+            printf 'Apple mobile build already advanced after the accepted release; no source mutation is required.\n' >> "${CI_LOG}"
+            exit 0
+          fi
+          test "$(wc -l < "${diff_file}" | tr -d '[:space:]')" = 1 || {
+            echo "Apple mobile build bump changed more than one tracked product file" >&2
+            exit 1
+          }
+          diff_line="$(cat "${diff_file}")"
+          diff_kind="${diff_line%%$'\t'*}"
+          candidate="${diff_line#*$'\t'}"
+          test "${diff_kind}" = M || {
+            echo "Apple mobile build bump must modify exactly one existing product file" >&2
+            exit 1
+          }
+          case "${candidate}" in
+            "${baseline}"/*) canonical_path="${candidate#${baseline}/}" ;;
+            *) echo "Apple mobile build bump comparison returned an unexpected path" >&2; exit 1 ;;
+          esac
+          [[ "${canonical_path}" =~ ^[A-Za-z0-9._/-]{1,240}$ ]] || {
+            echo "Apple mobile build bump target path is not bounded" >&2
+            exit 1
+          }
+          case "/${canonical_path}/" in
+            */../*|*/./*) echo "Apple mobile build bump target path is not canonical" >&2; exit 1 ;;
+          esac
+          test -f "${staging}/${canonical_path}" && test ! -L "${staging}/${canonical_path}" || {
+            echo "Apple staged mobile build bump target is not one regular file" >&2
+            exit 1
+          }
+          test -f "${target}/${canonical_path}" && test ! -L "${target}/${canonical_path}" || {
+            echo "Apple mobile build bump target is not one regular tracked file" >&2
+            exit 1
+          }
+          git -C "${target}" ls-files --error-unmatch -- "${canonical_path}" >/dev/null 2>&1 || {
+            echo "Apple mobile build bump target must already be tracked" >&2
+            exit 1
+          }
+          cp -- "${staging}/${canonical_path}" "${target}/${canonical_path}"
+          git -C "${target}" diff --check -- "${canonical_path}"
+          test -z "$(git -C "${target}" diff --cached --name-only)"
+          test -z "$(git -C "${target}" ls-files --others --exclude-standard)"
+          changed_paths="$(git -C "${target}" diff --name-only)"
+          test "${changed_paths}" = "${canonical_path}" || {
+            echo "Apple mobile build bump import did not produce exactly one trusted tracked-file delta" >&2
+            exit 1
+          }
+          printf 'changed=true\ncanonical_path=%s\n' "${canonical_path}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create post-publication Apple build bump token
+        id: mobile_bump_token
+        if: ${{ inputs.test_profile == 'testflight' && inputs.source_is_tag && steps.commands.outcome == 'success' && steps.testflight_cleanup.outcome == 'success' && steps.mobile_bump_validate.outcome == 'success' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.SOURCE_APP_ID }}
+          private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          owner: StreamScapeTV
+          repositories: ${{ steps.mobile_bump_contract.outputs.repository_name }}
+          permission-contents: write
+          permission-metadata: read
+
+      - name: Advance and publish next Apple build number
+        id: mobile_bump
+        if: ${{ inputs.test_profile == 'testflight' && inputs.source_is_tag && steps.mobile_bump_token.outcome == 'success' }}
+        shell: bash
+        env:
+          TARGET_TOKEN: ${{ steps.mobile_bump_token.outputs.token }}
+          TARGET_BRANCH: ${{ steps.mobile_bump_contract.outputs.default_branch }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          RELEASE_BUILD_NUMBER: ${{ inputs.build_number }}
+          EXPECTED_HEAD: ${{ steps.mobile_bump_stage.outputs.expected_head }}
+          CHANGED: ${{ steps.mobile_bump_validate.outputs.changed }}
+          CANONICAL_PATH: ${{ steps.mobile_bump_validate.outputs.canonical_path }}
+        run: |
+          set -Eeuo pipefail
+          export GIT_CONFIG_NOSYSTEM=1
+          export GIT_CONFIG_GLOBAL=/dev/null
+          CI_MOBILE_RELEASE_VERSION="${RELEASE_VERSION}"
+          CI_MOBILE_RELEASE_BUILD_NUMBER="${RELEASE_BUILD_NUMBER}"
+          CI_MOBILE_BUMP_WORKTREE="${GITHUB_WORKSPACE}/central-mobile-build-bump"
+          target="${CI_MOBILE_BUMP_WORKTREE}"
+          expected_head="${EXPECTED_HEAD}"
+          if test "${CHANGED}" != true; then
+            printf 'Apple mobile build already advanced after the accepted release; no source mutation is required.\n' >> "${CI_LOG}"
+            exit 0
+          fi
+          canonical_path="${CANONICAL_PATH}"
+          test "$(printf '%s\n' "${canonical_path}" | wc -l | tr -d '[:space:]')" = 1 || {
+            echo "Apple mobile build bump changed more than one tracked product file" >&2
+            exit 1
+          }
+          test "$(git -C "${target}" rev-parse HEAD)" = "${expected_head}" || {
+            echo "Apple validated build bump checkout moved before Central transport" >&2
+            exit 1
+          }
+          test "$(git -C "${target}" diff --name-only)" = "${canonical_path}"
+          test -z "$(git -C "${target}" diff --cached --name-only)"
+          test -z "$(git -C "${target}" ls-files --others --exclude-standard)"
+          test -f "${target}/${canonical_path}" && test ! -L "${target}/${canonical_path}"
+          git -C "${target}" ls-files --error-unmatch -- "${canonical_path}" >/dev/null 2>&1
+          git -C "${target}" diff --check -- "${canonical_path}"
+          git -C "${target}" add -- "${canonical_path}"
+          test "$(git -C "${target}" diff --cached --name-only)" = "${canonical_path}"
+          test -z "$(git -C "${target}" diff --name-only)"
+          next_build="$((RELEASE_BUILD_NUMBER + 1))"
+          auth="$(printf 'x-access-token:%s' "${TARGET_TOKEN}" | base64 | tr -d '\r\n')"
+          echo "::add-mask::${auth}"
+          remote_head="$(git -C "${target}" -c core.hooksPath=/dev/null -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}" \
+            ls-remote --refs origin "refs/heads/${TARGET_BRANCH}" | awk '{print $1}')"
+          test "${remote_head}" = "${expected_head}" || {
+            echo "Apple development branch moved after TestFlight accepted the release; rerun the same tag to repair the bump without republishing" >&2
+            exit 1
+          }
+          git -C "${target}" -c core.hooksPath=/dev/null -c user.name='StreamScapeTV CI' -c user.email='ci@streamscape.invalid' \
+            commit --no-verify --no-gpg-sign -m "chore: advance mobile build to ${next_build}"
+          commit_sha="$(git -C "${target}" rev-parse HEAD)"
+          test "$(git -C "${target}" rev-parse HEAD^)" = "${expected_head}"
+          git -C "${target}" -c core.hooksPath=/dev/null -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}" \
+            push --porcelain origin "${commit_sha}:refs/heads/${TARGET_BRANCH}"
+          confirmed="$(git -C "${target}" -c core.hooksPath=/dev/null -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}" \
+            ls-remote --refs origin "refs/heads/${TARGET_BRANCH}" | awk '{print $1}')"
+          test "${confirmed}" = "${commit_sha}" || {
+            echo "Apple next-build push could not be read back exactly" >&2
+            exit 1
+          }
+
+      - name: Clean post-publication Apple build bump workspace
+        id: mobile_bump_cleanup
+        if: ${{ always() && inputs.test_profile == 'testflight' && inputs.source_is_tag }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf -- \
+            "${GITHUB_WORKSPACE}/central-mobile-build-bump-stage-source" \
+            "${GITHUB_WORKSPACE}/central-mobile-build-bump" \
+            "${RUNNER_TEMP}/central-mobile-build-bump-stage" \
+            "${RUNNER_TEMP}/central-mobile-build-bump-baseline"
+          rm -f -- "${RUNNER_TEMP}/central-mobile-build-bump.diff"
+
+      - name: Report post-publication TestFlight bump failure
+        if: >-
+          ${{
+            always() && inputs.test_profile == 'testflight' && inputs.source_is_tag &&
+            steps.commands.outcome == 'success' &&
+            (
+              steps.testflight_cleanup.outcome != 'success' ||
+              steps.mobile_bump_stage_checkout.outcome != 'success' ||
+              steps.mobile_bump_stage.outcome != 'success' ||
+              steps.mobile_bump_product.outcome != 'success' ||
+              steps.mobile_bump_checkout.outcome != 'success' ||
+              steps.mobile_bump_validate.outcome != 'success' ||
+              steps.mobile_bump_token.outcome != 'success' ||
+              steps.mobile_bump.outcome != 'success' ||
+              steps.mobile_bump_cleanup.outcome != 'success'
+            )
+          }}
+        shell: bash
+        run: |
+          echo "TestFlight publication succeeded, but the development build-number advance is incomplete. Rerun the same tag after correcting the bump failure; the product release wrapper must reconcile the already-accepted version/build without re-uploading it." >&2
+          exit 1
+
+      - name: Record Apple default-branch cache contents
+        id: apple_default_cache_contents
+        if: ${{ matrix.cache_save && steps.apple_default_cache.outputs.save_enabled == 'true' && steps.commands.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          size_bytes() {
+            local path="$1"
+            if test -e "${path}"; then
+              /usr/bin/du -sk "${path}" | awk '{print $1 * 1024}'
+            else
+              printf '0\n'
+            fi
+          }
+          media_bytes="$(size_bytes Vendor/StreamscapeMediaApple)"
+          swiftpm_bytes="$(size_bytes "${SWIFTPM_CLONES_DIR}")"
+          {
+            printf 'media_bytes=%s\n' "${media_bytes}"
+            printf 'swiftpm_clone_bytes=%s\n' "${swiftpm_bytes}"
+            printf 'total_cache_bytes=%s\n' "$((media_bytes + swiftpm_bytes))"
+          } >> "${CI_LOG}"
+
+      - name: Save Apple default-branch dependency cache
+        id: apple_default_cache_save
+        if: ${{ matrix.cache_save && steps.apple_default_cache.outputs.save_enabled == 'true' && steps.commands.outcome == 'success' && steps.apple_default_cache_restore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            Vendor/StreamscapeMediaApple
+            ${{ steps.apple_default_cache.outputs.swiftpm_clones_dir }}
+          key: ${{ steps.apple_default_cache_restore.outputs.cache-primary-key }}
+
+      - name: Scrub configured CI secrets from private log
+        id: scrub
+        if: ${{ always() }}
+        shell: bash
+        env:
+          CI_SECRET_SOURCE_TOKEN: ${{ steps.source.outputs.token }}
+          CI_SECRET_GITHUB_TOKEN: ${{ github.token }}
+          CI_SECRET_MOBILE_BUMP_TOKEN: ${{ steps.mobile_bump_token.outputs.token }}
+          CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          CI_SECRET_AGENT_STATE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          CI_SECRET_AGENT_STATE_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          CI_SECRET_DRIVE_FOLDER: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+          CI_SECRET_DRIVE_REPOSITORIES_FOLDER: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+          CI_SECRET_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          CI_SECRET_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          CI_SECRET_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          CI_SECRET_TAILSCALE_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          CI_SECRET_TAILSCALE_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          CI_SECRET_FORGEJO_PACKAGE_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          CI_SECRET_FORGEJO_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+          CI_SECRET_SCREENSHOT_STREAMSCAPE_API_BASE: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_API_BASE || '' }}
+          CI_SECRET_SCREENSHOT_STREAMSCAPE_EMAIL: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_EMAIL || '' }}
+          CI_SECRET_SCREENSHOT_STREAMSCAPE_PASSWORD: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_PASSWORD || '' }}
+          CI_SECRET_SCREENSHOT_STREAMSCAPE_DEMO_EMAIL: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_DEMO_EMAIL || '' }}
+          CI_SECRET_SCREENSHOT_STREAMSCAPE_DEMO_PASSWORD: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_DEMO_PASSWORD || '' }}
+          CI_SECRET_SCREENSHOT_XTREAM_URL: ${{ inputs.test_profile == 'screenshot-review' && secrets.XTREAM_URL || '' }}
+          CI_SECRET_SCREENSHOT_XTREAM_USERNAME: ${{ inputs.test_profile == 'screenshot-review' && secrets.XTREAM_USERNAME || '' }}
+          CI_SECRET_SCREENSHOT_XTREAM_PASSWORD: ${{ inputs.test_profile == 'screenshot-review' && secrets.XTREAM_PASSWORD || '' }}
+          CI_SECRET_APPLE_TEAM_ID: ${{ inputs.test_profile == 'testflight' && secrets.APPLE_TEAM_ID || '' }}
+          CI_SECRET_APP_STORE_CONNECT_KEY_ID: ${{ inputs.test_profile == 'testflight' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
+          CI_SECRET_APP_STORE_CONNECT_ISSUER_ID: ${{ inputs.test_profile == 'testflight' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
+          CI_SECRET_APP_STORE_CONNECT_API_KEY: ${{ inputs.test_profile == 'testflight' && secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 || '' }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY_REDACT'
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ["CI_LOG"])
+          data = path.read_bytes()
+          for name, value in os.environ.items():
+              if not name.startswith("CI_SECRET_") or not value:
+                  continue
+              raw = value.encode()
+              data = data.replace(raw, b"[REDACTED]")
+              escaped = value.replace("\n", "\\n").encode()
+              if escaped != raw:
+                  data = data.replace(escaped, b"[REDACTED]")
+          path.write_bytes(data)
+          PY_REDACT
+
+      - name: Upload CI log to Google Drive
+        id: drive
+        if: ${{ always() && steps.scrub.outcome == 'success' && (inputs.ci_run_id != '' || inputs.upload_private_log) }}
+        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
+        env:
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+        with:
+          repository: ${{ inputs.repository || github.repository }}
+          ref: ${{ inputs.ref || github.ref_name }}
+          file_path: ${{ runner.temp }}/central-ci-${{ matrix.lane }}.log
+          file_name: ${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.lane }}.txt
+          mime_type: text/plain
+
+  finish:
+    needs:
+      - plan
+      - execute
+    if: ${{ always() && inputs.ci_run_id != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Finish Agent State run
+        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: finish
+          ci_run_id: ${{ inputs.ci_run_id }}
+          status: ${{ (needs.plan.result == 'cancelled' || needs.execute.result == 'cancelled') && 'cancelled' || (needs.plan.result == 'success' && needs.execute.result == 'success') && 'succeeded' || 'failed' }}

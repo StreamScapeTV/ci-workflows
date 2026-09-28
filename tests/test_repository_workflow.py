@@ -2110,8 +2110,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
 
     def test_non_migrated_product_workflows_remain_selected_by_existing_lanes(self) -> None:
         jobs = self.dispatch["jobs"]
-        self.assertNotIn("apple", jobs)
-        self.assertNotIn("apple_release", jobs)
+        self.assertEqual(jobs["apple"]["uses"], "./.github/workflows/apple.yml")
         self.assertEqual(jobs["android"]["uses"], "./.github/workflows/android.yml")
         self.assertEqual(jobs["maven"]["uses"], "./.github/workflows/maven.yml")
         self.assertIn("repository", jobs["settle_cancelled"]["needs"])

@@ -202,9 +202,10 @@ def456 unauthorized usb:1-1 transport_id:2
         admission = next(
             step
             for step in request_steps
-            if step.get("name") == "Validate remaining Android legacy targeted request"
+            if step.get("name") == "Validate native targeted test request"
         )["run"]
         self.assertIn('if profile == "physical-performance":', admission)
+        self.assertIn('workflow != "validation.android"', admission)
         self.assertIn("Android physical-performance accepts no semantic inputs", admission)
 
 

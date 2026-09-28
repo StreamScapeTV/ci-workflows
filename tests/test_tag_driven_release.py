@@ -170,9 +170,19 @@ class TagDrivenReleaseTests(unittest.TestCase):
         self.assertEqual(values["release_version"], "1.0.0")
         self.assertEqual(normalized, '{"build_number":"257"}\n')
 
+    def test_apple_mobile_tag_normalizes_build_and_version(self) -> None:
+        completed, values, normalized = self.run_resolver(
+            "release.apple", "testflight", "1.2_17"
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(values["inputs_json"], '{"build_number":"17"}')
+        self.assertEqual(values["release_version"], "1.2")
+        self.assertEqual(normalized, '{"build_number":"17"}\n')
+
     def test_mobile_tags_fail_closed_on_malformed_identity(self) -> None:
         for workflow_key, profile in (
             ("release.android", "play"),
+            ("release.apple", "testflight"),
         ):
             for tag in (
                 "v1.0.0_257",
@@ -194,9 +204,17 @@ class TagDrivenReleaseTests(unittest.TestCase):
                 self.assertNotEqual(completed.returncode, 0)
                 self.assertIn("post-publication next versionCode", completed.stderr)
 
+    def test_apple_tag_reserves_one_bounded_build_for_post_publication_bump(self) -> None:
+        completed, _, _ = self.run_resolver(
+            "release.apple", "testflight", "1.0.0_9999999999"
+        )
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("leave room for the next bounded build number", completed.stderr)
+
     def test_tag_release_rejects_legacy_tag_as_build_number_inputs(self) -> None:
         for workflow_key, profile, tag, raw in (
             ("release.android", "play", "1.0.0_257", '{"build_number":"1.0.0_257"}'),
+            ("release.apple", "testflight", "1.0.0_257", '{"build_number":"1.0.0_257"}'),
             ("release.maven", "publish", "2.4.1", '{"build_number":"2.4.1"}'),
             ("release.repository", "linux", "2.4.1", '{"build_number":"2.4.1"}'),
         ):
@@ -217,6 +235,7 @@ class TagDrivenReleaseTests(unittest.TestCase):
     def _store_bump_cases(self) -> tuple[tuple[Path, str], ...]:
         return (
             (ROOT / ".github/workflows/android.yml", "Android"),
+            (ROOT / ".github/workflows/apple.yml", "Apple"),
         )
 
     def _workflow_steps(self, workflow_path: Path) -> list[dict]:
