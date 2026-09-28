@@ -30,7 +30,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 CAPABILITY = "protected_deployed_conformance"
 CONFIG_KEY = "protected_deployed_conformance"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MAX_SCENARIO_BYTES = 512 * 1024
 MAX_SCENARIO_TRANSPORT_BYTES = 1024 * 1024
 MAX_CHILD_TEXT_BYTES = 4 * 1024 * 1024
@@ -39,9 +39,6 @@ MAX_SETUP_CREDENTIAL_BYTES = 4096
 MAX_RESET_BODY_BYTES = 4096
 RUN_TIMEOUT_SECONDS = 30 * 60
 
-_SHA40 = re.compile(r"^[0-9a-f]{40}$")
-_SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
-_HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _SEMVER = re.compile(r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$")
 _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
@@ -53,24 +50,12 @@ PROJECTION_FIELDS = (
     "websocketScenarioPath",
     "setupCredential",
     "releaseVersion",
-    "releaseSourceSha",
-    "releaseImageDigest",
-    "releaseChartDigest",
-    "deployedImageDigest",
-    "deployedChartDigest",
-    "environmentSha256",
     "runId",
     "liveFlag",
 )
 
 IDENTITY_FIELDS = (
     "releaseVersion",
-    "releaseSourceSha",
-    "releaseImageDigest",
-    "releaseChartDigest",
-    "deployedImageDigest",
-    "deployedChartDigest",
-    "environmentSha256",
 )
 
 FORBIDDEN_ENV_NAMES = {
@@ -216,13 +201,6 @@ def _validate_identity(value: Any) -> dict[str, str]:
     identity = {key: value[key] for key in IDENTITY_FIELDS}
     if not isinstance(identity["releaseVersion"], str) or _SEMVER.fullmatch(identity["releaseVersion"]) is None:
         raise ProtectedConformanceError("protected release version is invalid")
-    if not isinstance(identity["releaseSourceSha"], str) or _SHA40.fullmatch(identity["releaseSourceSha"]) is None:
-        raise ProtectedConformanceError("protected release source identity is invalid")
-    for key in ("releaseImageDigest", "releaseChartDigest", "deployedImageDigest", "deployedChartDigest"):
-        if not isinstance(identity[key], str) or _SHA256.fullmatch(identity[key]) is None:
-            raise ProtectedConformanceError(f"protected {key} is invalid")
-    if not isinstance(identity["environmentSha256"], str) or _HEX64.fullmatch(identity["environmentSha256"]) is None:
-        raise ProtectedConformanceError("protected environment identity is invalid")
     return identity  # type: ignore[return-value]
 
 
@@ -330,10 +308,6 @@ def _validate_config(project_state: dict[str, Any], *, repository: str, operatio
     if len(set(normalized_projection.values())) != len(normalized_projection):
         raise ProtectedConformanceError("protected environment projection names must be unique")
     identity = _validate_identity(value.get("identity"))
-    if identity["deployedImageDigest"] != identity["releaseImageDigest"]:
-        raise ProtectedConformanceError("protected deployed image identity does not match the immutable release")
-    if identity["deployedChartDigest"] != identity["releaseChartDigest"]:
-        raise ProtectedConformanceError("protected deployed chart identity does not match the immutable release")
     reset = _validate_reset(value.get("reset"))
     return {
         "entrypoint": entrypoint_path,
@@ -395,12 +369,6 @@ def materialize(args: argparse.Namespace) -> int:
         "websocketScenarioPath": str(ws_path),
         "setupCredential": setup_credential,
         "releaseVersion": identity["releaseVersion"],
-        "releaseSourceSha": identity["releaseSourceSha"],
-        "releaseImageDigest": identity["releaseImageDigest"],
-        "releaseChartDigest": identity["releaseChartDigest"],
-        "deployedImageDigest": identity["deployedImageDigest"],
-        "deployedChartDigest": identity["deployedChartDigest"],
-        "environmentSha256": identity["environmentSha256"],
         "runId": args.run_id,
         "liveFlag": "1",
     }
@@ -414,7 +382,7 @@ def materialize(args: argparse.Namespace) -> int:
     )
 
     metadata = {
-        "schemaVersion": 1,
+        "schemaVersion": SCHEMA_VERSION,
         "capability": CAPABILITY,
         "repository": args.repository,
         "operation": args.operation,

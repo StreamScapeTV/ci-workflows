@@ -67,7 +67,7 @@ Repository CI v1 has exactly these non-host optional capability types:
 - `protected_deployed_conformance`
 
 A project may receive only a reviewed unique subset through private Agent State configuration.
-The protected deployed-conformance capability is intentionally narrower than an arbitrary integration-test secret surface. Its public authorization is only the capability name. A private Agent State descriptor binds the exact repository, `full` operation, tracked Python entrypoint, finite environment projection, immutable release/deployed identities, and one bounded reset/readback plan. The confidential HTTPS/WSS targets, compressed scenario documents and setup credential arrive only through fixed Central secrets. The caller cannot provide target URLs, secret names, environment values, commands, arguments, expected protocol statuses, pass/defer semantics, or cleanup commands.
+The protected deployed-conformance capability is intentionally narrower than an arbitrary integration-test secret surface. Its public authorization is only the capability name. A private Agent State descriptor binds the exact repository, `full` operation, tracked Python entrypoint, finite environment projection, canonical SemVer release version, and one bounded reset/readback plan. The confidential HTTPS/WSS targets, compressed scenario documents and setup credential arrive only through fixed Central secrets. The caller cannot provide target URLs, secret names, environment values, commands, arguments, expected protocol statuses, pass/defer semantics, or cleanup commands.
 
 No capability is enabled by repository source, semantic inputs, caller-provided secret names, or
 arbitrary environment metadata. Unknown capabilities fail closed.
