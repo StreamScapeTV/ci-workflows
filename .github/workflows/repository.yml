@@ -212,15 +212,16 @@ jobs:
               release.library-package)
                 test "${run_profile}" = publish \
                   && test "${SOURCE_IS_TAG}" = true || {
-                  echo "repository CI aggregate host fallback is not bound to release.library-package/publish" >&2
+                  echo "repository CI aggregate child is not bound to release.library-package/publish" >&2
                   exit 1
                 }
-                case "${LEGACY_HOST_OS}" in
-                  linux) emit_host linux-hosted ;;
-                  macos) emit_host macos-hosted ;;
-                  *) echo "repository CI aggregate host_os must be linux or macos" >&2; exit 2 ;;
+                case "${OPERATION}" in
+                  full|release) ;;
+                  *)
+                    echo "repository CI library-package aggregate supports only full readiness or release preparation" >&2
+                    exit 2
+                    ;;
                 esac
-                exit 0
                 ;;
               validation.repository)
                 test "${OPERATION}" != release \
