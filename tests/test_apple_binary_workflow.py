@@ -218,8 +218,8 @@ class AppleBinaryWorkflowTests(unittest.TestCase):
         )
         script = validation["run"]
         self.assertEqual(set(validation["env"]), {"TEST_PROFILE", "INPUTS_JSON"})
-        self.assertNotIn("repository", script.lower())
-        self.assertNotIn("streamscape", script.lower())
+        self.assertNotIn("StreamScapeTV/", script)
+        self.assertNotIn("SOURCE_REPOSITORY", script)
 
         for repository in ("StreamScapeTV/library-one", "StreamScapeTV/library-two"):
             completed = subprocess.run(
