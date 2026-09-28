@@ -256,10 +256,6 @@ jobs:
                 exit 1
               fi
               ;;
-            release-gates)
-              test -f scripts/run_release_gates.sh
-              run_logged release-gates bash scripts/run_release_gates.sh
-              ;;
             backend-full)
               test -x scripts/run_backend_validation.sh
               run_logged backend-full ./scripts/run_backend_validation.sh
