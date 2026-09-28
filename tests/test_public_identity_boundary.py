@@ -20,8 +20,6 @@ LEGACY_RESIDUE_PATHS = {
     "tests/test_android_screenshot_review.py",
     "tests/test_android_search_performance_profile.py",
     "tests/test_apple_binary_workflow.py",
-    "tests/test_apple_ios_simulator_recovery.py",
-    "tests/test_apple_workflow.py",
     "tests/test_ci_helpers.py",
     "tests/test_google_drive_media_put.py",
     "tests/test_google_drive_screenshot_files.py",

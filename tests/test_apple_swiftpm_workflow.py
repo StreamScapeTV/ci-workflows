@@ -480,7 +480,7 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
     def test_release_dispatch_accepts_only_empty_swiftpm_semantics(self) -> None:
         workflow = yaml.safe_load(DISPATCH.read_text(encoding="utf-8"))
         jobs = workflow["jobs"]
-        validation = next(step for step in jobs["request"]["steps"] if step.get("name") == "Validate Apple release request")
+        validation = next(step for step in jobs["request"]["steps"] if step.get("name") == "Validate Apple specialist package release request")
         script = validation["run"]
         accepted = subprocess.run(
             ["bash", "-c", script],
