@@ -15,7 +15,6 @@ LEGACY_MARKER = "LEGACY_MIGRATION_RESIDUE"
 LEGACY_RESIDUE_PATHS = {
     ".github/workflows/android.yml",
     ".github/workflows/apple-binary.yml",
-    ".github/workflows/apple.yml",
     ".github/workflows/central-ci-dispatch.yml",
     "actions/google-drive/action.yml",
     "tests/test_android_screenshot_review.py",
