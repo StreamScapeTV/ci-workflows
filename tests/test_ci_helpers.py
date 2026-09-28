@@ -123,8 +123,8 @@ class CiHelperTests(unittest.TestCase):
         self.assertNotIn("tailscale/github-action@v4", android)
 
     def test_agent_state_workflows_use_private_drive_logs_without_public_command_tee(self) -> None:
-        plain_text_logs = {"android", "python", "node", "flutter"}
-        for name in ("apple", "android", "python", "node", "flutter"):
+        plain_text_logs = {"android", "python"}
+        for name in ("apple", "android", "python"):
             text = (ROOT / ".github/workflows" / f"{name}.yml").read_text()
             self.assertIn("GOOGLE_DRIVE_CI_LOGS_FOLDER_ID", text)
             self.assertIn("actions/google-drive@", text)
@@ -534,7 +534,7 @@ class CiHelperTests(unittest.TestCase):
 
     def test_fixed_profiles_replace_arbitrary_command_transport(self) -> None:
         forbidden = ("prepare_command", "build_command", "test_command", "release_command", "bash -lc")
-        for name in ("apple", "android", "python", "node", "flutter"):
+        for name in ("apple", "android", "python"):
             text = (ROOT / ".github/workflows" / f"{name}.yml").read_text()
             for value in forbidden:
                 self.assertNotIn(value, text)

@@ -17,7 +17,6 @@ LEGACY_RESIDUE_PATHS = {
     ".github/workflows/apple-binary.yml",
     ".github/workflows/apple.yml",
     ".github/workflows/central-ci-dispatch.yml",
-    ".github/workflows/node.yml",
     "actions/google-drive/action.yml",
     "tests/test_android_screenshot_review.py",
     "tests/test_android_search_performance_profile.py",

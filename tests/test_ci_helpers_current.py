@@ -27,7 +27,7 @@ class CiHelperTests(_prior.CiHelperTests):
         inventory = yaml.safe_load((_prior.ROOT / "INVENTORY.yaml").read_text())
         self.assertEqual(
             set(inventory["workflows"]),
-            {"apple", "repository", "repository_plan", "apple_binary", "apple_swiftpm", "library_package_release", "android", "python", "node", "flutter", "maven", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "source_snapshot_delete", "source_snapshot", "source_checkpoint_publish", "central_dispatch", "ci_log_retention", "github_issue_dependency_projection", "self_check", "runner_images"},
+            {"apple", "repository", "repository_plan", "apple_binary", "apple_swiftpm", "library_package_release", "android", "python", "maven", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "source_snapshot_delete", "source_snapshot", "source_checkpoint_publish", "central_dispatch", "ci_log_retention", "github_issue_dependency_projection", "self_check", "runner_images"},
         )
         self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git", "source_snapshot"})
         self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility", "ci_log_reconcile", "github_issue_dependency_projection", "repository_log_checkpoint", "repository_log_capture", "repository_log_timeline", "repository_execution_plan", "protected_deployed_conformance", "source_snapshot_delete", "source_snapshot_lifecycle", "source_checkpoint_publish", "swiftpm_binary"})
@@ -41,7 +41,7 @@ class CiHelperTests(_prior.CiHelperTests):
 
     def test_workflows_use_no_reusable_prefix(self) -> None:
         names = {p.name for p in (_prior.ROOT / ".github/workflows").glob("*.yml")}
-        self.assertEqual(len(names), 23)
+        self.assertEqual(len(names), 21)
         self.assertNotIn("broker.yml", names)
         self.assertFalse(any(name.startswith("reusable-") for name in names))
         self.assertIn("source-snapshot-delete.yml", names)
@@ -61,8 +61,6 @@ class CiHelperTests(_prior.CiHelperTests):
             "repository.yml": ("execute",),
             "android.yml": ("ci",),
             "python.yml": ("ci",),
-            "node.yml": ("ci",),
-            "flutter.yml": ("ci",),
             "maven.yml": ("publish",),
             "apple-binary.yml": ("publish",),
             "apple-swiftpm.yml": ("publish",),
@@ -112,8 +110,6 @@ class CiHelperTests(_prior.CiHelperTests):
             "apple",
             "android",
             "python",
-            "node",
-            "flutter",
             "container_service",
             "public_native_image_chart",
             "oci_reproducibility",
@@ -280,14 +276,14 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertNotIn("--retry-all-errors", text)
         self.assertNotIn("--retry-connrefused", text)
 
-    def test_persistent_dependency_cache_is_limited_to_apple_android_and_node(self) -> None:
-        cache_capable = ("apple", "android", "node")
+    def test_persistent_dependency_cache_is_limited_to_remaining_legacy_native_lanes(self) -> None:
+        cache_capable = ("apple", "android")
         for name in cache_capable:
             text = (_prior.ROOT / ".github/workflows" / f"{name}.yml").read_text()
             self.assertIn("actions/cache/restore@v4", text, name)
             self.assertIn("actions/cache/save@v4", text, name)
 
-        for name in ("python", "flutter"):
+        for name in ("python",):
             text = (_prior.ROOT / ".github/workflows" / f"{name}.yml").read_text()
             self.assertNotIn("actions/cache/restore@v4", text, name)
             self.assertNotIn("actions/cache/save@v4", text, name)

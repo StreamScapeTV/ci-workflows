@@ -38,6 +38,13 @@ jobs:
           phase: claim
           ci_run_id: ${{ inputs.ci_run_id }}
 
+      - name: Reject retired legacy validation workflow
+        if: ${{ steps.claim.outputs.workflow_key == 'validation.node' || steps.claim.outputs.workflow_key == 'validation.flutter' }}
+        shell: bash
+        run: |
+          echo "legacy validation workflow is retired; use validation.repository with the repository-owned .ci entrypoint" >&2
+          exit 2
+
       - name: Resolve tag-driven release identity
         id: tag_release
         if: >-
@@ -852,35 +859,6 @@ jobs:
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
 
-  node:
-    needs: request
-    if: ${{ needs.request.outputs.workflow_key == 'validation.node' }}
-    concurrency:
-      group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
-      cancel-in-progress: true
-    uses: ./.github/workflows/node.yml
-    with:
-      repository: ${{ needs.request.outputs.repository }}
-      ref: ${{ needs.request.outputs.ref }}
-      test_profile: ${{ needs.request.outputs.test_profile }}
-      ci_run_id: ${{ inputs.ci_run_id }}
-    secrets: inherit
-
-  flutter:
-    needs: request
-    if: ${{ needs.request.outputs.workflow_key == 'validation.flutter' }}
-    concurrency:
-      group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
-      cancel-in-progress: true
-    uses: ./.github/workflows/flutter.yml
-    with:
-      repository: ${{ needs.request.outputs.repository }}
-      ref: ${{ needs.request.outputs.ref }}
-      test_profile: ${{ needs.request.outputs.test_profile }}
-      flutter_version: ${{ fromJSON(needs.request.outputs.inputs_json).flutter_version || '3.44.6' }}
-      ci_run_id: ${{ inputs.ci_run_id }}
-    secrets: inherit
-
   maven:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'release.maven' && needs.request.outputs.test_profile == 'publish' }}
@@ -1374,8 +1352,6 @@ jobs:
       - android
       - android_release
       - python
-      - node
-      - flutter
       - maven
       - apple_binary
       - apple_swiftpm
@@ -1398,8 +1374,6 @@ jobs:
           needs.android.result == 'cancelled' ||
           needs.android_release.result == 'cancelled' ||
           needs.python.result == 'cancelled' ||
-          needs.node.result == 'cancelled' ||
-          needs.flutter.result == 'cancelled' ||
           needs.maven.result == 'cancelled' ||
           needs.apple_binary.result == 'cancelled' ||
           needs.apple_swiftpm.result == 'cancelled' ||

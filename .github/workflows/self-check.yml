@@ -48,7 +48,6 @@ jobs:
           tests.test_android_screenshot_review
           tests.test_oci_reproducibility
           tests.test_apple_workflow
-          tests.test_node_flutter_observed_source
           tests.test_python_workflow
           tests.test_google_drive_media_put
           tests.test_google_drive_retry_policy
