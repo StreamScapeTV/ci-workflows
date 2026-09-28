@@ -64,6 +64,8 @@ jobs:
     timeout-minutes: 20
     outputs:
       source_sha: ${{ steps.source_identity.outputs.source_sha }}
+      readiness_matrix: ${{ steps.readiness_plan.outputs.readiness_matrix }}
+      readiness_plan_source: ${{ steps.readiness_plan.outputs.plan_source }}
     steps:
       - name: Mark Agent State run as running
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
@@ -106,6 +108,15 @@ jobs:
           permission-contents: read
           permission-metadata: read
 
+      - name: Check out reviewed Central execution-plan parser
+        uses: actions/checkout@v4
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.sha }}
+          path: central-ci
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Check out exact tagged source
         uses: actions/checkout@v4
         with:
@@ -129,6 +140,29 @@ jobs:
           }
           printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
 
+      - name: Select bounded aggregate readiness execution plan
+        id: readiness_plan
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          plan_rel=.ci/execution-plan.json
+          plan_path="source/${plan_rel}"
+          if git -C source ls-files --error-unmatch -- "${plan_rel}" >/dev/null 2>&1; then
+            mode="$(git -C source ls-files -s -- "${plan_rel}" | awk 'NR==1 {print $1}')"
+            test "${mode}" = 100644 || { echo "aggregate readiness execution plan must be tracked mode 100644" >&2; exit 2; }
+            test -f "${plan_path}" && test ! -L "${plan_path}" || { echo "aggregate readiness execution plan must be a regular non-symlink file" >&2; exit 2; }
+            selection="$(python3 central-ci/scripts/ci/repository_execution_plan.py --operation full --legacy-host-os macos --plan "${plan_path}")"
+          else
+            test ! -e "${plan_path}" && test ! -L "${plan_path}" || { echo "aggregate readiness execution plan must be tracked" >&2; exit 2; }
+            selection='{"operation":"full","operatingSystems":["macos","linux"],"schemaVersion":1,"source":"aggregate-two-os-compatibility"}'
+          fi
+          os_json="$(jq -c '.operatingSystems' <<<"${selection}")"
+          matrix="$(jq -cn --argjson operating_systems "${os_json}" '{include:[$operating_systems[] | {host_os:.}]}')"
+          {
+            printf 'readiness_matrix=%s\n' "${matrix}"
+            printf 'plan_source=%s\n' "$(jq -r '.source' <<<"${selection}")"
+          } >> "${GITHUB_OUTPUT}"
+
       - name: Record observed source SHA
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
         env:
@@ -139,43 +173,18 @@ jobs:
           ci_run_id: ${{ inputs.ci_run_id }}
           observed_source_sha: ${{ steps.source_identity.outputs.source_sha }}
 
-  readiness_macos:
+  readiness:
     needs: plan
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.readiness_matrix) }}
     uses: ./.github/workflows/repository.yml
     with:
       repository: ${{ inputs.repository }}
       ref: ${{ inputs.ref }}
       source_is_tag: true
       operation: full
-      host_os: macos
-      semantic_inputs_json: '{}'
-      expected_source_sha: ${{ needs.plan.outputs.source_sha }}
-      trusted_capability_ci_run_id: ${{ inputs.ci_run_id }}
-      ci_run_id: ''
-      upload_private_log: true
-    secrets:
-      SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
-      SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-      AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-      AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
-      GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-      GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
-      TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-      TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
-      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
-      REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
-
-  readiness_linux:
-    needs: plan
-    uses: ./.github/workflows/repository.yml
-    with:
-      repository: ${{ inputs.repository }}
-      ref: ${{ inputs.ref }}
-      source_is_tag: true
-      operation: full
-      host_os: linux
+      host_os: ${{ matrix.host_os }}
       semantic_inputs_json: '{}'
       expected_source_sha: ${{ needs.plan.outputs.source_sha }}
       trusted_capability_ci_run_id: ${{ inputs.ci_run_id }}
@@ -196,7 +205,7 @@ jobs:
       REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
 
   release_prepare:
-    needs: [plan, readiness_macos, readiness_linux]
+    needs: [plan, readiness]
     uses: ./.github/workflows/repository.yml
     with:
       repository: ${{ inputs.repository }}
@@ -259,11 +268,14 @@ jobs:
       source_is_tag: true
       build_number: ${{ inputs.ref }}
       expected_source_sha: ${{ needs.plan.outputs.source_sha }}
+      trusted_capability_ci_run_id: ${{ inputs.ci_run_id }}
       ci_run_id: ''
       upload_private_log: true
     secrets:
       SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
       SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+      AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+      AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
       GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
       GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
       GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
@@ -276,7 +288,7 @@ jobs:
       MAVEN_READ_TOKEN: ${{ secrets.MAVEN_READ_TOKEN }}
 
   finish:
-    needs: [plan, readiness_macos, readiness_linux, release_prepare, apple_swiftpm, maven]
+    needs: [plan, readiness, release_prepare, apple_swiftpm, maven]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -291,8 +303,7 @@ jobs:
           ci_run_id: ${{ inputs.ci_run_id }}
           status: >-
             ${{ needs.plan.result == 'success'
-                && needs.readiness_macos.result == 'success'
-                && needs.readiness_linux.result == 'success'
+                && needs.readiness.result == 'success'
                 && needs.release_prepare.result == 'success'
                 && needs.apple_swiftpm.result == 'success'
                 && needs.maven.result == 'success'
