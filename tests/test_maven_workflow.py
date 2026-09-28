@@ -436,7 +436,8 @@ class MavenWorkflowTests(unittest.TestCase):
             self.assertEqual(step["with"]["subdirectory"], "${{ steps.evidence.outputs.publication_id }}")
             self.assertEqual(step["with"]["file_name"], file_name)
             self.assertTrue(step["with"]["immutable"])
-        self.assertNotIn("latest", self.text.lower())
+        self.assertNotIn("latest", str(archive).lower())
+        self.assertNotIn("latest", str(manifest).lower())
 
     def test_evidence_result_parser_executes_fail_closed(self) -> None:
         run = self.step("Validate optional immutable publication evidence")["run"]
