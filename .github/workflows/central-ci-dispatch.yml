@@ -928,7 +928,12 @@ jobs:
 
   public_native_image_chart:
     needs: request
-    if: ${{ needs.request.outputs.workflow_key == 'release.public-native-image-chart' }}
+    if: >-
+      ${{
+        needs.request.outputs.workflow_key == 'release.public-native-image-chart' ||
+        needs.request.outputs.workflow_key == 'release.public-native-image-chart-primary' ||
+        needs.request.outputs.workflow_key == 'release.public-native-image-chart-secondary'
+      }}
     concurrency:
       group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
       cancel-in-progress: true

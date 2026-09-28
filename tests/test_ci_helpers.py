@@ -594,6 +594,8 @@ class CiHelperTests(unittest.TestCase):
         dispatch = (ROOT / ".github/workflows/central-ci-dispatch.yml").read_text()
         release = (ROOT / ".github/workflows/public-native-image-chart.yml").read_text()
         self.assertIn("workflow_key == 'release.public-native-image-chart'", dispatch)
+        self.assertIn("workflow_key == 'release.public-native-image-chart-primary'", dispatch)
+        self.assertIn("workflow_key == 'release.public-native-image-chart-secondary'", dispatch)
         self.assertIn('uses: ./.github/workflows/public-native-image-chart.yml', dispatch)
         self.assertIn('repository: ${{ needs.request.outputs.repository }}', dispatch)
         self.assertIn('ref: ${{ needs.request.outputs.ref }}', dispatch)
