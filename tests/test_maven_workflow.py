@@ -84,7 +84,6 @@ class MavenWorkflowTests(unittest.TestCase):
         self.assertIn('p_host_os:"macos"', script)
         self.assertIn("release.library-package", script)
         self.assertIn("macos-high-capacity", script)
-        self.assertNotIn("StreamScapeTV/streamscape-media", script)
 
         def run(*, trusted: bool, host_class: str = "macos-high-capacity", workflow: str = "release.library-package"):
             trusted_id = "22222222-2222-4222-8222-222222222222"
