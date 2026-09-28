@@ -249,7 +249,7 @@ capture before {safe_expansion} after
         command = by_name["Run fixed Apple lane"]
         command_script = command["run"]
         start = command_script.index('testflight)')
-        end = command_script.index('build|test|simulator)', start)
+        end = command_script.index('test|simulator)', start)
         testflight_block = command_script[start:end]
         self.assertIn('wrapper="scripts/ci/run-apple-testflight.sh"', testflight_block)
         self.assertIn('run_logged apple-testflight bash "${wrapper}"', testflight_block)
@@ -309,7 +309,7 @@ capture before {safe_expansion} after
             step for step in execute_steps if step.get("name") == "Run fixed Apple lane"
         )["run"]
         start = command_script.index('testflight)')
-        end = command_script.index('build|test|simulator)', start)
+        end = command_script.index('test|simulator)', start)
         block = command_script[start:end].split("\n", 1)[1]
         block = block.rsplit(";;", 1)[0]
 
