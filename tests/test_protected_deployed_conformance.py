@@ -31,7 +31,7 @@ def _project_state(repository: str = "ExampleOrg/service-backend") -> dict:
             "capabilities": ["private_network", "protected_deployed_conformance"],
         },
         "protected_deployed_conformance": {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "repository": repository,
             "operation": "full",
             "entrypoint": {
@@ -45,23 +45,11 @@ def _project_state(repository: str = "ExampleOrg/service-backend") -> dict:
                 "websocketScenarioPath": "APP_WS_SCENARIO",
                 "setupCredential": "APP_ADMIN_TOKEN",
                 "releaseVersion": "APP_RELEASE_VERSION",
-                "releaseSourceSha": "APP_RELEASE_SOURCE_SHA",
-                "releaseImageDigest": "APP_RELEASE_IMAGE_DIGEST",
-                "releaseChartDigest": "APP_RELEASE_CHART_DIGEST",
-                "deployedImageDigest": "APP_DEPLOYED_IMAGE_DIGEST",
-                "deployedChartDigest": "APP_DEPLOYED_CHART_DIGEST",
-                "environmentSha256": "APP_ENVIRONMENT_SHA256",
                 "runId": "APP_PROTECTED_RUN_ID",
                 "liveFlag": "APP_LIVE_E2E",
             },
             "identity": {
                 "releaseVersion": "3.2.3",
-                "releaseSourceSha": "a" * 40,
-                "releaseImageDigest": "sha256:" + "1" * 64,
-                "releaseChartDigest": "sha256:" + "2" * 64,
-                "deployedImageDigest": "sha256:" + "1" * 64,
-                "deployedChartDigest": "sha256:" + "2" * 64,
-                "environmentSha256": "3" * 64,
             },
             "reset": {
                 "request": {
@@ -212,7 +200,7 @@ class ProtectedDeployedConformanceTests(unittest.TestCase):
         source = root / "source"
         script = source / "scripts" / "protected_probe.py"
         script.parent.mkdir(parents=True)
-        body = f'''from __future__ import annotations\nimport json\nimport os\nfrom pathlib import Path\nimport stat\nassert os.environ["APP_LIVE_E2E"] == "1"\nassert os.environ["APP_RELEASE_VERSION"] == "3.2.3"\nassert os.environ["APP_RELEASE_SOURCE_SHA"] == "{'a'*40}"\nfor name in ("APP_HTTP_SCENARIO", "APP_WS_SCENARIO"):\n    path = Path(os.environ[name])\n    assert path.is_file() and not path.is_symlink()\n    assert stat.S_IMODE(path.stat().st_mode) == 0o600\nassert os.environ["APP_ADMIN_TOKEN"] == "setup-credential-1234567890"\nif {fail!r}:\n    raise SystemExit(7)\nprint(json.dumps({{"schema_version": 1, "outcome": "passed", "release": os.environ["APP_RELEASE_VERSION"], "run_id": os.environ["APP_PROTECTED_RUN_ID"]}}, sort_keys=True, separators=(",", ":")))\n'''
+        body = f'''from __future__ import annotations\nimport json\nimport os\nfrom pathlib import Path\nimport stat\nassert os.environ["APP_LIVE_E2E"] == "1"\nassert os.environ["APP_RELEASE_VERSION"] == "3.2.3"\nfor name in ("APP_HTTP_SCENARIO", "APP_WS_SCENARIO"):\n    path = Path(os.environ[name])\n    assert path.is_file() and not path.is_symlink()\n    assert stat.S_IMODE(path.stat().st_mode) == 0o600\nassert os.environ["APP_ADMIN_TOKEN"] == "setup-credential-1234567890"\nif {fail!r}:\n    raise SystemExit(7)\nprint(json.dumps({{"schema_version": 1, "outcome": "passed", "release": os.environ["APP_RELEASE_VERSION"], "run_id": os.environ["APP_PROTECTED_RUN_ID"]}}, sort_keys=True, separators=(",", ":")))\n'''
         script.write_text(body, encoding="utf-8")
         version = subprocess.run(
             [sys.executable, "-c", "import platform; print(platform.python_version())"],
@@ -243,6 +231,13 @@ class ProtectedDeployedConformanceTests(unittest.TestCase):
             env_document = json.loads((output_root / "child-environment.json").read_text())
             self.assertEqual(env_document["APP_API_BASE"], f"http://127.0.0.1:{self.port}")
             self.assertEqual(env_document["APP_ADMIN_TOKEN"], "setup-credential-1234567890")
+            self.assertEqual(env_document["APP_RELEASE_VERSION"], "3.2.3")
+            self.assertNotIn("APP_RELEASE_SOURCE_SHA", env_document)
+            self.assertNotIn("APP_RELEASE_IMAGE_DIGEST", env_document)
+            self.assertNotIn("APP_RELEASE_CHART_DIGEST", env_document)
+            self.assertNotIn("APP_DEPLOYED_IMAGE_DIGEST", env_document)
+            self.assertNotIn("APP_DEPLOYED_CHART_DIGEST", env_document)
+            self.assertNotIn("APP_ENVIRONMENT_SHA256", env_document)
             metadata = json.loads((output_root / "metadata.json").read_text())
             rendered = json.dumps(metadata)
             self.assertNotIn(f"127.0.0.1:{self.port}", rendered)
@@ -287,14 +282,16 @@ class ProtectedDeployedConformanceTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("material is absent", result.stderr)
 
-    def test_materialize_rejects_deployed_identity_mismatch_before_network(self) -> None:
+    def test_materialize_rejects_superseded_digest_identity_schema(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             state = _project_state()
-            state["protected_deployed_conformance"]["identity"]["deployedImageDigest"] = "sha256:" + "9" * 64
+            state["protected_deployed_conformance"]["schemaVersion"] = 1
+            state["protected_deployed_conformance"]["environmentProjection"]["releaseImageDigest"] = "APP_RELEASE_IMAGE_DIGEST"
+            state["protected_deployed_conformance"]["identity"]["releaseImageDigest"] = "sha256:" + "1" * 64
             result, output_root = self._materialize(root, state=state)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("deployed image identity does not match", result.stderr)
+            self.assertIn("descriptor version is invalid", result.stderr)
             self.assertFalse(output_root.exists())
 
     def test_run_executes_tracked_certifier_writes_bounded_evidence_and_resets(self) -> None:
