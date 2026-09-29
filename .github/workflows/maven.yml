@@ -282,6 +282,45 @@ jobs:
           TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
 
+      - name: Resolve modern Bash for Maven publication
+        id: maven_bash
+        shell: bash
+        env:
+          CI_MAVEN_RUNNER_OS: ${{ runner.os }}
+        run: |
+          set -Eeuo pipefail
+          if test "${CI_MAVEN_RUNNER_OS}" != macOS; then
+            printf 'executable=bash\n' >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          command -v brew >/dev/null 2>&1 || {
+            echo "Modern Bash is required for Maven publication on macOS, but Homebrew is unavailable" >&2
+            exit 1
+          }
+
+          if ! HOMEBREW_NO_AUTO_UPDATE=1 brew list --versions bash >/dev/null 2>&1; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install bash
+          fi
+          bash_prefix="$(HOMEBREW_NO_AUTO_UPDATE=1 brew --prefix bash)"
+          modern_bash="${bash_prefix}/bin/bash"
+          test -x "${modern_bash}" || {
+            echo "Modern Bash installation did not provide an executable" >&2
+            exit 1
+          }
+          bash_major="$("${modern_bash}" -c 'printf "%s" "${BASH_VERSINFO[0]}"')"
+          case "${bash_major}" in
+            ''|*[!0-9]*)
+              echo "Modern Bash version could not be verified" >&2
+              exit 1
+              ;;
+          esac
+          test "${bash_major}" -ge 4 || {
+            echo "Maven publication on macOS requires Bash 4 or newer" >&2
+            exit 1
+          }
+          printf 'executable=%s\n' "${modern_bash}" >> "${GITHUB_OUTPUT}"
+
       - name: Validate fixed Maven wrapper
         shell: bash
         run: |
@@ -330,7 +369,7 @@ jobs:
             fi
           }
 
-          run_logged maven-publish bash scripts/ci/run-maven-publication.sh
+          run_logged maven-publish "${{ steps.maven_bash.outputs.executable }}" scripts/ci/run-maven-publication.sh
 
       - name: Validate optional immutable publication evidence
         id: evidence

@@ -1,6 +1,7 @@
 from pathlib import Path
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -195,8 +196,127 @@ class MavenWorkflowTests(unittest.TestCase):
         self.assertEqual(commands["env"]["CI_MAVEN_PROFILE"], "publish")
         self.assertEqual(commands["env"]["CI_MAVEN_BUILD_NUMBER"], "${{ inputs.build_number }}")
         self.assertEqual(commands["env"]["CI_MAVEN_SOURCE_SHA"], "${{ steps.source_identity.outputs.source_sha }}")
-        self.assertIn("run_logged maven-publish bash scripts/ci/run-maven-publication.sh", commands["run"])
+        self.assertIn(
+            'run_logged maven-publish "${{ steps.maven_bash.outputs.executable }}" scripts/ci/run-maven-publication.sh',
+            commands["run"],
+        )
         self.assertNotIn("bash -lc", commands["run"])
+
+    def test_macos_maven_resolves_verified_modern_bash_before_wrapper(self) -> None:
+        names = [step.get("name") for step in self.job["steps"]]
+        self.assertLess(
+            names.index("Resolve modern Bash for Maven publication"),
+            names.index("Run fixed Maven publication profile"),
+        )
+        resolver = self.step("Resolve modern Bash for Maven publication")
+        self.assertEqual(resolver["id"], "maven_bash")
+        self.assertEqual(resolver["env"], {"CI_MAVEN_RUNNER_OS": "${{ runner.os }}"})
+        script = resolver["run"]
+        self.assertIn('test "${bash_major}" -ge 4', script)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            output = root / "github-output"
+            marker = root / "brew-marker"
+            prefix = root / "homebrew-bash"
+            real_bash = shutil.which("bash")
+            self.assertIsNotNone(real_bash)
+
+            brew = fake_bin / "brew"
+            brew.write_text(
+                """#!/bin/sh
+set -eu
+case "$1:$2" in
+  list:--versions)
+    test "$3" = bash
+    if test -x "$FAKE_BASH_PREFIX/bin/bash"; then
+      printf 'bash 5 fixture\\n'
+      exit 0
+    fi
+    exit 1
+    ;;
+  install:bash)
+    mkdir -p "$FAKE_BASH_PREFIX/bin"
+    ln -sf "$REAL_BASH" "$FAKE_BASH_PREFIX/bin/bash"
+    printf 'install\\n' >> "$BREW_MARKER"
+    ;;
+  --prefix:bash)
+    printf '%s\\n' "$FAKE_BASH_PREFIX"
+    ;;
+  *)
+    exit 96
+    ;;
+esac
+""",
+                encoding="utf-8",
+            )
+            brew.chmod(0o755)
+
+            base_env = {
+                **os.environ,
+                "PATH": f"{fake_bin}:/usr/bin:/bin",
+                "FAKE_BASH_PREFIX": str(prefix),
+                "REAL_BASH": real_bash,
+                "BREW_MARKER": str(marker),
+                "GITHUB_OUTPUT": str(output),
+            }
+
+            output.write_text("", encoding="utf-8")
+            linux = subprocess.run(
+                ["bash", "-c", script],
+                env={**base_env, "CI_MAVEN_RUNNER_OS": "Linux"},
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(linux.returncode, 0, linux.stderr)
+            self.assertEqual(output.read_text(encoding="utf-8"), "executable=bash\n")
+            self.assertFalse(marker.exists())
+
+            output.write_text("", encoding="utf-8")
+            macos = subprocess.run(
+                ["bash", "-c", script],
+                env={**base_env, "CI_MAVEN_RUNNER_OS": "macOS"},
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(macos.returncode, 0, macos.stderr)
+            modern_bash = prefix / "bin/bash"
+            self.assertTrue(modern_bash.exists())
+            self.assertEqual(marker.read_text(encoding="utf-8"), "install\n")
+            self.assertEqual(
+                output.read_text(encoding="utf-8"),
+                f"executable={modern_bash}\n",
+            )
+
+            modern_bash.unlink()
+            modern_bash.write_text("#!/bin/sh\nprintf '3'\n", encoding="utf-8")
+            modern_bash.chmod(0o755)
+            output.write_text("", encoding="utf-8")
+            outdated = subprocess.run(
+                ["bash", "-c", script],
+                env={**base_env, "CI_MAVEN_RUNNER_OS": "macOS"},
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(outdated.returncode, 0)
+            self.assertIn("Bash 4 or newer", outdated.stderr)
+
+            output.write_text("", encoding="utf-8")
+            unavailable = subprocess.run(
+                ["bash", "-c", script],
+                env={
+                    **os.environ,
+                    "PATH": "/usr/bin:/bin",
+                    "GITHUB_OUTPUT": str(output),
+                    "CI_MAVEN_RUNNER_OS": "macOS",
+                },
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(unavailable.returncode, 0)
+            self.assertIn("Homebrew is unavailable", unavailable.stderr)
 
     def test_build_number_is_bounded_and_reaches_wrapper_unchanged(self) -> None:
         context = self.step("Validate Maven release context")
