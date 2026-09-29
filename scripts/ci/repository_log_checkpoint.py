@@ -25,6 +25,8 @@ from typing import Callable, Mapping, Protocol
 import repository_log_timeline as timeline
 
 MAX_LOG_BYTES = 16 * 1024 * 1024
+MAX_RUNTIME_PROBE_BYTES = 4 * 1024 * 1024
+RUNTIME_PROBE_TAIL_BYTES = 64 * 1024
 INTERVAL_SECONDS = 180
 HTTP_TIMEOUT_SECONDS = 30
 MAX_UPLOAD_ATTEMPTS = 3
@@ -64,6 +66,7 @@ def scrubbed_snapshot(
     *,
     timeline_state_path: Path | None = None,
     progress_path: Path | None = None,
+    runtime_probe_path: Path | None = None,
 ) -> bytes:
     if log_path.is_symlink() or not log_path.is_file():
         raise CheckpointError("invalid_log_path")
@@ -73,6 +76,18 @@ def scrubbed_snapshot(
     data = log_path.read_bytes()
     if len(data) > MAX_LOG_BYTES:
         raise CheckpointError("log_too_large")
+    if runtime_probe_path is not None and runtime_probe_path.exists():
+        if runtime_probe_path.is_symlink() or not runtime_probe_path.is_file():
+            raise CheckpointError("invalid_runtime_probe_path")
+        probe_size = runtime_probe_path.stat().st_size
+        if probe_size > MAX_RUNTIME_PROBE_BYTES:
+            raise CheckpointError("runtime_probe_too_large")
+        with runtime_probe_path.open("rb") as handle:
+            handle.seek(max(0, probe_size - RUNTIME_PROBE_TAIL_BYTES))
+            probe_tail = handle.read(RUNTIME_PROBE_TAIL_BYTES)
+        if probe_tail:
+            data += b"\n--- central runtime probe tail ---\n" + probe_tail
+
     for raw in _scrub_values(environ):
         data = data.replace(raw, b"[REDACTED]")
     if timeline_state_path is not None and timeline_state_path.exists():
@@ -154,6 +169,7 @@ def checkpoint_once(
     sleep_fn: Callable[[float], None] = time.sleep,
     timeline_state_path: Path | None = None,
     progress_path: Path | None = None,
+    runtime_probe_path: Path | None = None,
 ) -> str:
     state.attempts += 1
     data = scrubbed_snapshot(
@@ -161,6 +177,7 @@ def checkpoint_once(
         environ,
         timeline_state_path=timeline_state_path,
         progress_path=progress_path,
+        runtime_probe_path=runtime_probe_path,
     )
     digest = hashlib.sha256(data).hexdigest()
     if digest == state.last_sha256:
@@ -284,6 +301,7 @@ def run_loop(
     sleep_fn: Callable[[float], None] = time.sleep,
     timeline_state_path: Path | None = None,
     progress_path: Path | None = None,
+    runtime_probe_path: Path | None = None,
 ) -> CheckpointState:
     if SHA256_PATTERN.fullmatch(seed_sha256) is None:
         raise CheckpointError("invalid_seed_sha256")
@@ -305,6 +323,7 @@ def run_loop(
                 sleep_fn=sleep_fn,
                 timeline_state_path=timeline_state_path,
                 progress_path=progress_path,
+                runtime_probe_path=runtime_probe_path,
             )
         except CheckpointError as exc:
             print(
@@ -327,6 +346,7 @@ def run_loop(
                 sleep_fn=sleep_fn,
                 timeline_state_path=timeline_state_path,
                 progress_path=progress_path,
+                runtime_probe_path=runtime_probe_path,
             )
         except CheckpointError as exc:
             print(
@@ -353,6 +373,7 @@ def main() -> int:
     parser.add_argument("--status-path", required=True)
     parser.add_argument("--timeline-state-path")
     parser.add_argument("--progress-path")
+    parser.add_argument("--runtime-probe-path")
     args = parser.parse_args()
 
     log_path = Path(args.log_path)
@@ -391,6 +412,7 @@ def main() -> int:
             stop_event=stop_event,
             timeline_state_path=Path(args.timeline_state_path) if args.timeline_state_path else None,
             progress_path=Path(args.progress_path) if args.progress_path else None,
+            runtime_probe_path=Path(args.runtime_probe_path) if args.runtime_probe_path else None,
         )
     except CheckpointError as exc:
         print(f"repository log checkpoint failed: {exc.category}", file=__import__("sys").stderr)
