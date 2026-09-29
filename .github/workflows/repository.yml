@@ -1147,6 +1147,23 @@ jobs:
           fi
 
           checkpoint_pid=""
+          runtime_probe_pid=""
+          runtime_probe_path=""
+          stop_runtime_probe() {
+            if test -n "${runtime_probe_pid}"; then
+              if kill -0 "${runtime_probe_pid}" 2>/dev/null; then
+                kill -TERM "${runtime_probe_pid}" 2>/dev/null || true
+              fi
+              set +e
+              wait "${runtime_probe_pid}"
+              runtime_probe_status=$?
+              set -e
+              if test "${runtime_probe_status}" -ne 0; then
+                echo "::warning::repository runtime probe exited with status ${runtime_probe_status}; product execution result is preserved" >&2
+              fi
+            fi
+            runtime_probe_pid=""
+          }
           stop_checkpoint() {
             if test -n "${checkpoint_pid}"; then
               if kill -0 "${checkpoint_pid}" 2>/dev/null; then
@@ -1174,14 +1191,28 @@ jobs:
             fi
           }
           terminate_with_checkpoint() {
+            stop_runtime_probe
             finish_entrypoint_timeline cancelled
             stop_checkpoint
             exit 143
           }
           trap terminate_with_checkpoint TERM INT
-          trap stop_checkpoint EXIT
+          trap 'stop_runtime_probe; stop_checkpoint' EXIT
+
+          if test "${HOST_OS}" = macos && test "${OPERATION}" = ui-test; then
+            runtime_probe_path="${CI_LOG_DIR}/central-runtime-probe.txt"
+            : > "${runtime_probe_path}"
+            chmod 600 "${runtime_probe_path}"
+            python3 central-ci/scripts/ci/repository_runtime_probe.py run \
+              --output-path "${runtime_probe_path}" &
+            runtime_probe_pid=$!
+          fi
 
           if test "${CHECKPOINT_ENABLED}" = true; then
+            runtime_probe_options=()
+            if test -n "${runtime_probe_path}"; then
+              runtime_probe_options=(--runtime-probe-path "${runtime_probe_path}")
+            fi
             GOOGLE_DRIVE_CLIENT_ID="${CHECKPOINT_GOOGLE_DRIVE_CLIENT_ID}" \
             GOOGLE_DRIVE_CLIENT_SECRET="${CHECKPOINT_GOOGLE_DRIVE_CLIENT_SECRET}" \
             GOOGLE_DRIVE_REFRESH_TOKEN="${CHECKPOINT_GOOGLE_DRIVE_REFRESH_TOKEN}" \
@@ -1191,7 +1222,8 @@ jobs:
               --seed-sha256 "${CHECKPOINT_SEED_SHA256}" \
               --status-path "${RUNNER_TEMP}/central-repository-ci-log-checkpoint-status.json" \
               --timeline-state-path "${RUNNER_TEMP}/central-repository-ci-timeline.json" \
-              --progress-path "${CI_PROGRESS_FILE}" &
+              --progress-path "${CI_PROGRESS_FILE}" \
+              "${runtime_probe_options[@]}" &
             checkpoint_pid=$!
           fi
 
@@ -1314,6 +1346,14 @@ jobs:
           status="${pipeline_status[0]}"
           capture_status="${pipeline_status[1]}"
           set -e
+          stop_runtime_probe
+          if test -n "${runtime_probe_path}" && test -s "${runtime_probe_path}"; then
+            if ! python3 central-ci/scripts/ci/repository_runtime_probe.py summary \
+              --probe-path "${runtime_probe_path}" \
+              --log-path "${CI_LOG}"; then
+              echo "::warning::repository runtime probe summary failed; raw bounded probe evidence is still retained" >&2
+            fi
+          fi
           if test "${status}" -eq 0; then
             finish_entrypoint_timeline complete
           else

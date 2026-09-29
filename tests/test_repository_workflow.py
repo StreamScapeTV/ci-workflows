@@ -1459,6 +1459,21 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertIn("central-oci-publish", cleanup["run"])
         self.assertIn("central-repository-ci-artifact-selection.json", cleanup["run"])
 
+    def test_macos_ui_runtime_probe_is_central_owned_and_bounded(self) -> None:
+        execute = self.steps_by_name["Execute fixed repository-owned entrypoint"]["run"]
+        self.assertIn(
+            'if test "${HOST_OS}" = macos && test "${OPERATION}" = ui-test; then',
+            execute,
+        )
+        self.assertIn(
+            'runtime_probe_path="${CI_LOG_DIR}/central-runtime-probe.txt"',
+            execute,
+        )
+        self.assertIn("repository_runtime_probe.py run", execute)
+        self.assertIn("--runtime-probe-path", execute)
+        self.assertIn("repository_runtime_probe.py summary", execute)
+        self.assertNotIn("CI_RUNTIME_PROBE", self.workflow["on"]["workflow_call"]["inputs"])
+
     def test_evidence_archive_output_is_one_existing_regular_file_path(self) -> None:
         by_name = self.steps_by_name
         scrub = by_name["Scrub configured CI secrets from private text evidence"]["run"]
@@ -2140,6 +2155,10 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertEqual(
             inventory["scripts"]["repository_log_timeline"],
             "scripts/ci/repository_log_timeline.py",
+        )
+        self.assertEqual(
+            inventory["scripts"]["repository_runtime_probe"],
+            "scripts/ci/repository_runtime_probe.py",
         )
         self.assertEqual(
             inventory["scripts"]["protected_deployed_conformance"],

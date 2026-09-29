@@ -221,6 +221,27 @@ class RepositoryLogCheckpointTests(unittest.TestCase):
             self.assertNotIn(b"line1\\nline2", data)
             self.assertIn(b"[REDACTED]", data)
 
+    def test_snapshot_includes_bounded_scrubbed_runtime_probe_tail(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log = root / "log.txt"
+            probe = root / "runtime-probe.txt"
+            log.write_bytes(b"product output\n")
+            probe.write_bytes(
+                b"old runtime sample\n"
+                + b"x" * mod.RUNTIME_PROBE_TAIL_BYTES
+                + b" secret-value\n"
+            )
+            data = mod.scrubbed_snapshot(
+                log,
+                {"CI_SECRET_TEST": "secret-value"},
+                runtime_probe_path=probe,
+            )
+            self.assertIn(b"--- central runtime probe tail ---", data)
+            self.assertNotIn(b"secret-value", data)
+            self.assertIn(b"[REDACTED]", data)
+            self.assertLessEqual(len(data), mod.MAX_LOG_BYTES)
+
     def test_unchanged_snapshot_skips_drive_replacement(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
