@@ -303,6 +303,18 @@ esac
             self.assertNotEqual(outdated.returncode, 0)
             self.assertIn("Bash 4 or newer", outdated.stderr)
 
+            modern_bash.write_text("#!/bin/sh\nprintf 'unknown'\n", encoding="utf-8")
+            modern_bash.chmod(0o755)
+            output.write_text("", encoding="utf-8")
+            unknown = subprocess.run(
+                ["bash", "-c", script],
+                env={**base_env, "CI_MAVEN_RUNNER_OS": "macOS"},
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(unknown.returncode, 0)
+            self.assertIn("Modern Bash version could not be verified", unknown.stderr)
+
             output.write_text("", encoding="utf-8")
             unavailable = subprocess.run(
                 ["bash", "-c", script],
