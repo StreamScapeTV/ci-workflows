@@ -339,7 +339,7 @@ esac
             self.assertNotEqual(completed.returncode, 0)
 
         commands = self.step("Run fixed Maven publication profile")
-        script = commands["run"]
+        script = commands["run"].replace("${{ steps.maven_bash.outputs.executable }}", "bash")
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             wrapper = root / "scripts/ci/run-maven-publication.sh"
