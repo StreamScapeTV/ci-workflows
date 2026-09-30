@@ -775,6 +775,106 @@ class RepositoryWorkflowTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, self.workflow_text)
 
+    def test_targeted_linux_gradle_cache_is_bounded_and_secret_safe(self) -> None:
+        steps = self.workflow["jobs"]["execute"]["steps"]
+        by_name = {step.get("name"): step for step in steps if step.get("name")}
+        names = [step.get("name") for step in steps]
+
+        expected_order = (
+            "Configure ephemeral generic package-manager authentication",
+            "Resolve bounded Gradle cache identity",
+            "Restore bounded Gradle user-home cache",
+            "Record bounded Gradle cache restoration",
+            "Execute fixed repository-owned entrypoint",
+            "Prepare bounded Gradle cache save",
+            "Save bounded Gradle user-home cache",
+            "Cleanup ephemeral registry and repository evidence",
+        )
+        positions = [names.index(name) for name in expected_order]
+        self.assertEqual(positions, sorted(positions))
+
+        identity = by_name["Resolve bounded Gradle cache identity"]
+        self.assertIn("inputs.operation == 'test'", identity["if"])
+        self.assertIn("needs.resolve_host.outputs.host_os == 'linux'", identity["if"])
+        self.assertIn("steps.capabilities.outputs.gradle_maven == 'true'", identity["if"])
+        self.assertEqual(
+            identity["env"]["OBSERVED_SOURCE_SHA"],
+            "${{ steps.source_identity.outputs.source_sha }}",
+        )
+        identity_script = identity["run"]
+        for token in (
+            'relative.startswith("gradle/")',
+            'relative.endswith((".gradle", ".gradle.kts"))',
+            '{"buildSrc", "build-logic", ".ci"}',
+            'path.parts[0] == "scripts" and path.parts[1] == "ci"',
+            '"gradle/wrapper/gradle-wrapper.properties" not in selected',
+            '"reviewed 512-file limit"',
+            '"exceeds 1 MiB"',
+            '"reviewed 8 MiB total"',
+            'hashlib.sha256(b"repository-gradle-cache-v1\\0")',
+            'f"{prefix}{source_sha}"',
+        ):
+            self.assertIn(token, identity_script)
+        for forbidden in ("inputs.ref", "semantic_inputs_json", "NORMALIZED_INPUTS"):
+            self.assertNotIn(forbidden, identity_script)
+
+        cache_paths = (
+            "${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/modules-2/files-2.1\n"
+            "            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/transforms-*\n"
+            "            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/jars-*\n"
+            "            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/*/generated-gradle-jars\n"
+            "            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/*/kotlin-dsl\n"
+            "            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/build-cache-*\n"
+            "            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/wrapper/dists\n"
+        )
+        restore = by_name["Restore bounded Gradle user-home cache"]
+        self.assertEqual(restore["uses"], "actions/cache/restore@v4")
+        self.assertEqual(restore["with"]["key"], "${{ steps.gradle_cache_identity.outputs.cache_key }}")
+        self.assertIn("${{ steps.gradle_cache_identity.outputs.restore_key }}", restore["with"]["restore-keys"])
+        for path in (
+            ".gradle/caches/modules-2/files-2.1",
+            ".gradle/caches/transforms-*",
+            ".gradle/caches/jars-*",
+            ".gradle/caches/*/generated-gradle-jars",
+            ".gradle/caches/*/kotlin-dsl",
+            ".gradle/caches/build-cache-*",
+            ".gradle/wrapper/dists",
+        ):
+            self.assertIn(path, restore["with"]["path"])
+        for forbidden in ("gradle.properties", ".netrc", "source/build", "REGISTRY_READ_TOKEN"):
+            self.assertNotIn(forbidden, restore["with"]["path"])
+
+        record = by_name["Record bounded Gradle cache restoration"]
+        self.assertEqual(record["env"]["GRADLE_CACHE_HIT"], "${{ steps.gradle_cache_restore.outputs.cache-hit }}")
+        self.assertIn("cache_hit=%s", record["run"])
+        self.assertIn("fingerprint=%s", record["run"])
+
+        prepare = by_name["Prepare bounded Gradle cache save"]
+        self.assertIn("steps.execute_contract.outcome == 'success'", prepare["if"])
+        self.assertIn("steps.gradle_cache_restore.outputs.cache-hit != 'true'", prepare["if"])
+        self.assertEqual(prepare["env"]["CACHE_SECRET_REGISTRY_READ_TOKEN"], "${{ secrets.REGISTRY_READ_TOKEN }}")
+        prepare_script = prepare["run"]
+        for token in (
+            '"cache exceeds the reviewed 100000-file limit"',
+            '"cache exceeds the reviewed 2 GiB limit"',
+            '"cache contains a configured credential value"',
+            'path.name.endswith(".lock")',
+            'path.name == "gc.properties"',
+            '"save_allowed="',
+        ):
+            self.assertIn(token, prepare_script)
+
+        save = by_name["Save bounded Gradle user-home cache"]
+        self.assertEqual(save["uses"], "actions/cache/save@v4")
+        self.assertEqual(save["with"]["key"], "${{ steps.gradle_cache_identity.outputs.cache_key }}")
+        self.assertEqual(save["with"]["path"], restore["with"]["path"])
+        self.assertIn("steps.gradle_cache_save_prepare.outputs.save_allowed == 'true'", save["if"])
+
+        cleanup = by_name["Cleanup ephemeral registry and repository evidence"]["run"]
+        self.assertIn('"${RUNNER_TEMP}/central-registry-auth"', cleanup)
+        self.assertNotIn("actions/setup-java", self.workflow_text)
+        self.assertNotIn("StreamScapeTV/iptv-android", self.workflow_text)
+
     def test_private_agent_state_capability_grant_is_exactly_bound_and_fail_closed(self) -> None:
         self.assertEqual(
             set(self.contract["capabilityTypes"]),
