@@ -25,6 +25,8 @@ jobs:
       test_profile: ${{ steps.claim.outputs.test_profile }}
       inputs_json: ${{ steps.tag_release.outputs.inputs_json || steps.claim.outputs.inputs_json }}
       release_version: ${{ steps.tag_release.outputs.release_version }}
+      validation_concurrency_key: ${{ steps.validation_lane.outputs.concurrency_key }}
+      validation_cancel_in_progress: ${{ steps.validation_lane.outputs.cancel_in_progress }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,6 +39,65 @@ jobs:
         with:
           phase: claim
           ci_run_id: ${{ inputs.ci_run_id }}
+
+      - name: Resolve bounded validation concurrency lane
+        id: validation_lane
+        shell: bash
+        env:
+          SOURCE_REPOSITORY: ${{ steps.claim.outputs.repository }}
+          SOURCE_REF: ${{ steps.claim.outputs.ref }}
+          SOURCE_IS_TAG: ${{ steps.claim.outputs.is_tag }}
+          WORKFLOW_KEY: ${{ steps.claim.outputs.workflow_key }}
+          TEST_PROFILE: ${{ steps.claim.outputs.test_profile }}
+        run: |
+          set -Eeuo pipefail
+          case "${SOURCE_IS_TAG}" in
+            true) source_namespace=refs/tags ;;
+            false) source_namespace=refs/heads ;;
+            *) echo "Central validation concurrency requires source_is_tag=true or false" >&2; exit 2 ;;
+          esac
+          git check-ref-format "${source_namespace}/${SOURCE_REF}" >/dev/null || {
+            echo "Central validation concurrency requires one valid bounded source ref" >&2
+            exit 2
+          }
+          python3 - <<'PY_VALIDATION_CONCURRENCY'
+          from pathlib import Path
+          import hashlib
+          import os
+          import re
+
+          repository = os.environ.get("SOURCE_REPOSITORY", "")
+          ref = os.environ.get("SOURCE_REF", "")
+          is_tag = os.environ.get("SOURCE_IS_TAG", "")
+          workflow = os.environ.get("WORKFLOW_KEY", "")
+          profile = os.environ.get("TEST_PROFILE", "")
+
+          repository_pattern = re.compile(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")
+          lane_pattern = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+          if repository_pattern.fullmatch(repository) is None:
+              raise SystemExit("Central validation concurrency repository is outside the reviewed bound")
+          if not 1 <= len(ref) <= 255 or any(ord(ch) < 32 or ord(ch) == 127 for ch in ref):
+              raise SystemExit("Central validation concurrency ref is outside the reviewed bound")
+          if lane_pattern.fullmatch(workflow) is None or lane_pattern.fullmatch(profile) is None:
+              raise SystemExit("Central validation concurrency workflow/profile is outside the reviewed bound")
+          if is_tag not in {"true", "false"}:
+              raise SystemExit("Central validation concurrency source kind is invalid")
+
+          material = "\0".join(
+              ("central-validation-lane-v1", repository, ref, is_tag, workflow, profile)
+          ).encode("utf-8")
+          concurrency_key = hashlib.sha256(material).hexdigest()
+          cancel_in_progress = (
+              is_tag == "false"
+              and not (workflow == "validation.android" and profile == "physical-performance")
+          )
+          output_path = Path(os.environ["GITHUB_OUTPUT"])
+          with output_path.open("a", encoding="utf-8") as output:
+              output.write(f"concurrency_key={concurrency_key}\n")
+              output.write(
+                  f"cancel_in_progress={'true' if cancel_in_progress else 'false'}\n"
+              )
+          PY_VALIDATION_CONCURRENCY
 
       - name: Reject retired legacy validation workflow
         if: >-
@@ -636,8 +697,8 @@ jobs:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'validation.repository' }}
     concurrency:
-      group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
-      cancel-in-progress: true
+      group: central-ci-${{ needs.request.outputs.validation_concurrency_key }}
+      cancel-in-progress: ${{ needs.request.outputs.validation_cancel_in_progress == 'true' }}
     uses: ./.github/workflows/repository-plan.yml
     with:
       repository: ${{ needs.request.outputs.repository }}
@@ -705,8 +766,8 @@ jobs:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'validation.apple' }}
     concurrency:
-      group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
-      cancel-in-progress: true
+      group: central-ci-${{ needs.request.outputs.validation_concurrency_key }}
+      cancel-in-progress: ${{ needs.request.outputs.validation_cancel_in_progress == 'true' }}
     uses: ./.github/workflows/apple.yml
     with:
       repository: ${{ needs.request.outputs.repository }}
@@ -827,8 +888,8 @@ jobs:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'validation.android' }}
     concurrency:
-      group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
-      cancel-in-progress: ${{ needs.request.outputs.test_profile != 'physical-performance' }}
+      group: central-ci-${{ needs.request.outputs.validation_concurrency_key }}
+      cancel-in-progress: ${{ needs.request.outputs.validation_cancel_in_progress == 'true' }}
     uses: ./.github/workflows/android.yml
     with:
       repository: ${{ needs.request.outputs.repository }}
@@ -863,8 +924,8 @@ jobs:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'validation.python' }}
     concurrency:
-      group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
-      cancel-in-progress: true
+      group: central-ci-${{ needs.request.outputs.validation_concurrency_key }}
+      cancel-in-progress: ${{ needs.request.outputs.validation_cancel_in_progress == 'true' }}
     uses: ./.github/workflows/python.yml
     with:
       repository: ${{ needs.request.outputs.repository }}
@@ -911,8 +972,8 @@ jobs:
         needs.request.outputs.workflow_key == 'release.public-native-image-chart-secondary'
       }}
     concurrency:
-      group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
-      cancel-in-progress: true
+      group: central-ci-${{ needs.request.outputs.validation_concurrency_key }}
+      cancel-in-progress: ${{ needs.request.outputs.validation_cancel_in_progress == 'true' }}
     permissions:
       contents: read
       packages: write
@@ -934,8 +995,8 @@ jobs:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'oci.reproducibility' }}
     concurrency:
-      group: central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}
-      cancel-in-progress: true
+      group: central-ci-${{ needs.request.outputs.validation_concurrency_key }}
+      cancel-in-progress: ${{ needs.request.outputs.validation_cancel_in_progress == 'true' }}
     uses: ./.github/workflows/oci-reproducibility.yml
     with:
       repository: ${{ needs.request.outputs.repository }}
@@ -1402,3 +1463,7 @@ jobs:
         with:
           phase: cancel-if-active
           ci_run_id: ${{ inputs.ci_run_id }}
+          error_summary: >-
+            ${{ needs.request.result == 'success'
+                && 'Central hosted execution was cancelled or superseded before completion.'
+                || 'Central dispatch request failed before hosted execution completed.' }}
