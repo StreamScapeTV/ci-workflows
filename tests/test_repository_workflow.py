@@ -1097,7 +1097,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertEqual(physical_contract["maximumAuthorizationSeconds"], 86400)
         self.assertEqual(
             physical_contract["binding"],
-            ["repository", "ref", "source_is_tag", "source_sha", "operation", "platform", "device_class"],
+            ["repository", "ref", "source_is_tag", "source_sha", "operation", "platform", "device_class", "semantic_inputs_sha256"],
         )
 
         no_run, no_run_values = self.run_capability_resolver(ci_run_id="")
@@ -1183,6 +1183,10 @@ class RepositoryWorkflowTests(unittest.TestCase):
         now = datetime.now(timezone.utc)
         authorized_at = (now - timedelta(minutes=1)).isoformat().replace("+00:00", "Z")
         expires_at = (now + timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+        physical_inputs = {"schemaVersion": 1, "inputs": {"device_platform": "ios", "test_selectors": ["physical-core"]}}
+        physical_inputs_sha256 = hashlib.sha256(
+            json.dumps(physical_inputs, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
         physical_state = {
             "repository_ci": {
                 "schemaVersion": 3,
@@ -1199,6 +1203,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
                 "operation": "device-test",
                 "platform": "ios",
                 "deviceClass": "iphone",
+                "semanticInputsSha256": physical_inputs_sha256,
                 "authorizedAt": authorized_at,
                 "expiresAt": expires_at,
             },
@@ -1208,17 +1213,27 @@ class RepositoryWorkflowTests(unittest.TestCase):
             host_os="macos",
             run_profile="device-test",
             project_state=physical_state,
-            normalized_inputs={"schemaVersion": 1, "inputs": {"device_platform": "ios", "test_selectors": ["physical-core"]}},
+            normalized_inputs=physical_inputs,
         )
         self.assertEqual(physical.returncode, 0, physical.stderr)
         self.assertEqual(physical_values["apple_physical_device"], "true")
         self.assertEqual(physical_values["apple_physical_device_authorized_at"], authorized_at)
         self.assertEqual(physical_values["apple_physical_device_expires_at"], expires_at)
 
+        changed_packet, _ = self.run_capability_resolver(
+            operation="device-test",
+            host_os="macos",
+            run_profile="device-test",
+            project_state=physical_state,
+            normalized_inputs={"schemaVersion": 1, "inputs": {"device_platform": "ios", "test_selectors": ["different-packet"]}},
+        )
+        self.assertNotEqual(changed_packet.returncode, 0)
+        self.assertIn("does not match this exact request", changed_packet.stderr)
+
         wrong_host, _ = self.run_capability_resolver(
             operation="device-test", host_os="macos", host_class="macos-hosted", run_profile="device-test",
             project_state=physical_state,
-            normalized_inputs={"schemaVersion": 1, "inputs": {"device_platform": "ios", "test_selectors": ["physical-core"]}},
+            normalized_inputs=physical_inputs,
         )
         self.assertNotEqual(wrong_host.returncode, 0)
         self.assertIn("high-capacity macOS host", wrong_host.stderr)
@@ -1228,7 +1243,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         expired_state["repository_ci_apple_physical_device_v1"]["expiresAt"] = (now - timedelta(hours=1)).isoformat().replace("+00:00", "Z")
         expired, _ = self.run_capability_resolver(
             operation="device-test", host_os="macos", run_profile="device-test", project_state=expired_state,
-            normalized_inputs={"schemaVersion": 1, "inputs": {"device_platform": "ios", "test_selectors": ["physical-core"]}},
+            normalized_inputs=physical_inputs,
         )
         self.assertNotEqual(expired.returncode, 0)
         self.assertIn("not currently active", expired.stderr)
