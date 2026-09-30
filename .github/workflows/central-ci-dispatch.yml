@@ -413,8 +413,8 @@ jobs:
               raise SystemExit("validation.repository inputs must be one JSON object") from exc
           if not isinstance(inputs, dict):
               raise SystemExit("validation.repository inputs must be one JSON object")
-          if profile not in {"build", "test", "full", "ui-test"}:
-              raise SystemExit("validation.repository supports only build, test, full, or ui-test")
+          if profile not in {"build", "test", "full", "ui-test", "device-test"}:
+              raise SystemExit("validation.repository supports only build, test, full, ui-test, or device-test")
 
           provider_operation_id = inputs.pop("provider_operation_id", None)
           if provider_operation_id is not None:
@@ -453,6 +453,7 @@ jobs:
               "test": {"product_target", "test_selectors"},
               "full": {"product_target"},
               "ui-test": {"product_target", "ui_mode"},
+              "device-test": {"device_platform", "test_selectors"},
           }[profile]
           if set(semantic) - allowed:
               raise SystemExit("validation.repository semantic_inputs contains an unknown field")
@@ -464,8 +465,8 @@ jobs:
 
           selectors = semantic.get("test_selectors")
           if selectors is not None:
-              if profile != "test" or not isinstance(selectors, list) or len(selectors) > 64:
-                  raise SystemExit("validation.repository test_selectors must be one bounded list for test")
+              if profile not in {"test", "device-test"} or not isinstance(selectors, list) or len(selectors) > 64:
+                  raise SystemExit("validation.repository test_selectors must be one bounded list for test or device-test")
               pattern = re.compile(r"[A-Za-z0-9_.$/:+-]{1,240}")
               for selector in selectors:
                   if not isinstance(selector, str) or selector.startswith("-") or pattern.fullmatch(selector) is None:
@@ -475,6 +476,15 @@ jobs:
           if ui_mode is not None:
               if profile != "ui-test" or ui_mode not in {"smoke", "full-ordinary"}:
                   raise SystemExit("validation.repository ui_mode must be smoke or full-ordinary for ui-test")
+
+          device_platform = semantic.get("device_platform")
+          if profile == "device-test":
+              if inputs["host_os"] != "macos":
+                  raise SystemExit("validation.repository device-test requires host_os=macos")
+              if device_platform != "ios" or not isinstance(selectors, list) or not selectors:
+                  raise SystemExit("validation.repository device-test requires device_platform=ios and at least one bounded test selector")
+          elif device_platform is not None:
+              raise SystemExit("validation.repository device_platform is accepted only by device-test")
           PY_VALIDATE_REPOSITORY
 
       - name: Validate generic repository-owned release request
