@@ -54,10 +54,17 @@ class RepositoryApplePhysicalDeviceTests(unittest.TestCase):
         bin_dir = root / "bin"
         bin_dir.mkdir(exist_ok=True)
         xcrun = bin_dir / "xcrun"
+        payload = {"result": {"devices": devices}}
         xcrun.write_text(
             "#!/usr/bin/env python3\n"
-            "import json\n"
-            f"print(json.dumps({devices!r}))\n",
+            "import json, pathlib, sys\n"
+            f"payload = {payload!r}\n"
+            "try:\n"
+            "    index = sys.argv.index('--json-output')\n"
+            "    target = pathlib.Path(sys.argv[index + 1])\n"
+            "except (ValueError, IndexError):\n"
+            "    raise SystemExit(2)\n"
+            "target.write_text(json.dumps(payload), encoding='utf-8')\n",
             encoding="utf-8",
         )
         xcrun.chmod(0o755)
@@ -103,12 +110,21 @@ class RepositoryApplePhysicalDeviceTests(unittest.TestCase):
 
     def eligible(self, identifier: str | None = None) -> dict[str, object]:
         return {
-            "simulator": False,
-            "available": True,
-            "platform": device.PLATFORM,
-            "interface": "usb",
             "identifier": identifier or self.IDENTIFIER,
-            "modelCode": "iPhone15,3",
+            "hardwareProperties": {
+                "platform": "iOS",
+                "reality": "physical",
+                "productType": "iPhone15,3",
+                "udid": identifier or self.IDENTIFIER,
+            },
+            "deviceProperties": {
+                "developerModeStatus": "enabled",
+                "name": "Private iPhone",
+            },
+            "connectionProperties": {
+                "pairingState": "paired",
+                "transportType": "USB",
+            },
         }
 
     def test_exactly_one_attached_iphone_executes_fixed_entrypoint_with_redaction(self) -> None:
@@ -125,7 +141,7 @@ class RepositoryApplePhysicalDeviceTests(unittest.TestCase):
 
     def test_non_iphone_iphoneos_device_is_not_eligible(self) -> None:
         ipad = self.eligible()
-        ipad["modelCode"] = "iPad14,5"
+        ipad["hardwareProperties"]["productType"] = "iPad14,5"
         result, marker, secrets, context_exists = self.run_helper(devices=[ipad])
         self.assertEqual(result.returncode, 2)
         self.assertIn("found 0", result.stderr)
