@@ -812,7 +812,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
             "exceeds 1 MiB",
             "reviewed 8 MiB total",
             'hashlib.sha256(b"repository-gradle-cache-v1\\0")',
-            'f"{prefix}{source_sha}"',
+            'output.write(f"cache_key={prefix}{source_sha}\\n")',
         ):
             self.assertIn(token, identity_script)
         for forbidden in ("inputs.ref", "semantic_inputs_json", "NORMALIZED_INPUTS"):
@@ -851,7 +851,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
             '"cache contains a configured credential value"',
             'path.name.endswith(".lock")',
             'path.name == "gc.properties"',
-            '"save_allowed="',
+            "save_allowed=",
         ):
             self.assertIn(token, prepare_script)
 
