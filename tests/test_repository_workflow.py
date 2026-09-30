@@ -59,6 +59,9 @@ class RepositoryWorkflowTests(unittest.TestCase):
         caller_ref: str = "refs/heads/main",
         lifecycle_ci_run_id: str = "",
         trusted_capability_ci_run_id: str = "",
+        host_class: str = "macos-high-capacity",
+        observed_source_sha: str = "a" * 40,
+        normalized_inputs: dict | None = None,
     ):
         script = self.steps_by_name["Validate bounded repository operation"]["run"]
         raw = semantic if isinstance(semantic, str) else json.dumps(semantic or {})
@@ -133,6 +136,8 @@ class RepositoryWorkflowTests(unittest.TestCase):
         source_ref = source_ref or run_ref
         source_is_tag = source_is_tag or ("true" if run_is_tag else "false")
         run_profile = run_profile or operation
+        if normalized_inputs is None:
+            normalized_inputs = {"schemaVersion": 1, "inputs": {}}
         if project_state is None:
             project_state = {
                 "repository_ci": {
@@ -198,6 +203,9 @@ class RepositoryWorkflowTests(unittest.TestCase):
                     "SOURCE_IS_TAG": source_is_tag,
                     "OPERATION": operation,
                     "HOST_OS": host_os,
+                    "HOST_CLASS": host_class,
+                    "OBSERVED_SOURCE_SHA": observed_source_sha,
+                    "NORMALIZED_INPUTS": json.dumps(normalized_inputs, sort_keys=True, separators=(",", ":")),
                     "CONTRACT": str(CONTRACT),
                     "AGENT_STATE_SUPABASE_URL": "https://agent-state.invalid",
                     "AGENT_STATE_SUPABASE_SECRET_KEY": "fixture-secret",
@@ -274,6 +282,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
                 "test": ".ci/test.sh",
                 "full": ".ci/test-full.sh",
                 "ui-test": ".ci/test-ui.sh",
+                "device-test": ".ci/device-test.sh",
                 "release": ".ci/release.sh",
             },
         )
@@ -293,6 +302,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertIn("CI_OPERATION", adoption["scriptEnvironment"])
         self.assertIn("CI_INPUTS_JSON", adoption["scriptEnvironment"])
         self.assertIn("CI_PROTECTED_DEPLOYED_CONFORMANCE", adoption["scriptEnvironment"])
+        self.assertIn("CI_DEVICE_CONTEXT_FILE", adoption["scriptEnvironment"])
         self.assertGreaterEqual(len(adoption["adoptionSteps"]), 5)
         self.assertIn("raw_argv", adoption["forbiddenCallerSurface"])
         self.assertIn("runner_label", adoption["forbiddenCallerSurface"])
@@ -316,6 +326,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
             "test) entrypoint=.ci/test.sh",
             "full) entrypoint=.ci/test-full.sh",
             "ui-test) entrypoint=.ci/test-ui.sh",
+            "device-test) entrypoint=.ci/device-test.sh",
             "entrypoint=.ci/release.sh",
         ):
             self.assertIn(mapping, request)
@@ -432,6 +443,30 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertNotEqual(oversized.returncode, 0)
         self.assertIn("exceeds the reviewed bound", oversized.stderr)
 
+        device, device_output = self.run_repository_request(
+            operation="device-test",
+            host_os="macos",
+            semantic={"device_platform": "ios", "test_selectors": ["physical-core"]},
+        )
+        self.assertEqual(device.returncode, 0, device.stderr)
+        self.assertIn("entrypoint=.ci/device-test.sh\n", device_output)
+        device_inputs = json.loads(
+            next(line for line in device_output.splitlines() if line.startswith("semantic_inputs_json=")).split("=", 1)[1]
+        )["inputs"]
+        self.assertEqual(device_inputs, {"device_platform": "ios", "test_selectors": ["physical-core"]})
+
+        missing_device_selector, _ = self.run_repository_request(
+            operation="device-test", host_os="macos", semantic={"device_platform": "ios"}
+        )
+        self.assertNotEqual(missing_device_selector.returncode, 0)
+        self.assertIn("omit a required field", missing_device_selector.stderr)
+
+        wrong_device_platform, _ = self.run_repository_request(
+            operation="device-test", host_os="macos", semantic={"device_platform": "tvos", "test_selectors": ["physical-core"]}
+        )
+        self.assertNotEqual(wrong_device_platform.returncode, 0)
+        self.assertIn("outside the reviewed enum", wrong_device_platform.stderr)
+
         invalid_host, _ = self.run_repository_request(host_os="ios")
         self.assertNotEqual(invalid_host.returncode, 0)
         self.assertIn("host_os must be linux or macos", invalid_host.stderr)
@@ -506,6 +541,24 @@ class RepositoryWorkflowTests(unittest.TestCase):
 
         no_semantics = self.run_dispatch_request("full", {"host_os": "macos"})
         self.assertEqual(no_semantics.returncode, 0, no_semantics.stderr)
+
+        physical = self.run_dispatch_request(
+            "device-test",
+            {
+                "host_os": "macos",
+                "semantic_inputs": json.dumps({"device_platform": "ios", "test_selectors": ["physical-core"]}),
+            },
+        )
+        self.assertEqual(physical.returncode, 0, physical.stderr)
+        physical_linux = self.run_dispatch_request(
+            "device-test",
+            {
+                "host_os": "linux",
+                "semantic_inputs": json.dumps({"device_platform": "ios", "test_selectors": ["physical-core"]}),
+            },
+        )
+        self.assertNotEqual(physical_linux.returncode, 0)
+        self.assertIn("device-test requires host_os=macos", physical_linux.stderr)
 
         provider_operation_id = "provider_" + ("a" * 32)
         replay_cases = (
@@ -612,7 +665,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
             "${{ steps.claim.outputs.workflow_key == 'validation.repository' }}",
         )
         self.assertIn(
-            'profile not in {"build", "test", "full", "ui-test"}',
+            'profile not in {"build", "test", "full", "ui-test", "device-test"}',
             admission["run"],
         )
         job = self.dispatch["jobs"]["repository"]
@@ -1033,7 +1086,15 @@ class RepositoryWorkflowTests(unittest.TestCase):
     def test_private_agent_state_capability_grant_is_exactly_bound_and_fail_closed(self) -> None:
         self.assertEqual(
             set(self.contract["capabilityTypes"]),
-            {"private_network", "github_git", "registry_netrc", "gradle_maven", "registry_oci_publish", "protected_deployed_conformance"},
+            {"private_network", "github_git", "registry_netrc", "gradle_maven", "registry_oci_publish", "protected_deployed_conformance", "apple_physical_device"},
+        )
+        physical_contract = self.contract["trustedCapabilityGrant"]["capabilityConfiguration"]["apple_physical_device"]
+        self.assertEqual(physical_contract["projectStateKey"], "repository_ci_apple_physical_device_v1")
+        self.assertEqual(physical_contract["schemaVersion"], 1)
+        self.assertEqual(physical_contract["maximumAuthorizationSeconds"], 86400)
+        self.assertEqual(
+            physical_contract["binding"],
+            ["repository", "ref", "source_is_tag", "source_sha", "operation", "platform", "device_class"],
         )
 
         no_run, no_run_values = self.run_capability_resolver(ci_run_id="")
@@ -1062,6 +1123,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertEqual(trusted_values["gradle_maven"], "false")
         self.assertEqual(trusted_values["registry_oci_publish"], "false")
         self.assertEqual(trusted_values["protected_deployed_conformance"], "false")
+        self.assertEqual(trusted_values["apple_physical_device"], "false")
         self.assertEqual(trusted_values["auth_enabled"], "true")
 
         v2, v2_values = self.run_capability_resolver(
@@ -1082,6 +1144,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertEqual(v2_values["gradle_maven"], "true")
         self.assertEqual(v2_values["registry_oci_publish"], "false")
         self.assertEqual(v2_values["protected_deployed_conformance"], "false")
+        self.assertEqual(v2_values["apple_physical_device"], "false")
         self.assertEqual(v2_values["auth_enabled"], "true")
 
         v3, v3_values = self.run_capability_resolver(
@@ -1110,7 +1173,62 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertEqual(v3_values["github_git"], "true")
         self.assertEqual(v3_values["registry_oci_publish"], "false")
         self.assertEqual(v3_values["protected_deployed_conformance"], "false")
+        self.assertEqual(v3_values["apple_physical_device"], "false")
         self.assertEqual(v3_values["auth_enabled"], "true")
+
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now(timezone.utc)
+        authorized_at = (now - timedelta(minutes=1)).isoformat().replace("+00:00", "Z")
+        expires_at = (now + timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+        physical_state = {
+            "repository_ci": {
+                "schemaVersion": 3,
+                "repository": "ExampleOrg/apple-application",
+                "capabilities": ["apple_physical_device"],
+                "hostPolicy": {"operatingSystems": {"macos": {"default": "macos-high-capacity", "operations": {}}}},
+            },
+            "repository_ci_apple_physical_device_v1": {
+                "schemaVersion": 1,
+                "repository": "ExampleOrg/apple-application",
+                "ref": "feature",
+                "sourceIsTag": False,
+                "sourceSha": "a" * 40,
+                "operation": "device-test",
+                "platform": "ios",
+                "deviceClass": "iphone",
+                "authorizedAt": authorized_at,
+                "expiresAt": expires_at,
+            },
+        }
+        physical, physical_values = self.run_capability_resolver(
+            operation="device-test",
+            host_os="macos",
+            run_profile="device-test",
+            project_state=physical_state,
+            normalized_inputs={"schemaVersion": 1, "inputs": {"device_platform": "ios", "test_selectors": ["physical-core"]}},
+        )
+        self.assertEqual(physical.returncode, 0, physical.stderr)
+        self.assertEqual(physical_values["apple_physical_device"], "true")
+        self.assertEqual(physical_values["apple_physical_device_authorized_at"], authorized_at)
+        self.assertEqual(physical_values["apple_physical_device_expires_at"], expires_at)
+
+        wrong_host, _ = self.run_capability_resolver(
+            operation="device-test", host_os="macos", host_class="macos-hosted", run_profile="device-test",
+            project_state=physical_state,
+            normalized_inputs={"schemaVersion": 1, "inputs": {"device_platform": "ios", "test_selectors": ["physical-core"]}},
+        )
+        self.assertNotEqual(wrong_host.returncode, 0)
+        self.assertIn("high-capacity macOS host", wrong_host.stderr)
+
+        expired_state = json.loads(json.dumps(physical_state))
+        expired_state["repository_ci_apple_physical_device_v1"]["authorizedAt"] = (now - timedelta(hours=2)).isoformat().replace("+00:00", "Z")
+        expired_state["repository_ci_apple_physical_device_v1"]["expiresAt"] = (now - timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+        expired, _ = self.run_capability_resolver(
+            operation="device-test", host_os="macos", run_profile="device-test", project_state=expired_state,
+            normalized_inputs={"schemaVersion": 1, "inputs": {"device_platform": "ios", "test_selectors": ["physical-core"]}},
+        )
+        self.assertNotEqual(expired.returncode, 0)
+        self.assertIn("not currently active", expired.stderr)
 
         invalid_v3, _ = self.run_capability_resolver(
             project_state={
@@ -1499,6 +1617,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
             self.assertEqual(values[capability], "true")
         self.assertEqual(values["registry_oci_publish"], "false")
         self.assertEqual(values["protected_deployed_conformance"], "false")
+        self.assertEqual(values["apple_physical_device"], "false")
         self.assertEqual(values["auth_enabled"], "true")
 
         wrong_parent, _ = self.run_capability_resolver(
@@ -1519,6 +1638,27 @@ class RepositoryWorkflowTests(unittest.TestCase):
             "trusted capability parent is invalid",
             wrong_parent.stderr,
         )
+
+    def test_device_test_uses_generic_repository_entrypoint_and_private_device_wrapper(self) -> None:
+        request = self.steps_by_name["Validate bounded repository operation"]
+        self.assertIn("device-test) entrypoint=.ci/device-test.sh", request["run"])
+        execute = self.steps_by_name["Execute fixed repository-owned entrypoint"]
+        script = execute["run"]
+        self.assertIn("repository_apple_physical_device.py execute", script)
+        self.assertIn('if test "${OPERATION}" = device-test', script)
+        self.assertIn("repository device-test requires the reviewed Apple physical-device capability", script)
+        self.assertNotIn("ios-central-device-adapter.py", self.workflow_text)
+        self.assertNotIn("run-ios-device-packet", self.workflow_text)
+        self.assertNotIn("STREAMSCAPE_APPLE_HARDWARE_UDID", self.workflow_text)
+        self.assertNotIn("device_identifier", self.workflow["on"]["workflow_call"]["inputs"])
+        self.assertIn("inputs.operation != 'device-test'", execute["env"]["CHECKPOINT_ENABLED"])
+
+        scrub = self.steps_by_name["Scrub configured CI secrets from private text evidence"]
+        self.assertIn("central-apple-physical-device-secrets.txt", scrub["env"]["CI_DYNAMIC_SECRET_FILE"])
+        self.assertIn("dynamic_secret_path", scrub["run"])
+        cleanup = self.steps_by_name["Cleanup ephemeral registry and repository evidence"]["run"]
+        self.assertIn("central-apple-physical-device-context.json", cleanup)
+        self.assertIn("central-apple-physical-device-secrets.txt", cleanup)
 
     def test_package_auth_is_generic_file_configuration_not_product_secret_env(self) -> None:
         auth = self.steps_by_name[
