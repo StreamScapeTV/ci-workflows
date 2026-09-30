@@ -16,6 +16,7 @@ LOCK_PATH = Path('/tmp/streamscapetv-central-apple-physical-device-v1.lock')
 ENTRYPOINT = Path('.ci/device-test.sh')
 CONTEXT_NAME = 'central-apple-physical-device-context.json'
 SECRET_NAME = 'central-apple-physical-device-secrets.txt'
+INVENTORY_NAME = 'central-apple-physical-device-inventory.json'
 IDENTIFIER_RE = re.compile(r'[A-Za-z0-9-]{16,128}')
 IPHONE_MODEL_RE = re.compile(r'iPhone[0-9]+,[0-9]+')
 PLATFORM = 'com.apple.platform.iphoneos'
@@ -115,43 +116,76 @@ def validate_entrypoint(source_root: Path) -> Path:
 def _eligible_device(value: object) -> str | None:
     if not isinstance(value, dict):
         return None
-    if value.get('simulator') is not False or value.get('available') is not True:
+    hardware = value.get('hardwareProperties')
+    properties = value.get('deviceProperties')
+    connection = value.get('connectionProperties')
+    if not isinstance(hardware, dict) or not isinstance(properties, dict) or not isinstance(connection, dict):
         return None
-    if value.get('platform') != PLATFORM:
+    if hardware.get('platform') != 'iOS' or hardware.get('reality') != 'physical':
         return None
-    model_code = value.get('modelCode')
-    if not isinstance(model_code, str) or IPHONE_MODEL_RE.fullmatch(model_code) is None:
+    if connection.get('pairingState') not in {None, 'paired'}:
         return None
-    interface = value.get('interface')
-    if not isinstance(interface, str) or interface.lower() not in ALLOWED_INTERFACES:
+    if properties.get('developerModeStatus') == 'disabled':
         return None
-    identifier = value.get('identifier')
+    product_type = hardware.get('productType')
+    if not isinstance(product_type, str) or IPHONE_MODEL_RE.fullmatch(product_type) is None:
+        return None
+    transport = connection.get('transportType')
+    if not isinstance(transport, str) or 'usb' not in transport.casefold():
+        return None
+    identifier = hardware.get('udid') or value.get('identifier')
     if not isinstance(identifier, str) or IDENTIFIER_RE.fullmatch(identifier) is None:
         return None
     return identifier
 
 
-def discover_attached_iphone() -> str:
+def discover_attached_iphone(runner_temp: Path) -> str:
+    inventory_path = runner_temp / INVENTORY_NAME
+    if inventory_path.exists() or inventory_path.is_symlink():
+        fail('Apple physical-device discovery private inventory already exists')
     try:
         completed = subprocess.run(
-            ['xcrun', 'xcdevice', 'list', '--timeout', '5'],
+            [
+                'xcrun',
+                'devicectl',
+                'list',
+                'devices',
+                '--json-output',
+                str(inventory_path),
+            ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            timeout=30,
+            timeout=60,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise DeviceError('Apple physical-device discovery failed before product execution') from exc
     if completed.returncode != 0:
         fail('Apple physical-device discovery failed before product execution')
+    if inventory_path.is_symlink() or not inventory_path.is_file():
+        fail('Apple physical-device discovery returned no private inventory')
     try:
-        payload = json.loads(completed.stdout)
-    except json.JSONDecodeError as exc:
-        raise DeviceError('Apple physical-device discovery returned invalid data') from exc
-    if not isinstance(payload, list):
+        if inventory_path.stat().st_size > 1024 * 1024:
+            fail('Apple physical-device discovery inventory exceeds the reviewed bound')
+        try:
+            payload = json.loads(inventory_path.read_text(encoding='utf-8'))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise DeviceError('Apple physical-device discovery returned invalid data') from exc
+    finally:
+        if inventory_path.is_symlink():
+            fail('Apple physical-device discovery private inventory became a symlink')
+        if inventory_path.exists():
+            inventory_path.unlink()
+        if inventory_path.exists() or inventory_path.is_symlink():
+            fail('Apple physical-device discovery private inventory cleanup failed')
+    if not isinstance(payload, dict):
         fail('Apple physical-device discovery returned invalid data')
-    devices = sorted({identifier for item in payload if (identifier := _eligible_device(item)) is not None})
+    result = payload.get('result')
+    rows = result.get('devices') if isinstance(result, dict) else None
+    if not isinstance(rows, list) or len(rows) > 64:
+        fail('Apple physical-device discovery returned invalid data')
+    devices = sorted({identifier for item in rows if (identifier := _eligible_device(item)) is not None})
     if len(devices) != 1:
         fail(f'Apple physical-device discovery requires exactly one eligible attached iPhone; found {len(devices)}')
     return devices[0]
@@ -293,7 +327,7 @@ def execute() -> int:
     entrypoint = validate_entrypoint(source_root)
     fence_fd = acquire_fence()
     try:
-        identifier = discover_attached_iphone()
+        identifier = discover_attached_iphone(context_path.parent)
         prepare_private_state(context_path, secret_path, identifier)
         try:
             return run_entrypoint(entrypoint, source_root, context_path, identifier)
