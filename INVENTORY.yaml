@@ -35,6 +35,7 @@ scripts:
   repository_log_timeline: scripts/ci/repository_log_timeline.py
   repository_runtime_probe: scripts/ci/repository_runtime_probe.py
   repository_execution_plan: scripts/ci/repository_execution_plan.py
+  repository_apple_physical_device: scripts/ci/repository_apple_physical_device.py
   protected_deployed_conformance: scripts/ci/protected_deployed_conformance.py
   source_snapshot_delete: scripts/ci/source_snapshot_delete.py
   source_checkpoint_publish: scripts/ci/source_checkpoint_publish.py
