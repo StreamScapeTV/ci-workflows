@@ -121,18 +121,15 @@ def _eligible_device(value: object) -> str | None:
         return None
     if hardware.get('platform') != 'iOS' or hardware.get('reality') != 'physical':
         return None
-    if connection.get('pairingState') not in {None, 'paired'}:
+    if connection.get('pairingState') != 'paired':
         return None
-    if properties.get('developerModeStatus') == 'disabled':
+    if properties.get('developerModeStatus') != 'enabled':
         return None
     product_type = hardware.get('productType')
     if not isinstance(product_type, str) or IPHONE_MODEL_RE.fullmatch(product_type) is None:
         return None
     transport = connection.get('transportType')
-    if (
-        not isinstance(transport, str)
-        or not any(token in transport.casefold() for token in ('usb', 'wired'))
-    ):
+    if not isinstance(transport, str) or transport.casefold() not in {'usb', 'wired'}:
         return None
     identifier = hardware.get('udid') or value.get('identifier')
     if not isinstance(identifier, str) or IDENTIFIER_RE.fullmatch(identifier) is None:

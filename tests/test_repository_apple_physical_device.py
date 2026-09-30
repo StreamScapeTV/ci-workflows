@@ -149,6 +149,51 @@ class RepositoryApplePhysicalDeviceTests(unittest.TestCase):
         self.assertIsNone(secrets)
         self.assertFalse(context_exists)
 
+    def test_unknown_or_unproven_device_state_is_not_eligible(self) -> None:
+        cases = {
+            "missing-pairing": lambda value: value["connectionProperties"].pop("pairingState"),
+            "unpaired": lambda value: value["connectionProperties"].__setitem__("pairingState", "unpaired"),
+            "missing-developer-mode": lambda value: value["deviceProperties"].pop("developerModeStatus"),
+            "unknown-developer-mode": lambda value: value["deviceProperties"].__setitem__("developerModeStatus", "unknown"),
+            "disabled-developer-mode": lambda value: value["deviceProperties"].__setitem__("developerModeStatus", "disabled"),
+            "local-network": lambda value: value["connectionProperties"].__setitem__("transportType", "localNetwork"),
+            "unknown-wired-substring": lambda value: value["connectionProperties"].__setitem__("transportType", "not-wired-but-unknown"),
+            "unknown-usb-substring": lambda value: value["connectionProperties"].__setitem__("transportType", "usb-via-unknown"),
+        }
+        for name, mutate in cases.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                runner_temp = root / "runner-temp"
+                runner_temp.mkdir()
+                marker = root / "marker"
+                repo = self.make_repo(root, marker)
+                candidate = self.eligible()
+                mutate(candidate)
+                bin_dir = self.make_xcrun(root, [candidate])
+                result = subprocess.run(
+                    [sys.executable, str(HELPER), "execute"],
+                    cwd=repo,
+                    env=self.env(root, repo, marker, bin_dir),
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("found 0", result.stderr)
+                self.assertFalse(marker.exists())
+                self.assertFalse((runner_temp / device.SECRET_NAME).exists())
+                self.assertFalse((runner_temp / device.CONTEXT_NAME).exists())
+                self.assertFalse((runner_temp / device.INVENTORY_NAME).exists())
+
+    def test_exact_legacy_usb_transport_is_eligible(self) -> None:
+        legacy_usb = self.eligible()
+        legacy_usb["connectionProperties"]["transportType"] = "usb"
+        result, marker, secrets, context_exists = self.run_helper(devices=[legacy_usb])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(marker, self.IDENTIFIER)
+        self.assertIsNotNone(secrets)
+        self.assertFalse(context_exists)
+
     def test_non_iphone_iphoneos_device_is_not_eligible(self) -> None:
         ipad = self.eligible()
         ipad["hardwareProperties"]["productType"] = "iPad14,5"
