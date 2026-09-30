@@ -2107,10 +2107,12 @@ jobs:
             "${RUNNER_TEMP}/central-repository-ci-artifact-selection.json" \
             "${RUNNER_TEMP}/central-repository-ci-evidence.zip" \
             "${RUNNER_TEMP}/central-apple-physical-device-context.json" \
-            "${RUNNER_TEMP}/central-apple-physical-device-secrets.txt"
+            "${RUNNER_TEMP}/central-apple-physical-device-secrets.txt" \
+            "${RUNNER_TEMP}/central-apple-physical-device-inventory.json"
           for private_device_path in \
             "${RUNNER_TEMP}/central-apple-physical-device-context.json" \
-            "${RUNNER_TEMP}/central-apple-physical-device-secrets.txt"; do
+            "${RUNNER_TEMP}/central-apple-physical-device-secrets.txt" \
+            "${RUNNER_TEMP}/central-apple-physical-device-inventory.json"; do
             if test -e "${private_device_path}" || test -L "${private_device_path}"; then
               echo "repository CI physical-device private residue cleanup failed" >&2
               exit 1
