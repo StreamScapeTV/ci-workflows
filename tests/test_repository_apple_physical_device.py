@@ -165,6 +165,31 @@ class RepositoryApplePhysicalDeviceTests(unittest.TestCase):
         self.assertNotIn(secret, value)
         self.assertIn(b"*" * len(secret), value)
 
+    def test_discovery_failure_or_timeout_removes_private_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            runner_temp = Path(td)
+            inventory = runner_temp / device.INVENTORY_NAME
+
+            def fail_after_write(argv, **kwargs):
+                target = Path(argv[argv.index("--json-output") + 1])
+                target.write_text(json.dumps({"result": {"devices": [self.eligible()]}}), encoding="utf-8")
+                return subprocess.CompletedProcess(argv, 1, stdout="", stderr="private")
+
+            with patch.object(device.subprocess, "run", side_effect=fail_after_write):
+                with self.assertRaisesRegex(device.DeviceError, "failed before product execution"):
+                    device.discover_attached_iphone(runner_temp)
+            self.assertFalse(inventory.exists() or inventory.is_symlink())
+
+            def timeout_after_write(argv, **kwargs):
+                target = Path(argv[argv.index("--json-output") + 1])
+                target.write_text(json.dumps({"result": {"devices": [self.eligible()]}}), encoding="utf-8")
+                raise subprocess.TimeoutExpired(argv, 60)
+
+            with patch.object(device.subprocess, "run", side_effect=timeout_after_write):
+                with self.assertRaisesRegex(device.DeviceError, "failed before product execution"):
+                    device.discover_attached_iphone(runner_temp)
+            self.assertFalse(inventory.exists() or inventory.is_symlink())
+
     def test_zero_or_multiple_devices_fail_before_product_execution(self) -> None:
         for devices in ([], [self.eligible(), self.eligible("00008110-001C114E0A92002F")]):
             with self.subTest(count=len(devices)):
