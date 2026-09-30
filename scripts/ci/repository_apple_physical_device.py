@@ -19,8 +19,6 @@ SECRET_NAME = 'central-apple-physical-device-secrets.txt'
 INVENTORY_NAME = 'central-apple-physical-device-inventory.json'
 IDENTIFIER_RE = re.compile(r'[A-Za-z0-9-]{16,128}')
 IPHONE_MODEL_RE = re.compile(r'iPhone[0-9]+,[0-9]+')
-PLATFORM = 'com.apple.platform.iphoneos'
-ALLOWED_INTERFACES = {'usb', 'wired'}
 
 
 class DeviceError(RuntimeError):
