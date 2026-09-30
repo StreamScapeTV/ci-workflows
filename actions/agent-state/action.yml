@@ -183,7 +183,12 @@ runs:
             test "$(jq -r '.ok' <<<"${response}")" = true
             ;;
           cancel-if-active)
-            response="$(rpc transition_ci_run "$(jq -cn --arg id "${CI_RUN_ID}" '{p_ci_run_id:$id,p_patch:{status:"failed"}}')")"
+            test "${#ERROR_SUMMARY}" -le 4096 || exit 2
+            cancellation_summary="${ERROR_SUMMARY:-Central hosted execution was cancelled before completion.}"
+            response="$(rpc transition_ci_run "$(jq -cn \
+              --arg id "${CI_RUN_ID}" \
+              --arg error_summary "${cancellation_summary}" \
+              '{p_ci_run_id:$id,p_patch:{status:"failed",error_summary:$error_summary}}')")"
             if test "$(jq -r '.ok' <<<"${response}")" = true; then
               test "$(jq -r '.run.status' <<<"${response}")" = failed
               exit 0
