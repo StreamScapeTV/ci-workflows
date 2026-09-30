@@ -2104,6 +2104,14 @@ jobs:
             "${RUNNER_TEMP}/central-repository-ci-evidence.zip" \
             "${RUNNER_TEMP}/central-apple-physical-device-context.json" \
             "${RUNNER_TEMP}/central-apple-physical-device-secrets.txt"
+          for private_device_path in \
+            "${RUNNER_TEMP}/central-apple-physical-device-context.json" \
+            "${RUNNER_TEMP}/central-apple-physical-device-secrets.txt"; do
+            if test -e "${private_device_path}" || test -L "${private_device_path}"; then
+              echo "repository CI physical-device private residue cleanup failed" >&2
+              exit 1
+            fi
+          done
 
       - name: Finish Agent State run
         if: ${{ always() && inputs.ci_run_id != '' }}
