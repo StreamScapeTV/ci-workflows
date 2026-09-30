@@ -801,6 +801,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
             identity["env"]["OBSERVED_SOURCE_SHA"],
             "${{ steps.source_identity.outputs.source_sha }}",
         )
+        self.assertEqual(identity["env"]["SOURCE_REPOSITORY"], "${{ inputs.repository }}")
         identity_script = identity["run"]
         for token in (
             'relative.startswith("gradle/")',
@@ -828,11 +829,16 @@ class RepositoryWorkflowTests(unittest.TestCase):
             ".gradle/caches/jars-*",
             ".gradle/caches/*/generated-gradle-jars",
             ".gradle/caches/*/kotlin-dsl",
-            ".gradle/caches/build-cache-*",
             ".gradle/wrapper/dists",
         ):
             self.assertIn(path, restore["with"]["path"])
-        for forbidden in ("gradle.properties", ".netrc", "source/build", "REGISTRY_READ_TOKEN"):
+        for forbidden in (
+            "gradle.properties",
+            ".netrc",
+            "source/build",
+            "REGISTRY_READ_TOKEN",
+            ".gradle/caches/build-cache-",
+        ):
             self.assertNotIn(forbidden, restore["with"]["path"])
 
         record = by_name["Record bounded Gradle cache restoration"]
@@ -903,6 +909,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
                         **os.environ,
                         "AUTH_HOME": str(auth_home),
                         "OBSERVED_SOURCE_SHA": source_sha,
+                        "SOURCE_REPOSITORY": "ExampleOrg/android-application",
                         "GITHUB_WORKSPACE": str(workspace),
                         "GITHUB_OUTPUT": str(output),
                         "RUNNER_OS": "Linux",
@@ -924,6 +931,35 @@ class RepositoryWorkflowTests(unittest.TestCase):
             self.assertEqual(source_only["fingerprint"], baseline["fingerprint"])
             self.assertEqual(source_only["restore_key"], baseline["restore_key"])
             self.assertNotEqual(source_only["cache_key"], baseline["cache_key"])
+
+            output = workspace / "github-output"
+            output.write_text("", encoding="utf-8")
+            different_repository = subprocess.run(
+                ["bash", "-c", script],
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "AUTH_HOME": str(auth_home),
+                    "OBSERVED_SOURCE_SHA": "b" * 40,
+                    "SOURCE_REPOSITORY": "ExampleOrg/other-android-application",
+                    "GITHUB_WORKSPACE": str(workspace),
+                    "GITHUB_OUTPUT": str(output),
+                    "RUNNER_OS": "Linux",
+                    "RUNNER_ARCH": "X64",
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(different_repository.returncode, 0, different_repository.stderr)
+            different_repository_values = dict(
+                line.split("=", 1)
+                for line in output.read_text(encoding="utf-8").splitlines()
+            )
+            self.assertNotEqual(
+                different_repository_values["restore_key"],
+                baseline["restore_key"],
+            )
 
             for relative, replacement in (
                 ("build.gradle.kts", 'plugins { id("java") }\n'),
@@ -987,6 +1023,12 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertEqual(safe.returncode, 0, safe.stderr)
         self.assertEqual(safe_values["save_allowed"], "true")
         self.assertFalse(lock_exists)
+
+        split_secret = b"x" * (1024 * 1024 - 4) + b"secr" + b"et-value"
+        split, split_values, _ = invoke(split_secret, secret="secret-value")
+        self.assertEqual(split.returncode, 0, split.stderr)
+        self.assertEqual(split_values["save_allowed"], "false")
+        self.assertIn("configured credential value", split.stdout)
 
     def test_private_agent_state_capability_grant_is_exactly_bound_and_fail_closed(self) -> None:
         self.assertEqual(
