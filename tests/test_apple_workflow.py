@@ -622,10 +622,14 @@ if ( validate false '1.2.3' '253' ); then exit 96; fi
         by_name = {step.get("name"): step for step in execute["steps"] if step.get("name")}
         connect = by_name["Connect to private Git service for Apple dependency materialization"]
         self.assertEqual(connect["uses"], "StreamScapeTV/ci-workflows/actions/private-git@main")
-        for condition in (connect["if"], by_name["Materialize fixed Streamscape Media Apple dependency"]["if"]):
-            self.assertIn("inputs.test_profile != 'candidate'", condition)
-            self.assertIn("inputs.test_profile != 'screenshot-review'", condition)
-            self.assertIn("hashFiles('scripts/bootstrap-streamscape-media-binary.sh') != ''", condition)
+        connect_condition = connect["if"]
+        self.assertNotIn("inputs.test_profile != 'candidate'", connect_condition)
+        self.assertNotIn("inputs.test_profile != 'screenshot-review'", connect_condition)
+        self.assertNotIn("hashFiles('scripts/bootstrap-streamscape-media-binary.sh')", connect_condition)
+        prepare_condition = by_name["Materialize fixed Streamscape Media Apple dependency"]["if"]
+        self.assertIn("inputs.test_profile != 'candidate'", prepare_condition)
+        self.assertIn("inputs.test_profile != 'screenshot-review'", prepare_condition)
+        self.assertIn("hashFiles('scripts/bootstrap-streamscape-media-binary.sh') != ''", prepare_condition)
         self.assertEqual(connect["env"]["TS_OAUTH_CLIENT_ID"], "${{ secrets.TS_OAUTH_CLIENT_ID }}")
         self.assertEqual(connect["env"]["TS_OAUTH_SECRET"], "${{ secrets.TS_OAUTH_SECRET }}")
 
@@ -1145,14 +1149,14 @@ CURRENT_PROJECT_VERSION = 1;
         }
         cache = by_name["Resolve Apple default-branch dependency cache scope"]
         self.assertIn("inputs.test_profile != 'screenshot-review'", cache["if"])
-        for name in (
-            "Connect to private Git service for Apple dependency materialization",
-            "Materialize fixed Streamscape Media Apple dependency",
-        ):
-            condition = by_name[name]["if"]
-            self.assertIn("inputs.test_profile != 'candidate'", condition)
-            self.assertIn("inputs.test_profile != 'screenshot-review'", condition)
-            self.assertIn("hashFiles('scripts/bootstrap-streamscape-media-binary.sh') != ''", condition)
+        connect_condition = by_name["Connect to private Git service for Apple dependency materialization"]["if"]
+        self.assertNotIn("inputs.test_profile != 'candidate'", connect_condition)
+        self.assertNotIn("inputs.test_profile != 'screenshot-review'", connect_condition)
+        self.assertNotIn("hashFiles('scripts/bootstrap-streamscape-media-binary.sh')", connect_condition)
+        materialize_condition = by_name["Materialize fixed Streamscape Media Apple dependency"]["if"]
+        self.assertIn("inputs.test_profile != 'candidate'", materialize_condition)
+        self.assertIn("inputs.test_profile != 'screenshot-review'", materialize_condition)
+        self.assertIn("hashFiles('scripts/bootstrap-streamscape-media-binary.sh') != ''", materialize_condition)
 
         checkout = by_name["Check out source"]
         self.assertEqual(
