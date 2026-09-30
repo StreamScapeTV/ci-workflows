@@ -246,11 +246,21 @@ def run_entrypoint(entrypoint: Path, source_root: Path, context_path: Path, iden
         stderr=subprocess.STDOUT,
     )
     assert process.stdout is not None
-    stream_redacted(
-        process.stdout,
-        (identifier.encode('utf-8'), str(context_path).encode('utf-8')),
-    )
-    returncode = process.wait()
+    try:
+        stream_redacted(
+            process.stdout,
+            (identifier.encode('utf-8'), str(context_path).encode('utf-8')),
+        )
+        returncode = process.wait()
+    finally:
+        process.stdout.close()
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
     if returncode >= 0:
         return min(returncode, 255)
     return min(255, 128 + (-returncode))
