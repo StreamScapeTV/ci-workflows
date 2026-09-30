@@ -128,6 +128,9 @@ class RepositoryWorkflowTests(unittest.TestCase):
         project_state: dict | None = None,
         ci_run_id: str = "11111111-1111-4111-8111-111111111111",
         trusted_capability_ci_run_id: str = "",
+        host_class: str = "macos-high-capacity",
+        observed_source_sha: str = "a" * 40,
+        normalized_inputs: dict | None = None,
     ):
         script = self.steps_by_name[
             "Resolve trusted private infrastructure capabilities"
