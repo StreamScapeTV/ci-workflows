@@ -123,7 +123,7 @@ class RepositoryApplePhysicalDeviceTests(unittest.TestCase):
             },
             "connectionProperties": {
                 "pairingState": "paired",
-                "transportType": "USB",
+                "transportType": "wired",
             },
         }
 
@@ -138,6 +138,16 @@ class RepositoryApplePhysicalDeviceTests(unittest.TestCase):
         self.assertNotIn(self.IDENTIFIER, result.stdout)
         self.assertNotIn("central-apple-physical-device-context.json", result.stdout)
         self.assertIn("*", result.stdout)
+
+    def test_network_only_iphone_is_not_eligible(self) -> None:
+        network = self.eligible()
+        network["connectionProperties"]["transportType"] = "localNetwork"
+        result, marker, secrets, context_exists = self.run_helper(devices=[network])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("found 0", result.stderr)
+        self.assertIsNone(marker)
+        self.assertIsNone(secrets)
+        self.assertFalse(context_exists)
 
     def test_non_iphone_iphoneos_device_is_not_eligible(self) -> None:
         ipad = self.eligible()
