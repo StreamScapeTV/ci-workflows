@@ -196,6 +196,25 @@ class RepositoryApplePhysicalDeviceTests(unittest.TestCase):
                 fcntl.flock(fd, fcntl.LOCK_UN)
                 os.close(fd)
 
+    def test_success_releases_host_global_fence(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            runner_temp = root / "runner-temp"
+            runner_temp.mkdir()
+            marker = root / "marker"
+            repo = self.make_repo(root, marker)
+            bin_dir = self.make_xcrun(root, [self.eligible()])
+            env = self.env(root, repo, marker, bin_dir)
+            lock = root / "device.lock"
+            with patch.dict(os.environ, env, clear=True), patch.object(device, "LOCK_PATH", lock), patch.object(Path, "cwd", return_value=repo):
+                self.assertEqual(device.execute(), 0)
+            fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            finally:
+                os.close(fd)
+
     def test_untracked_symlink_or_non_executable_entrypoint_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
