@@ -333,7 +333,7 @@ jobs:
             --repository "${TARGET_REPOSITORY}" \
             --branch "${TARGET_BRANCH}" \
             --through-sequence "${CHECKPOINT_SEQUENCE}" \
-            "${cleanup_args[@]}")"
+            "${cleanup_args[@]+"${cleanup_args[@]}"}")"
           python3 - "${result}" <<'PY' >> "${GITHUB_OUTPUT}"
           import json,sys
           value=json.loads(sys.argv[1])

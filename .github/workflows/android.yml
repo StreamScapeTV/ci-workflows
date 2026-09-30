@@ -2077,7 +2077,7 @@ jobs:
               case "${TEST_PLATFORM}" in
                 jvm)
                   targeted_args=(testDebugUnitTest)
-                  for selector in "${test_selectors[@]}"; do
+                  for selector in "${test_selectors[@]+"${test_selectors[@]}"}"; do
                     targeted_args+=(--tests "${selector}")
                   done
                   run_gradle "${targeted_args[@]}"
@@ -2130,11 +2130,17 @@ jobs:
               if [[ "${run_release_policy}" == true ]]; then
                 run_logged release-policy bash "${policy_root}/verify-release-policy.sh"
 
-                mapfile -t apk_files < <(
-                  find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print | sort
+                apk_files=()
+                while IFS= read -r apk_file; do
+                  apk_files+=("${apk_file}")
+                done < <(
+                  find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print | LC_ALL=C sort
                 )
-                mapfile -t aab_files < <(
-                  find app/build/outputs/bundle/release -maxdepth 1 -type f -name '*.aab' -print | sort
+                aab_files=()
+                while IFS= read -r aab_file; do
+                  aab_files+=("${aab_file}")
+                done < <(
+                  find app/build/outputs/bundle/release -maxdepth 1 -type f -name '*.aab' -print | LC_ALL=C sort
                 )
                 test "${#apk_files[@]}" -eq 1 || {
                   echo "Expected exactly one release APK for size validation" >&2

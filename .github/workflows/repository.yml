@@ -1223,7 +1223,7 @@ jobs:
               --status-path "${RUNNER_TEMP}/central-repository-ci-log-checkpoint-status.json" \
               --timeline-state-path "${RUNNER_TEMP}/central-repository-ci-timeline.json" \
               --progress-path "${CI_PROGRESS_FILE}" \
-              "${runtime_probe_options[@]}" &
+              "${runtime_probe_options[@]+"${runtime_probe_options[@]}"}" &
             checkpoint_pid=$!
           fi
 
