@@ -288,8 +288,9 @@ class AndroidGenericHostedProfileContractTest(unittest.TestCase):
 
     def test_generic_profiles_use_one_fixed_product_wrapper(self) -> None:
         preflight = self.by_name["Validate generic Android hosted request"]
-        for profile in ("build", "test", "emulator"):
+        for profile in ("build", "emulator"):
             self.assertIn(f"inputs.test_profile == '{profile}'", preflight["if"])
+        self.assertNotIn("inputs.test_profile == 'test'", preflight["if"])
         preflight_script = preflight["run"]
         self.assertIn('test "${PROJECT_DIRECTORY}" = "."', preflight_script)
         self.assertIn('test -z "${TEST_FILTER}"', preflight_script)
@@ -299,14 +300,15 @@ class AndroidGenericHostedProfileContractTest(unittest.TestCase):
         self.assertIn("scripts/ci/run-android-hosted-validation.sh", preflight_script)
 
         script = self.by_name["Run fixed Android profile"]["run"]
-        self.assertIn('build|test|emulator)', script)
+        self.assertIn('build|emulator)', script)
+        self.assertNotIn('build|test|emulator)', script)
         self.assertIn(
             'wrapper="${repository_root}/scripts/ci/run-android-hosted-validation.sh"',
             script,
         )
         self.assertIn('export CI_ANDROID_HOSTED_PROFILE="${TEST_PROFILE}"', script)
         self.assertIn('run_logged "android-${TEST_PROFILE}" bash "${wrapper}"', script)
-        self.assertLess(script.index('build|test|emulator)'), script.index('test -x gradlew'))
+        self.assertLess(script.index('build|emulator)'), script.index('test -x gradlew'))
         self.assertNotIn(".xcworkspace", script.lower())
         self.assertNotIn(".xcodeproj", script.lower())
 
@@ -316,8 +318,9 @@ class AndroidGenericHostedProfileContractTest(unittest.TestCase):
         default_scope = self.by_name["Resolve IPTV Android default-branch cache scope"]["if"]
         branch_scope = self.by_name["Resolve IPTV Android non-default cache reader scope"]["if"]
 
-        for profile in ("build", "test"):
-            self.assertIn(f"inputs.test_profile != '{profile}'", private_git_condition)
+        self.assertIn("inputs.test_profile != 'build'", private_git_condition)
+        self.assertNotIn("inputs.test_profile != 'test'", private_git_condition)
+        self.assertNotIn("&& }}", private_git_condition)
 
         self.assertNotIn("inputs.test_profile != 'emulator'", private_git_condition)
         self.assertEqual(
@@ -327,10 +330,12 @@ class AndroidGenericHostedProfileContractTest(unittest.TestCase):
         self.assertEqual(private_git["env"]["TS_OAUTH_CLIENT_ID"], "${{ secrets.TS_OAUTH_CLIENT_ID }}")
         self.assertEqual(private_git["env"]["TS_OAUTH_SECRET"], "${{ secrets.TS_OAUTH_SECRET }}")
 
-        for profile in ("build", "test", "emulator"):
+        for profile in ("build", "emulator"):
             token = f"inputs.test_profile != '{profile}'"
             self.assertIn(token, default_scope)
             self.assertIn(token, branch_scope)
+        self.assertNotIn("inputs.test_profile != 'test'", default_scope)
+        self.assertNotIn("inputs.test_profile != 'test'", branch_scope)
 
     def test_emulator_profile_uses_fixed_central_boot_and_cleanup(self) -> None:
         prepare = self.by_name["Prepare generic Android emulator"]
