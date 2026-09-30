@@ -1459,6 +1459,32 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertIn("central-oci-publish", cleanup["run"])
         self.assertIn("central-repository-ci-artifact-selection.json", cleanup["run"])
 
+    def test_macos_repository_test_without_runtime_probe_keeps_fixed_entrypoint_reachable(self) -> None:
+        valid, output = self.run_repository_request(
+            operation="test",
+            host_os="macos",
+            semantic={
+                "product_target": "ios",
+                "test_selectors": [
+                    "streamscapetvTests/AboutLicensesProductionPathIntegrationTests"
+                ],
+            },
+        )
+        self.assertEqual(valid.returncode, 0, valid.stderr)
+        self.assertIn("entrypoint=.ci/test.sh\n", output)
+
+        execute = self.steps_by_name["Execute fixed repository-owned entrypoint"]["run"]
+        self.assertIn(
+            'if test "${HOST_OS}" = macos && test "${OPERATION}" = ui-test; then',
+            execute,
+        )
+        self.assertIn("runtime_probe_options=()", execute)
+        self.assertIn(
+            '"${runtime_probe_options[@]+"${runtime_probe_options[@]}"}" &',
+            execute,
+        )
+        self.assertIn('"./${ENTRYPOINT}"', execute)
+
     def test_macos_ui_runtime_probe_is_central_owned_and_bounded(self) -> None:
         execute = self.steps_by_name["Execute fixed repository-owned entrypoint"]["run"]
         self.assertIn(

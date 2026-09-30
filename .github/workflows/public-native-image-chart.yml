@@ -334,13 +334,16 @@ jobs:
           if test -f "${prepared_chart}/Chart.lock"; then
             dependency_table="$(helm dependency list "${prepared_chart}" 2>>"${CI_LOG}")"
             printf '%s\n' "${dependency_table}" >> "${CI_LOG}"
-            mapfile -t repositories < <(
+            repositories=()
+            while IFS= read -r repository; do
+              test -z "${repository}" || repositories+=("${repository}")
+            done < <(
               printf '%s\n' "${dependency_table}" |
                 awk 'NR > 1 && NF >= 4 { print $3 }' |
                 LC_ALL=C sort -u
             )
             repository_index=0
-            for repository in "${repositories[@]}"; do
+            for repository in "${repositories[@]+"${repositories[@]}"}"; do
               case "${repository}" in
                 http://*|https://*)
                   repository_index=$((repository_index + 1))

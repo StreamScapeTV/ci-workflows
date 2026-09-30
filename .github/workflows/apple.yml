@@ -1129,7 +1129,7 @@ jobs:
                 -parallel-testing-enabled NO \
                 -maximum-parallel-testing-workers 1 \
                 CODE_SIGNING_ALLOWED=NO \
-                "${targeted_test_args[@]}" >> "${attempt_log}" 2>&1
+                "${targeted_test_args[@]+"${targeted_test_args[@]}"}" >> "${attempt_log}" 2>&1
               local status=$?
               set -e
 
@@ -1185,7 +1185,7 @@ jobs:
           PY_TEST_SELECTORS
             )
             test "${#test_selectors[@]}" -ge 1
-            for selector in "${test_selectors[@]}"; do
+            for selector in "${test_selectors[@]+"${test_selectors[@]}"}"; do
               targeted_test_args+=("-only-testing:${selector}")
             done
           fi
@@ -1208,7 +1208,7 @@ jobs:
                 "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
                 -destination 'platform=macOS' \
                 CODE_SIGNING_ALLOWED=NO \
-                "${targeted_test_args[@]}"
+                "${targeted_test_args[@]+"${targeted_test_args[@]}"}"
               ;;
             ios-targeted-tests)
               run_ios_targeted_tests
@@ -1220,7 +1220,7 @@ jobs:
                 "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
                 -destination 'platform=tvOS Simulator,name=Apple TV' \
                 CODE_SIGNING_ALLOWED=NO \
-                "${targeted_test_args[@]}"
+                "${targeted_test_args[@]+"${targeted_test_args[@]}"}"
               ;;
             ios-build)
               run_logged ios-build xcodebuild build \

@@ -393,7 +393,7 @@ runs:
             candidate_rows+=("${candidate_row}")
           done < <(printf '%s' "${response}" | manifest_candidate_rows)
           test "${#candidate_rows[@]}" -ge 2
-          for row in "${candidate_rows[@]}"; do
+          for row in "${candidate_rows[@]+"${candidate_rows[@]}"}"; do
             candidate_id="${row%%$'\t'*}"
             validate_manifest_candidate "${candidate_id}" "${candidate_ids_json}"
           done
@@ -820,7 +820,7 @@ runs:
           }
 
           test $(( ${#screenshot_files[@]} % 2 )) -eq 0 || { echo "direct screenshot evidence must contain PNG/JSON pairs" >&2; exit 2; }
-          for evidence_path in "${screenshot_files[@]}"; do
+          for evidence_path in "${screenshot_files[@]+"${screenshot_files[@]}"}"; do
             evidence_name="$(basename "${evidence_path}")"
             [[ "${evidence_name}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,191}\.(png|json)$ ]] || {
               echo "direct screenshot evidence filename must be one bounded canonical screen id with .png or .json" >&2
