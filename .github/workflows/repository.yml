@@ -972,6 +972,126 @@ jobs:
             printf 'git_config=%s\n' "${git_config}"
           } >> "${GITHUB_OUTPUT}"
 
+      - name: Resolve bounded Gradle cache identity
+        id: gradle_cache_identity
+        if: >-
+          ${{ inputs.operation == 'test'
+              && needs.resolve_host.outputs.host_os == 'linux'
+              && steps.capabilities.outputs.gradle_maven == 'true' }}
+        shell: bash
+        env:
+          AUTH_HOME: ${{ steps.registry_auth.outputs.auth_home }}
+          OBSERVED_SOURCE_SHA: ${{ steps.source_identity.outputs.source_sha }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${AUTH_HOME}" && test -d "${AUTH_HOME}/.gradle" \
+            && test -f "${AUTH_HOME}/.gradle/gradle.properties" \
+            && test ! -L "${AUTH_HOME}/.gradle/gradle.properties" || {
+            echo "bounded Gradle cache requires the reviewed ephemeral Gradle authentication home" >&2
+            exit 1
+          }
+          [[ "${OBSERVED_SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "bounded Gradle cache requires one exact observed source SHA" >&2
+            exit 1
+          }
+          python3 - "${GITHUB_WORKSPACE}/source" "${OBSERVED_SOURCE_SHA}" "${GITHUB_OUTPUT}" <<'PY_GRADLE_CACHE_IDENTITY'
+          from pathlib import Path, PurePosixPath
+          import hashlib
+          import subprocess
+          import sys
+
+          root = Path(sys.argv[1]).resolve(strict=True)
+          source_sha = sys.argv[2]
+          output_path = Path(sys.argv[3])
+          raw = subprocess.run(
+              ["git", "-C", str(root), "ls-files", "-z"],
+              check=True,
+              stdout=subprocess.PIPE,
+          ).stdout
+          tracked = [item.decode("utf-8") for item in raw.split(b"\0") if item]
+
+          def is_cache_identity_input(relative: str) -> bool:
+              path = PurePosixPath(relative)
+              if relative.startswith("gradle/"):
+                  return True
+              if relative.endswith((".gradle", ".gradle.kts")):
+                  return True
+              if path.name in {"gradle.properties", "versions.properties"}:
+                  return True
+              if path.parts and path.parts[0] in {"buildSrc", "build-logic", ".ci"}:
+                  return True
+              return len(path.parts) >= 2 and path.parts[0] == "scripts" and path.parts[1] == "ci"
+
+          selected = sorted(relative for relative in tracked if is_cache_identity_input(relative))
+          if "gradle/wrapper/gradle-wrapper.properties" not in selected:
+              raise SystemExit("bounded Gradle cache requires one tracked Gradle wrapper")
+          if not 1 <= len(selected) <= 512:
+              raise SystemExit("bounded Gradle cache identity exceeds the reviewed 512-file limit")
+
+          digest = hashlib.sha256(b"repository-gradle-cache-v1\0")
+          total = 0
+          for relative in selected:
+              path = root / relative
+              if path.is_symlink() or not path.is_file():
+                  raise SystemExit(f"bounded Gradle cache identity input must be one regular tracked file: {relative}")
+              data = path.read_bytes()
+              if len(data) > 1024 * 1024:
+                  raise SystemExit(f"bounded Gradle cache identity input exceeds 1 MiB: {relative}")
+              total += len(data)
+              if total > 8 * 1024 * 1024:
+                  raise SystemExit("bounded Gradle cache identity exceeds the reviewed 8 MiB total")
+              digest.update(relative.encode("utf-8"))
+              digest.update(b"\0")
+              digest.update(data)
+              digest.update(b"\0")
+
+          fingerprint = digest.hexdigest()
+          prefix = f"repository-gradle-v1-{__import__('os').environ['RUNNER_OS']}-{__import__('os').environ['RUNNER_ARCH']}-{fingerprint}-"
+          with output_path.open("a", encoding="utf-8") as output:
+              output.write(f"fingerprint={fingerprint}\n")
+              output.write(f"input_count={len(selected)}\n")
+              output.write(f"input_bytes={total}\n")
+              output.write(f"restore_key={prefix}\n")
+              output.write(f"cache_key={prefix}{source_sha}\n")
+          PY_GRADLE_CACHE_IDENTITY
+
+      - name: Restore bounded Gradle user-home cache
+        id: gradle_cache_restore
+        if: ${{ steps.gradle_cache_identity.outcome == 'success' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/modules-2/files-2.1
+            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/transforms-*
+            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/jars-*
+            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/*/generated-gradle-jars
+            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/*/kotlin-dsl
+            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/build-cache-*
+            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/wrapper/dists
+          key: ${{ steps.gradle_cache_identity.outputs.cache_key }}
+          restore-keys: |
+            ${{ steps.gradle_cache_identity.outputs.restore_key }}
+
+      - name: Record bounded Gradle cache restoration
+        if: ${{ steps.gradle_cache_identity.outcome == 'success' }}
+        shell: bash
+        env:
+          GRADLE_CACHE_HIT: ${{ steps.gradle_cache_restore.outputs.cache-hit }}
+          GRADLE_CACHE_MATCHED_KEY: ${{ steps.gradle_cache_restore.outputs.cache-matched-key }}
+          GRADLE_CACHE_FINGERPRINT: ${{ steps.gradle_cache_identity.outputs.fingerprint }}
+          GRADLE_CACHE_INPUT_COUNT: ${{ steps.gradle_cache_identity.outputs.input_count }}
+          GRADLE_CACHE_INPUT_BYTES: ${{ steps.gradle_cache_identity.outputs.input_bytes }}
+        run: |
+          set -Eeuo pipefail
+          {
+            printf '\n===== gradle-cache =====\n'
+            printf 'cache_hit=%s\n' "${GRADLE_CACHE_HIT:-false}"
+            printf 'matched_key=%s\n' "${GRADLE_CACHE_MATCHED_KEY:-none}"
+            printf 'fingerprint=%s\n' "${GRADLE_CACHE_FINGERPRINT}"
+            printf 'identity_files=%s\n' "${GRADLE_CACHE_INPUT_COUNT}"
+            printf 'identity_bytes=%s\n' "${GRADLE_CACHE_INPUT_BYTES}"
+          } >> "${CI_LOG}"
+
       - name: Configure ephemeral OCI publication authentication
         id: oci_publish_auth
         if: ${{ steps.capabilities.outputs.registry_oci_publish == 'true' }}
@@ -1373,6 +1493,121 @@ jobs:
             echo "repository-owned ${OPERATION} operation completed but bounded private-log capture failed" >&2
             exit "${capture_status}"
           fi
+
+      - name: Prepare bounded Gradle cache save
+        id: gradle_cache_save_prepare
+        if: >-
+          ${{ always()
+              && steps.gradle_cache_identity.outcome == 'success'
+              && steps.execute_contract.outcome == 'success'
+              && steps.gradle_cache_restore.outputs.cache-hit != 'true' }}
+        shell: bash
+        env:
+          AUTH_HOME: ${{ steps.registry_auth.outputs.auth_home }}
+          CACHE_SECRET_SOURCE_TOKEN: ${{ steps.source.outputs.token }}
+          CACHE_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          python3 - "${AUTH_HOME}/.gradle" "${GITHUB_OUTPUT}" <<'PY_GRADLE_CACHE_SAVE'
+          from pathlib import Path
+          import os
+          import sys
+
+          root = Path(sys.argv[1])
+          output_path = Path(sys.argv[2])
+          patterns = (
+              "caches/modules-2/files-2.1",
+              "caches/transforms-*",
+              "caches/jars-*",
+              "caches/*/generated-gradle-jars",
+              "caches/*/kotlin-dsl",
+              "caches/build-cache-*",
+              "wrapper/dists",
+          )
+          if root.is_symlink() or not root.is_dir():
+              raise SystemExit("bounded Gradle cache root must remain one real directory")
+          resolved_root = root.resolve(strict=True)
+          credentials = root / "gradle.properties"
+          if credentials.is_symlink() or not credentials.is_file():
+              raise SystemExit("bounded Gradle cache credential file must remain one regular file outside cached paths")
+
+          secret_values = [
+              value.encode()
+              for name, value in os.environ.items()
+              if name.startswith("CACHE_SECRET_") and value
+          ]
+          files = []
+          seen = set()
+          unsafe_reason = ""
+          total = 0
+          for pattern in patterns:
+              for base in sorted(root.glob(pattern)):
+                  if base.is_symlink():
+                      unsafe_reason = "cache path contains a symlink"
+                      break
+                  if not base.exists():
+                      continue
+                  for path in sorted(base.rglob("*")):
+                      if path.is_symlink():
+                          unsafe_reason = "cache path contains a symlink"
+                          break
+                      if not path.is_file():
+                          continue
+                      resolved = path.resolve(strict=True)
+                      if os.path.commonpath((str(resolved), str(resolved_root))) != str(resolved_root):
+                          unsafe_reason = "cache path escapes the reviewed Gradle user home"
+                          break
+                      if resolved in seen:
+                          continue
+                      seen.add(resolved)
+                      if path.name.endswith(".lock") or path.name == "gc.properties":
+                          path.unlink(missing_ok=True)
+                          continue
+                      size = path.stat().st_size
+                      total += size
+                      if len(seen) > 100000:
+                          unsafe_reason = "cache exceeds the reviewed 100000-file limit"
+                          break
+                      if total > 2 * 1024 * 1024 * 1024:
+                          unsafe_reason = "cache exceeds the reviewed 2 GiB limit"
+                          break
+                      if secret_values:
+                          data = path.read_bytes()
+                          if any(secret in data for secret in secret_values):
+                              unsafe_reason = "cache contains a configured credential value"
+                              break
+                      files.append(path)
+                  if unsafe_reason:
+                      break
+              if unsafe_reason:
+                  break
+
+          allowed = not unsafe_reason and bool(files)
+          if unsafe_reason:
+              print(f"::warning::bounded Gradle cache save skipped: {unsafe_reason}")
+          elif not files:
+              print("::warning::bounded Gradle cache save skipped: no reviewed cache files were produced")
+          else:
+              print(f"bounded Gradle cache save prepared {len(files)} file(s), {total} bytes")
+          with output_path.open("a", encoding="utf-8") as output:
+              output.write(f"save_allowed={'true' if allowed else 'false'}\n")
+              output.write(f"cache_files={len(files)}\n")
+              output.write(f"cache_bytes={total}\n")
+          PY_GRADLE_CACHE_SAVE
+
+      - name: Save bounded Gradle user-home cache
+        if: ${{ steps.gradle_cache_save_prepare.outputs.save_allowed == 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/modules-2/files-2.1
+            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/transforms-*
+            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/jars-*
+            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/*/generated-gradle-jars
+            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/*/kotlin-dsl
+            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/build-cache-*
+            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/wrapper/dists
+          key: ${{ steps.gradle_cache_identity.outputs.cache_key }}
 
       - name: Reconcile bounded Central timeline after early exit
         if: ${{ always() }}
