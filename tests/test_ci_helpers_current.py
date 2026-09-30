@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import subprocess
+import tempfile
 
 import yaml
 
@@ -104,6 +106,7 @@ class CiHelperTests(_prior.CiHelperTests):
     def test_central_dispatch_preserves_newest_run_wins_with_snapshot_isolation(self) -> None:
         workflow = yaml.safe_load((_prior.ROOT / ".github/workflows/central-ci-dispatch.yml").read_text())
         jobs = workflow["jobs"]
+        request = jobs["request"]
         validation_jobs = (
             "repository",
             "apple",
@@ -122,10 +125,40 @@ class CiHelperTests(_prior.CiHelperTests):
             "library_package_release",
         )
         self.assertNotIn("concurrency", workflow)
-        self.assertNotIn("concurrency", jobs["request"])
+        self.assertNotIn("concurrency", request)
+
+        self.assertEqual(
+            request["outputs"]["validation_concurrency_key"],
+            "${{ steps.validation_lane.outputs.concurrency_key }}",
+        )
+        self.assertEqual(
+            request["outputs"]["validation_cancel_in_progress"],
+            "${{ steps.validation_lane.outputs.cancel_in_progress }}",
+        )
+        request_by_name = {
+            step.get("name"): step
+            for step in request["steps"]
+            if step.get("name")
+        }
+        lane = request_by_name["Resolve bounded validation concurrency lane"]
+        self.assertEqual(lane["id"], "validation_lane")
+        lane_script = lane["run"]
+        self.assertIn("central-validation-lane-v1", lane_script)
+        self.assertIn("SOURCE_REPOSITORY", lane["env"])
+        self.assertIn("SOURCE_REF", lane["env"])
+        self.assertIn("SOURCE_IS_TAG", lane["env"])
+        self.assertIn("WORKFLOW_KEY", lane["env"])
+        self.assertIn("TEST_PROFILE", lane["env"])
+        self.assertNotIn("active_key", lane_script)
+        self.assertNotIn("source_sha", lane_script.lower())
+
+        expected_group = "central-ci-${{ needs.request.outputs.validation_concurrency_key }}"
+        expected_cancel = "${{ needs.request.outputs.validation_cancel_in_progress == 'true' }}"
         for name in validation_jobs:
-            self.assertEqual(jobs[name]["concurrency"]["group"], "central-ci-${{ needs.request.outputs.workflow_key }}-${{ inputs.active_key }}")
-            self.assertTrue(jobs[name]["concurrency"]["cancel-in-progress"])
+            self.assertEqual(jobs[name]["concurrency"]["group"], expected_group)
+            self.assertEqual(jobs[name]["concurrency"]["cancel-in-progress"], expected_cancel)
+            self.assertNotIn("inputs.active_key", jobs[name]["concurrency"]["group"])
+
         for name in serialized_release_jobs:
             self.assertEqual(
                 jobs[name]["concurrency"]["group"],
@@ -133,19 +166,60 @@ class CiHelperTests(_prior.CiHelperTests):
             )
             self.assertFalse(jobs[name]["concurrency"]["cancel-in-progress"])
 
-        template = jobs["apple"]["concurrency"]["group"]
+        def resolve_lane(
+            *,
+            repository: str = "StreamScapeTV/example",
+            ref: str = "develop",
+            is_tag: str = "false",
+            workflow_key: str = "validation.repository",
+            profile: str = "test",
+        ) -> dict[str, str]:
+            with tempfile.TemporaryDirectory() as td:
+                output = _prior.Path(td) / "github-output"
+                output.write_text("", encoding="utf-8")
+                result = subprocess.run(
+                    ["bash", "-c", lane_script],
+                    cwd=_prior.ROOT,
+                    env={
+                        **os.environ,
+                        "SOURCE_REPOSITORY": repository,
+                        "SOURCE_REF": ref,
+                        "SOURCE_IS_TAG": is_tag,
+                        "WORKFLOW_KEY": workflow_key,
+                        "TEST_PROFILE": profile,
+                        "GITHUB_OUTPUT": str(output),
+                    },
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                values = dict(
+                    line.split("=", 1)
+                    for line in output.read_text(encoding="utf-8").splitlines()
+                )
+                self.assertRegex(values["concurrency_key"], r"^[0-9a-f]{64}$")
+                return values
 
-        def rendered_group(workflow_key: str, active_key: str = "same-source") -> str:
-            return (
-                template
-                .replace("${{ needs.request.outputs.workflow_key }}", workflow_key)
-                .replace("${{ inputs.active_key }}", active_key)
-            )
+        branch_a = resolve_lane()
+        duplicate_a = resolve_lane()
+        branch_b = resolve_lane(ref="feature/new-head")
+        different_profile = resolve_lane(profile="full")
+        different_workflow = resolve_lane(workflow_key="validation.apple")
+        tag = resolve_lane(ref="1.2.3", is_tag="true")
+        physical = resolve_lane(
+            workflow_key="validation.android",
+            profile="physical-performance",
+        )
 
-        self.assertEqual(rendered_group("validation.apple"), rendered_group("validation.apple"))
-        self.assertNotEqual(rendered_group("validation.apple"), rendered_group("validation.android"))
-        self.assertNotEqual(rendered_group("release.apple"), rendered_group("release.android"))
-        self.assertNotEqual(rendered_group("validation.apple"), rendered_group("release.apple"))
+        self.assertEqual(branch_a["concurrency_key"], duplicate_a["concurrency_key"])
+        self.assertEqual(branch_a["cancel_in_progress"], "true")
+        self.assertNotEqual(branch_a["concurrency_key"], branch_b["concurrency_key"])
+        self.assertNotEqual(branch_a["concurrency_key"], different_profile["concurrency_key"])
+        self.assertNotEqual(branch_a["concurrency_key"], different_workflow["concurrency_key"])
+        self.assertNotEqual(branch_a["concurrency_key"], tag["concurrency_key"])
+        self.assertEqual(tag["cancel_in_progress"], "false")
+        self.assertEqual(physical["cancel_in_progress"], "false")
 
         branch_delete = jobs["branch_delete"]["concurrency"]
         self.assertEqual(branch_delete["group"], "central-ci-maintenance-${{ inputs.active_key }}")
@@ -168,7 +242,10 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertIn("needs.request.result != 'success'", settlement["if"])
         for name in (*validation_jobs, *serialized_release_jobs, "branch_delete", "source_checkpoint_publish", "source_snapshot"):
             self.assertIn(f"needs.{name}.result == 'cancelled'", settlement["if"])
-        self.assertEqual(settlement["steps"][-1]["with"]["phase"], "cancel-if-active")
+        cancel = settlement["steps"][-1]
+        self.assertEqual(cancel["with"]["phase"], "cancel-if-active")
+        self.assertIn("cancelled or superseded", cancel["with"]["error_summary"])
+        self.assertIn("dispatch request failed", cancel["with"]["error_summary"])
 
     def test_retired_legacy_profile_pairs_fail_closed_with_repository_replacements(self) -> None:
         workflow = yaml.safe_load((_prior.ROOT / ".github/workflows/central-ci-dispatch.yml").read_text())
@@ -264,7 +341,8 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertIn("cancel-if-active", action["inputs"]["phase"]["description"])
         self.assertIn('[[ "${OBSERVED_SOURCE_SHA}" =~ ^[0-9A-Fa-f]{40}$ ]] || exit 2', text)
         self.assertIn("p_patch:{observed_source_sha:$sha}", text)
-        self.assertIn('p_patch:{status:"failed"}', text)
+        self.assertIn('p_patch:{status:"failed",error_summary:$error_summary}', text)
+        self.assertIn('cancellation_summary="${ERROR_SUMMARY:-Central hosted execution was cancelled before completion.}"', text)
         self.assertIn("already_terminal", text)
         self.assertIn("succeeded|failed) exit 0", text)
         self.assertIn('cancelled) agent_state_status=failed', text)
