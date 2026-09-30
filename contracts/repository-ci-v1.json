@@ -253,7 +253,8 @@
           "source_sha",
           "operation",
           "platform",
-          "device_class"
+          "device_class",
+          "semantic_inputs_sha256"
         ]
       }
     }
