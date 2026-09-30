@@ -1338,8 +1338,7 @@ jobs:
       - name: Connect to private Git service
         if: >-
           ${{ inputs.test_profile != 'smoke'
-              && inputs.test_profile != 'build'
-              && inputs.test_profile != 'test' }}
+              && inputs.test_profile != 'build' }}
         uses: StreamScapeTV/ci-workflows/actions/private-git@main
         env:
           TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
@@ -1400,7 +1399,6 @@ jobs:
         id: android_default_cache_scope
         if: >-
           ${{ inputs.test_profile != 'build'
-              && inputs.test_profile != 'test'
               && inputs.test_profile != 'emulator' }}
         shell: bash
         env:
@@ -1515,7 +1513,6 @@ jobs:
         id: android_branch_cache_scope
         if: >-
           ${{ inputs.test_profile != 'build'
-              && inputs.test_profile != 'test'
               && inputs.test_profile != 'emulator' }}
         shell: bash
         env:
@@ -1558,7 +1555,6 @@ jobs:
       - name: Validate generic Android hosted request
         if: >-
           ${{ inputs.test_profile == 'build'
-              || inputs.test_profile == 'test'
               || inputs.test_profile == 'emulator' }}
         shell: bash
         env:
@@ -1881,7 +1877,7 @@ jobs:
           esac
 
           case "${TEST_PROFILE}" in
-            build|test|emulator)
+            build|emulator)
               wrapper="${repository_root}/scripts/ci/run-android-hosted-validation.sh"
               export CI_ANDROID_HOSTED_PROFILE="${TEST_PROFILE}"
               run_logged "android-${TEST_PROFILE}" bash "${wrapper}"
@@ -2704,7 +2700,7 @@ jobs:
           elif profile in {"compile", "build"}:
               classification = "compile_failure"
               remediation = "the Android compile/build profile failed at the exact observed source; fix build/compile errors before rerunning validation."
-          elif profile in {"unit", "targeted-unit", "search-performance", "test"} or (
+          elif profile in {"unit", "targeted-unit", "search-performance"} or (
               profile == "targeted-tests" and platform == "jvm"
           ):
               classification = "assertion_test_failure"

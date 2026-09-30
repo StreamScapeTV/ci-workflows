@@ -231,9 +231,6 @@ jobs:
             native-component)
               matrix='{"include":[{"lane":"native-component","cache_save":false}]}'
               ;;
-            test)
-              matrix='{"include":[{"lane":"hosted-test","cache_save":false}]}'
-              ;;
             simulator)
               matrix='{"include":[{"lane":"hosted-simulator","cache_save":false}]}'
               ;;
@@ -440,7 +437,6 @@ jobs:
         if: >-
           ${{ inputs.test_profile != 'native-component'
               && inputs.test_profile != 'screenshot-review'
-              && inputs.test_profile != 'test'
               && inputs.test_profile != 'simulator'
               && inputs.test_profile != 'testflight' }}
         shell: bash
@@ -638,7 +634,6 @@ jobs:
         if: >-
           ${{ (inputs.repository || github.repository) == 'StreamScapeTV/iptv-apple'
               && inputs.test_profile != 'native-component'
-              && inputs.test_profile != 'test'
               && inputs.test_profile != 'simulator'
               && inputs.test_profile != 'swift-package' }}
         uses: StreamScapeTV/ci-workflows/actions/private-git@main
@@ -651,7 +646,6 @@ jobs:
           ${{ (inputs.repository || github.repository) == 'StreamScapeTV/iptv-apple'
               && inputs.test_profile != 'build'
               && inputs.test_profile != 'native-component'
-              && inputs.test_profile != 'test'
               && inputs.test_profile != 'simulator'
               && inputs.test_profile != 'swift-package' }}
         shell: bash
@@ -978,7 +972,7 @@ jobs:
               run_logged "apple-native-component" bash "${wrapper}"
               exit 0
               ;;
-            test|simulator)
+            simulator)
               wrapper="scripts/ci/run-apple-hosted-validation.sh"
               test -f "${wrapper}" || {
                 printf 'Missing fixed Apple hosted validation wrapper: %s\n' "${wrapper}" >&2

@@ -89,7 +89,7 @@ class AppleWorkflowTests(unittest.TestCase):
         self.assertEqual(command["env"]["NATIVE_COMPONENT"], "${{ inputs.native_component }}")
         script = command["run"]
         start = script.index("native-component)")
-        end = script.index("test|simulator)", start)
+        end = script.index("simulator)", start)
         block = script[start:end]
         self.assertIn('wrapper="scripts/ci/run-apple-native-component-validation.sh"', block)
         self.assertIn('export CI_APPLE_NATIVE_COMPONENT="${NATIVE_COMPONENT}"', block)
@@ -169,24 +169,25 @@ capture before {safe_expansion} after
             for step in jobs["plan"]["steps"]
             if step.get("name") == "Resolve fixed Apple execution lanes"
         )["run"]
-        self.assertIn("test)", plan_script)
-        self.assertIn('{"include":[{"lane":"hosted-test","cache_save":false}]}', plan_script)
+        self.assertNotIn("test)", plan_script)
+        self.assertNotIn('hosted-test', plan_script)
         self.assertIn("simulator)", plan_script)
         self.assertIn('{"include":[{"lane":"hosted-simulator","cache_save":false}]}', plan_script)
 
         execute_steps = jobs["execute"]["steps"]
         by_name = {step.get("name"): step for step in execute_steps if step.get("name")}
         cache_prepare = by_name["Resolve Apple default-branch dependency cache scope"]
-        for profile in ("test", "simulator"):
-            self.assertIn(f"inputs.test_profile != '{profile}'", cache_prepare["if"])
+        self.assertIn("inputs.test_profile != 'simulator'", cache_prepare["if"])
+        self.assertNotIn("inputs.test_profile != 'test'", cache_prepare["if"])
 
         command_step = by_name["Run fixed Apple lane"]
         script = command_step["run"]
-        self.assertIn('test|simulator)', script)
+        self.assertIn('simulator)', script)
+        self.assertNotIn('test|simulator)', script)
         self.assertIn('wrapper="scripts/ci/run-apple-hosted-validation.sh"', script)
         self.assertIn('export CI_APPLE_HOSTED_PROFILE="${TEST_PROFILE}"', script)
         self.assertIn('run_logged "apple-${TEST_PROFILE}" bash "${wrapper}"', script)
-        generic_start = script.index('test|simulator)')
+        generic_start = script.index('simulator)')
         generic_end = script.index('swiftpm_xcode_args=()', generic_start)
         generic_block = script[generic_start:generic_end]
         self.assertNotIn("streamscape-media", generic_block.lower())
@@ -249,7 +250,7 @@ capture before {safe_expansion} after
         command = by_name["Run fixed Apple lane"]
         command_script = command["run"]
         start = command_script.index('testflight)')
-        end = command_script.index('test|simulator)', start)
+        end = command_script.index('simulator)', start)
         testflight_block = command_script[start:end]
         self.assertIn('wrapper="scripts/ci/run-apple-testflight.sh"', testflight_block)
         self.assertIn('run_logged apple-testflight bash "${wrapper}"', testflight_block)
@@ -309,7 +310,7 @@ capture before {safe_expansion} after
             step for step in execute_steps if step.get("name") == "Run fixed Apple lane"
         )["run"]
         start = command_script.index('testflight)')
-        end = command_script.index('test|simulator)', start)
+        end = command_script.index('simulator)', start)
         block = command_script[start:end].split("\n", 1)[1]
         block = block.rsplit(";;", 1)[0]
 
