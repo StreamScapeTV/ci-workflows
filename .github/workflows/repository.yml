@@ -982,6 +982,7 @@ jobs:
         env:
           AUTH_HOME: ${{ steps.registry_auth.outputs.auth_home }}
           OBSERVED_SOURCE_SHA: ${{ steps.source_identity.outputs.source_sha }}
+          SOURCE_REPOSITORY: ${{ inputs.repository }}
         run: |
           set -Eeuo pipefail
           test -n "${AUTH_HOME}" && test -d "${AUTH_HOME}/.gradle" \
@@ -1046,7 +1047,18 @@ jobs:
               digest.update(b"\0")
 
           fingerprint = digest.hexdigest()
-          prefix = f"repository-gradle-v1-{__import__('os').environ['RUNNER_OS']}-{__import__('os').environ['RUNNER_ARCH']}-{fingerprint}-"
+          source_repository = __import__("os").environ.get("SOURCE_REPOSITORY", "")
+          if (
+              not 3 <= len(source_repository) <= 200
+              or source_repository.count("/") != 1
+              or any(ch not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-/" for ch in source_repository)
+          ):
+              raise SystemExit("bounded Gradle cache requires one valid trusted source repository")
+          repository_digest = hashlib.sha256(source_repository.encode("utf-8")).hexdigest()
+          prefix = (
+              f"repository-gradle-v1-{__import__('os').environ['RUNNER_OS']}-"
+              f"{__import__('os').environ['RUNNER_ARCH']}-{repository_digest}-{fingerprint}-"
+          )
           with output_path.open("a", encoding="utf-8") as output:
               output.write(f"fingerprint={fingerprint}\n")
               output.write(f"input_count={len(selected)}\n")
@@ -1066,7 +1078,6 @@ jobs:
             ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/jars-*
             ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/*/generated-gradle-jars
             ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/*/kotlin-dsl
-            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/build-cache-*
             ${{ steps.registry_auth.outputs.auth_home }}/.gradle/wrapper/dists
           key: ${{ steps.gradle_cache_identity.outputs.cache_key }}
           restore-keys: |
@@ -1521,7 +1532,6 @@ jobs:
               "caches/jars-*",
               "caches/*/generated-gradle-jars",
               "caches/*/kotlin-dsl",
-              "caches/build-cache-*",
               "wrapper/dists",
           )
           if root.is_symlink() or not root.is_dir():
@@ -1539,6 +1549,24 @@ jobs:
           files = []
           seen = set()
           unsafe_reason = ""
+          if any(len(secret) > 1024 * 1024 for secret in secret_values):
+              unsafe_reason = "configured credential exceeds the reviewed 1 MiB scan bound"
+
+          def contains_secret(path: Path) -> bool:
+              if not secret_values:
+                  return False
+              overlap = max(len(secret) for secret in secret_values) - 1
+              tail = b""
+              with path.open("rb") as handle:
+                  while True:
+                      chunk = handle.read(1024 * 1024)
+                      if not chunk:
+                          return False
+                      window = tail + chunk
+                      if any(secret in window for secret in secret_values):
+                          return True
+                      tail = window[-overlap:] if overlap else b""
+
           total = 0
           for pattern in patterns:
               for base in sorted(root.glob(pattern)):
@@ -1571,11 +1599,9 @@ jobs:
                       if total > 2 * 1024 * 1024 * 1024:
                           unsafe_reason = "cache exceeds the reviewed 2 GiB limit"
                           break
-                      if secret_values:
-                          data = path.read_bytes()
-                          if any(secret in data for secret in secret_values):
-                              unsafe_reason = "cache contains a configured credential value"
-                              break
+                      if contains_secret(path):
+                          unsafe_reason = "cache contains a configured credential value"
+                          break
                       files.append(path)
                   if unsafe_reason:
                       break
@@ -1605,7 +1631,6 @@ jobs:
             ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/jars-*
             ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/*/generated-gradle-jars
             ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/*/kotlin-dsl
-            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/build-cache-*
             ${{ steps.registry_auth.outputs.auth_home }}/.gradle/wrapper/dists
           key: ${{ steps.gradle_cache_identity.outputs.cache_key }}
 
