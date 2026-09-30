@@ -108,6 +108,7 @@ class RepositoryApplePhysicalDeviceTests(unittest.TestCase):
             "platform": device.PLATFORM,
             "interface": "usb",
             "identifier": identifier or self.IDENTIFIER,
+            "modelCode": "iPhone15,3",
         }
 
     def test_exactly_one_attached_iphone_executes_fixed_entrypoint_with_redaction(self) -> None:
@@ -120,7 +121,33 @@ class RepositoryApplePhysicalDeviceTests(unittest.TestCase):
         self.assertFalse(context_exists)
         self.assertNotIn(self.IDENTIFIER, result.stdout)
         self.assertNotIn("central-apple-physical-device-context.json", result.stdout)
-        self.assertIn("[REDACTED_DEVICE]", result.stdout)
+        self.assertIn("*", result.stdout)
+
+    def test_non_iphone_iphoneos_device_is_not_eligible(self) -> None:
+        ipad = self.eligible()
+        ipad["modelCode"] = "iPad14,5"
+        result, marker, secrets, context_exists = self.run_helper(devices=[ipad])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("found 0", result.stderr)
+        self.assertIsNone(marker)
+        self.assertIsNone(secrets)
+        self.assertFalse(context_exists)
+
+    def test_stream_redaction_masks_private_values_across_chunk_boundaries(self) -> None:
+        secret = b"device-private-identifier"
+        payload = b"x" * (64 * 1024 - 5) + secret + b"-tail"
+
+        class Sink:
+            def __init__(self) -> None:
+                self.buffer = io.BytesIO()
+
+        sink = Sink()
+        with patch.object(device.sys, "stdout", sink):
+            device.stream_redacted(io.BytesIO(payload), (secret,))
+        value = sink.buffer.getvalue()
+        self.assertEqual(len(value), len(payload))
+        self.assertNotIn(secret, value)
+        self.assertIn(b"*" * len(secret), value)
 
     def test_zero_or_multiple_devices_fail_before_product_execution(self) -> None:
         for devices in ([], [self.eligible(), self.eligible("00008110-001C114E0A92002F")]):
