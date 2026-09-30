@@ -662,14 +662,23 @@ if ( validate false '1.2.3' '253' ); then exit 96; fi
         self.assertNotIn("CI_APPLE_BINARY_PACKAGE_READ_TOKEN", command.get("env", {}))
         self.assertNotIn("CI_APPLE_BINARY_PACKAGE_USERNAME", command.get("env", {}))
         self.assertNotIn("CI_GITHUB_TOKEN", command.get("env", {}))
+        self.assertEqual(command["env"]["GH_TOKEN"], "${{ steps.source.outputs.token || github.token }}")
         command_script = command["run"]
-        self.assertNotIn("bootstrap-streamscape-media-binary.sh", command_script)
-        self.assertNotIn("run_xcode_logged", command_script)
-        self.assertNotIn("HISTORICAL_RECOVERY_ACTIVE", command_script)
-        self.assertNotIn(
-            "http.https://github.com/StreamScapeTV/streamscape-media.git.extraheader",
+        self.assertIn("configure_remote_swiftpm_git_auth()", command_script)
+        self.assertIn("candidate|screenshot-review)", command_script)
+        self.assertIn("test ! -f scripts/bootstrap-streamscape-media-binary.sh || return 0", command_script)
+        self.assertIn('test -n "${GH_TOKEN}" || {', command_script)
+        self.assertIn("printf 'x-access-token:%s'", command_script)
+        self.assertIn("::add-mask::%s", command_script)
+        self.assertIn("export GIT_CONFIG_COUNT=1", command_script)
+        self.assertIn(
+            "export GIT_CONFIG_KEY_0='http.https://github.com/StreamScapeTV/streamscape-media.git.extraheader'",
             command_script,
         )
+        self.assertIn('export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth_value}"', command_script)
+        self.assertNotIn("git config --global", command_script)
+        self.assertNotIn("run_xcode_logged", command_script)
+        self.assertNotIn("HISTORICAL_RECOVERY_ACTIVE", command_script)
         self.assertIn("run_logged ios-build xcodebuild build", command_script)
         self.assertIn("run_logged tvos-build xcodebuild build", command_script)
         self.assertIn("run_logged macos-test xcodebuild test", command_script)
@@ -683,6 +692,78 @@ if ( validate false '1.2.3' '253' ); then exit 96; fi
             scrub_env["CI_SECRET_FORGEJO_PACKAGE_READ_TOKEN"],
             "${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}",
         )
+
+    def test_remote_swiftpm_auth_is_exact_url_scoped_and_process_local(self) -> None:
+        by_name = {
+            step.get("name"): step
+            for step in self.workflow["jobs"]["execute"]["steps"]
+            if step.get("name")
+        }
+        script = by_name["Run fixed Apple lane"]["run"]
+        start = script.index("configure_remote_swiftpm_git_auth() {")
+        end = script.index("\n\nrun_logged() {", start)
+        auth_block = script[start:end]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "scripts").mkdir()
+            probe = auth_block + "\nconfigure_remote_swiftpm_git_auth\n" + (
+                "printf 'count=%s\\n' \"${GIT_CONFIG_COUNT:-0}\"\n"
+                "printf 'key=%s\\n' \"${GIT_CONFIG_KEY_0:-}\"\n"
+                "git config --get-urlmatch http.extraheader https://github.com/StreamScapeTV/streamscape-media.git || true\n"
+                "printf '%s\\n' '__PUBLIC__'\n"
+                "git config --get-urlmatch http.extraheader https://github.com/RevenueCat/purchases-ios-spm || true\n"
+            )
+            env = {
+                "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                "TEST_PROFILE": "screenshot-review",
+                "GH_TOKEN": "fixed-source-token",
+            }
+            remote = subprocess.run(
+                ["bash", "-c", probe],
+                cwd=root,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(remote.returncode, 0, remote.stderr)
+            self.assertIn("count=1", remote.stdout)
+            self.assertIn(
+                "key=http.https://github.com/StreamScapeTV/streamscape-media.git.extraheader",
+                remote.stdout,
+            )
+            self.assertIn("AUTHORIZATION: basic ", remote.stdout)
+            public_tail = remote.stdout.split("__PUBLIC__\n", 1)[1]
+            self.assertNotIn("AUTHORIZATION: basic", public_tail)
+
+            helper = root / "scripts/bootstrap-streamscape-media-binary.sh"
+            helper.write_text("#!/bin/sh\n", encoding="utf-8")
+            legacy = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    auth_block + "\nconfigure_remote_swiftpm_git_auth\nprintf 'count=%s\\n' \"${GIT_CONFIG_COUNT:-0}\"",
+                ],
+                cwd=root,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(legacy.returncode, 0, legacy.stderr)
+            self.assertEqual(legacy.stdout.strip(), "count=0")
+
+            clean_shell = subprocess.run(
+                ["bash", "-c", "printf 'count=%s\\n' \"${GIT_CONFIG_COUNT:-0}\""],
+                cwd=root,
+                env={"PATH": env["PATH"]},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(clean_shell.stdout.strip(), "count=0")
+
 
     def test_agent_state_lifecycle_is_single_coordinator_and_single_finalizer(self) -> None:
         self.assertEqual(self.text.count("phase: start"), 1)

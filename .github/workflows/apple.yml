@@ -821,6 +821,26 @@ jobs:
           CI_APPLE_TESTFLIGHT_ISSUER_ID: ${{ inputs.test_profile == 'testflight' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
         run: |
           set -Eeuo pipefail
+          configure_remote_swiftpm_git_auth() {
+            case "${TEST_PROFILE}" in
+              candidate|screenshot-review) ;;
+              *) return 0 ;;
+            esac
+            test ! -f scripts/bootstrap-streamscape-media-binary.sh || return 0
+            test -n "${GH_TOKEN}" || {
+              echo "Remote SwiftPM Apple execution requires the fixed GitHub source token" >&2
+              return 1
+            }
+            local auth_value
+            auth_value="$(printf 'x-access-token:%s' "${GH_TOKEN}" | base64 | tr -d '\n')"
+            test -n "${auth_value}"
+            printf '::add-mask::%s\n' "${auth_value}"
+            export GIT_CONFIG_COUNT=1
+            export GIT_CONFIG_KEY_0='http.https://github.com/StreamScapeTV/streamscape-media.git.extraheader'
+            export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth_value}"
+          }
+          configure_remote_swiftpm_git_auth
+
           run_logged() {
             local label="$1"
             shift
