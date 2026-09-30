@@ -1,9 +1,11 @@
 # LEGACY_MIGRATION_RESIDUE: This file verifies still-live compatibility whose source currently contains concrete consumer identity; do not extend that identity coupling.
 from pathlib import Path
+import json
 import os
 import subprocess
 import tempfile
 import unittest
+import zipfile
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,6 +16,68 @@ class AppleWorkflowTests(unittest.TestCase):
         self.path = ROOT / ".github/workflows/apple.yml"
         self.text = self.path.read_text(encoding="utf-8")
         self.workflow = yaml.safe_load(self.text)
+
+    def run_screenshot_package_validation(self, *, platform: str = "ios", drive_path: str | None = None):
+        source_sha = "a" * 40
+        file_name = f"{platform}.zip"
+        expected_root = "repositories/iptv-apple/screenshots"
+        if drive_path is None:
+            drive_path = f"{expected_root}/{source_sha}/{file_name}"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = root / file_name
+            screen_id = "mobile.home" if platform == "ios" else "tv.home"
+            screenshot_member = f"captures/{screen_id}.png"
+            metadata_member = f"captures/{screen_id}.json"
+            with zipfile.ZipFile(package, "w") as archive:
+                archive.writestr(screenshot_member, b"\x89PNG\r\n\x1a\n" + b"fixture" * 10)
+                archive.writestr(
+                    metadata_member,
+                    json.dumps({"screen_id": screen_id, "source_sha": source_sha}),
+                )
+                archive.writestr(
+                    "index.json",
+                    json.dumps({
+                        "source_sha": source_sha,
+                        "platform": platform,
+                        "drive_root": expected_root,
+                        "drive_package_path": drive_path,
+                        "captures": [{
+                            "screen_id": screen_id,
+                            "screenshot": screenshot_member,
+                            "metadata": metadata_member,
+                        }],
+                    }),
+                )
+            validate = next(
+                step for step in self.workflow["jobs"]["execute"]["steps"]
+                if step.get("name") == "Validate screenshot-review package identity"
+            )
+            github_output = root / "github-output"
+            github_output.write_text("", encoding="utf-8")
+            result = subprocess.run(
+                ["bash", "-c", validate["run"]],
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "SOURCE_REPOSITORY": "StreamScapeTV/iptv-apple",
+                    "OBSERVED_SOURCE_SHA": source_sha,
+                    "SCREENSHOT_PLATFORM": platform,
+                    "SCREENSHOT_PACKAGE_PATH": str(package),
+                    "SCREENSHOT_FILE_NAME": file_name,
+                    "GITHUB_OUTPUT": str(github_output),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            evidence = root / "direct-evidence"
+            files = {
+                path.relative_to(evidence).as_posix(): path.read_bytes()
+                for path in evidence.rglob("*")
+                if path.is_file()
+            } if evidence.exists() else {}
+            return result, files, screen_id
 
     def test_full_is_parallel_platform_gate_without_host_alias(self) -> None:
         jobs = self.workflow["jobs"]
@@ -916,6 +980,28 @@ CURRENT_PROJECT_VERSION = 1;
         self.assertEqual(full_line.count('"cache_save":false'), 2)
 
 
+    def test_screenshot_review_accepts_current_exact_source_package_and_extracts_candidate(self) -> None:
+        result, files, screen_id = self.run_screenshot_package_validation()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            set(files),
+            {f"{screen_id}/candidate.png", f"{screen_id}/_meta/candidate.json"},
+        )
+        metadata = json.loads(files[f"{screen_id}/_meta/candidate.json"])
+        self.assertEqual(metadata["source_sha"], "a" * 40)
+        self.assertEqual(metadata["review_slot"], "candidate")
+        self.assertEqual(
+            metadata["review_drive_path"],
+            f"repositories/iptv-apple/screenshots/ios/{screen_id}/candidate.png",
+        )
+
+    def test_screenshot_review_rejects_non_exact_package_drive_path(self) -> None:
+        result, _, _ = self.run_screenshot_package_validation(
+            drive_path="repositories/iptv-apple/screenshots/ios.zip"
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("screenshot-review drive_package_path mismatch", result.stderr)
+
     def test_screenshot_review_is_fixed_two_lane_repository_evidence_profile(self) -> None:
         call = self.workflow["on"]["workflow_call"]
         self.assertIn("GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID", call["secrets"])
@@ -1028,29 +1114,32 @@ CURRENT_PROJECT_VERSION = 1;
             '"source_sha": source_sha',
             '"platform": platform',
             '"drive_root": expected_root',
-            'expected_path = f"{expected_root}/{file_name}"',
+            'expected_path = f"{expected_root}/{source_sha}/{file_name}"',
             '"drive_package_path": expected_path',
             'if "drive_source_folder" in index:',
         ):
             self.assertIn(token, validate_script)
-        self.assertNotIn('expected_source_folder = f"{expected_root}/{source_sha}"', validate_script)
         for token in (
             'direct_dir = package.parent / "direct-evidence"',
             '1 <= len(captures) <= 20',
             'metadata.get("screen_id") != screen_id',
             'metadata.get("source_sha") != source_sha',
             'image_bytes.startswith(b"\\x89PNG',
-            'direct_dir / f"{screen_id}.png"',
-            'direct_dir / f"{screen_id}.json"',
+            'route_dir = direct_dir / screen_id',
+            'meta_dir = route_dir / "_meta"',
+            '(route_dir / "candidate.png").write_bytes(image_bytes)',
+            '(meta_dir / "candidate.json").write_text(',
+            'metadata["review_slot"] = "candidate"',
+            'metadata["review_drive_path"] = f"{expected_root}/{platform}/{screen_id}/candidate.png"',
         ):
             self.assertIn(token, validate_script)
 
-        upload = by_name["Upload direct screenshot-review evidence to repository review folder"]
+        upload = by_name["Upload screenshot-review candidate evidence by route"]
         self.assertEqual(upload["uses"], "StreamScapeTV/ci-workflows/actions/google-drive@main")
         self.assertEqual(upload["with"]["destination_kind"], "repository-screenshots")
         self.assertEqual(upload["with"]["operation"], "upload-directory")
         self.assertNotIn("ref", upload["with"])
-        self.assertEqual(upload["with"]["subdirectory"], "review/${{ steps.screenshot_package.outputs.platform }}")
+        self.assertEqual(upload["with"]["subdirectory"], "${{ steps.screenshot_package.outputs.platform }}")
         self.assertEqual(upload["with"]["file_path"], "${{ steps.screenshot_package.outputs.evidence_dir }}")
         self.assertNotIn("file_name", upload["with"])
         self.assertEqual(

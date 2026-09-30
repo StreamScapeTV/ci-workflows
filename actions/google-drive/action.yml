@@ -20,7 +20,7 @@ inputs:
     required: false
     default: ""
   subdirectory:
-    description: Optional bounded source-ref child folder or fixed repository-screenshot review variant path
+    description: Optional bounded source-ref child folder or fixed repository-screenshot platform/capture profile
     required: false
     default: ""
   repository_folder_id:
@@ -202,14 +202,14 @@ runs:
                 ;;
               upload-directory)
                 case "${DRIVE_REPOSITORY}:${DRIVE_SUBDIRECTORY}" in
-                  StreamScapeTV/iptv-apple:review/ios|\
-                  StreamScapeTV/iptv-apple:review/tvos|\
-                  StreamScapeTV/iptv-android:review/phone-portrait|\
-                  StreamScapeTV/iptv-android:review/phone-landscape|\
-                  StreamScapeTV/iptv-android:review/tablet-portrait|\
-                  StreamScapeTV/iptv-android:review/tablet-landscape|\
-                  StreamScapeTV/iptv-android:review/tv) ;;
-                  *) echo "repository-screenshots rejects unsupported direct-evidence review path" >&2; exit 2 ;;
+                  StreamScapeTV/iptv-apple:ios|\
+                  StreamScapeTV/iptv-apple:tvos|\
+                  StreamScapeTV/iptv-android:phone-portrait|\
+                  StreamScapeTV/iptv-android:phone-landscape|\
+                  StreamScapeTV/iptv-android:tablet-portrait|\
+                  StreamScapeTV/iptv-android:tablet-landscape|\
+                  StreamScapeTV/iptv-android:tv) ;;
+                  *) echo "repository-screenshots rejects unsupported candidate profile" >&2; exit 2 ;;
                 esac
                 ;;
               *) echo "repository-screenshots supports upload or upload-directory only" >&2; exit 2 ;;
@@ -217,7 +217,7 @@ runs:
             test -z "${DRIVE_REF}" || { echo "repository-screenshots does not accept ref" >&2; exit 2; }
             test -z "${DRIVE_PREVIOUS_FILE_NAME}" || { echo "repository-screenshots does not accept previous_file_name" >&2; exit 2; }
             test "${DRIVE_GZIP}" = false || { echo "repository-screenshots does not support gzip" >&2; exit 2; }
-            test "${DRIVE_IMMUTABLE}" = false || { echo "repository-screenshots review evidence is replaceable until finalized" >&2; exit 2; }
+            test "${DRIVE_IMMUTABLE}" = false || { echo "repository-screenshots candidate evidence is replaceable during review" >&2; exit 2; }
             test "${DRIVE_RECONCILE_DUPLICATE_MANIFESTS}" = false || { echo "repository-screenshots does not support manifest reconciliation" >&2; exit 2; }
             ;;
           repository-screenshot-cache)
@@ -725,9 +725,7 @@ runs:
           screenshots_folder_id="$(ensure_folder "${repository_folder_id}" screenshots)"
           target_folder_id="${screenshots_folder_id}"
           if test "${DRIVE_OPERATION}" = upload-directory; then
-            review_folder_id="$(ensure_folder "${screenshots_folder_id}" review)"
-            review_variant="${DRIVE_SUBDIRECTORY#review/}"
-            target_folder_id="$(ensure_folder "${review_folder_id}" "${review_variant}")"
+            target_folder_id="$(ensure_folder "${screenshots_folder_id}" "${DRIVE_SUBDIRECTORY}")"
           fi
         elif test "${DRIVE_DESTINATION_KIND}" = repository-screenshot-cache; then
           screenshot_cache_folder_id="$(ensure_folder "${repository_folder_id}" screenshot-cache)"
@@ -741,12 +739,14 @@ runs:
         fi
 
         if test "${DRIVE_OPERATION}" = upload-directory; then
-          screenshot_files=()
-          while IFS= read -r screenshot_file; do
-            screenshot_files+=("${screenshot_file}")
-          done < <(find "${DRIVE_FILE_PATH}" -mindepth 1 -maxdepth 1 -type f -print | LC_ALL=C sort)
-          test "${#screenshot_files[@]}" -ge 1 || { echo "direct screenshot evidence directory is empty" >&2; exit 2; }
-          test "${#screenshot_files[@]}" -le 40 || { echo "direct screenshot evidence directory exceeds the bounded 40-file limit" >&2; exit 2; }
+          route_dirs=()
+          while IFS= read -r route_dir; do
+            route_dirs+=("${route_dir}")
+          done < <(find "${DRIVE_FILE_PATH}" -mindepth 1 -maxdepth 1 -type d -print | LC_ALL=C sort)
+          test "${#route_dirs[@]}" -ge 1 || { echo "candidate screenshot evidence directory is empty" >&2; exit 2; }
+          test "${#route_dirs[@]}" -le 20 || { echo "candidate screenshot evidence exceeds the bounded 20-route limit" >&2; exit 2; }
+          unexpected_root_entry="$(find "${DRIVE_FILE_PATH}" -mindepth 1 -maxdepth 1 ! -type d -print -quit)"
+          test -z "${unexpected_root_entry}" || { echo "candidate screenshot evidence root must contain route directories only" >&2; exit 2; }
           directory_digest_input="${RUNNER_TEMP}/drive-screenshot-directory-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.sha256"
           : > "${directory_digest_input}"
           cleanup_directory_digest() { rm -f "${directory_digest_input}"; }
@@ -756,14 +756,15 @@ runs:
             local source_path="$1"
             local evidence_name="$2"
             local evidence_mime="$3"
+            local parent_folder_id="$4"
             local response existing_file_id metadata response_id expected_size expected_md5 actual_size actual_md5
             DRIVE_FILE_NAME="${evidence_name}"
             response="$(curl --fail --silent --show-error \
               --header "Authorization: Bearer ${access_token}" \
-              "$(drive_list_url "${target_folder_id}" "${DRIVE_FILE_NAME}" file)")"
+              "$(drive_list_url "${parent_folder_id}" "${DRIVE_FILE_NAME}" file)")"
             existing_file_id="$(printf '%s' "${response}" | unique_id)"
             if test -z "${existing_file_id}"; then
-              metadata="$(python3 -c 'import json,sys; name,parent,mime=sys.argv[1:4]; print(json.dumps({"name":name,"parents":[parent],"mimeType":mime}))' "${DRIVE_FILE_NAME}" "${target_folder_id}" "${evidence_mime}")"
+              metadata="$(python3 -c 'import json,sys; name,parent,mime=sys.argv[1:4]; print(json.dumps({"name":name,"parents":[parent],"mimeType":mime}))' "${DRIVE_FILE_NAME}" "${parent_folder_id}" "${evidence_mime}")"
               existing_file_id="$(curl --fail --silent --show-error --http1.1 \
                 --request POST \
                 --header "Authorization: Bearer ${access_token}" \
@@ -804,7 +805,7 @@ runs:
             metadata="$(curl --fail --silent --show-error --http1.1 \
               --header "Authorization: Bearer ${access_token}" \
               "https://www.googleapis.com/drive/v3/files/${existing_file_id}?fields=id,name,size,md5Checksum,parents")"
-            read -r response_id actual_size expected_md5 <<< "$(printf '%s' "${metadata}" | python3 -c 'import json,sys; expected_name,expected_parent=sys.argv[1:3]; value=json.load(sys.stdin); (value.get("name")==expected_name and expected_parent in value.get("parents",[])) or sys.exit("direct screenshot Drive identity verification failed"); print(value.get("id",""), value.get("size",""), value.get("md5Checksum",""))' "${DRIVE_FILE_NAME}" "${target_folder_id}")"
+            read -r response_id actual_size expected_md5 <<< "$(printf '%s' "${metadata}" | python3 -c 'import json,sys; expected_name,expected_parent=sys.argv[1:3]; value=json.load(sys.stdin); (value.get("name")==expected_name and expected_parent in value.get("parents",[])) or sys.exit("direct screenshot Drive identity verification failed"); print(value.get("id",""), value.get("size",""), value.get("md5Checksum",""))' "${DRIVE_FILE_NAME}" "${parent_folder_id}")"
             test -n "${response_id}" && test "${actual_size}" = "${expected_size}" || {
               echo "direct screenshot Drive size verification failed" >&2
               return 1
@@ -819,37 +820,39 @@ runs:
             printf '%s  %s\n' "$(file_digest sha256 "${source_path}")" "${source_path}" >> "${directory_digest_input}"
           }
 
-          test $(( ${#screenshot_files[@]} % 2 )) -eq 0 || { echo "direct screenshot evidence must contain PNG/JSON pairs" >&2; exit 2; }
-          for evidence_path in "${screenshot_files[@]+"${screenshot_files[@]}"}"; do
-            evidence_name="$(basename "${evidence_path}")"
-            [[ "${evidence_name}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,191}\.(png|json)$ ]] || {
-              echo "direct screenshot evidence filename must be one bounded canonical screen id with .png or .json" >&2
+          for route_path in "${route_dirs[@]+"${route_dirs[@]}"}"; do
+            screen_id="$(basename "${route_path}")"
+            [[ "${screen_id}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,191}$ ]] || {
+              echo "candidate screenshot route/evidence id is invalid" >&2
               exit 2
             }
-            screen_id="${evidence_name%.*}"
             case "${DRIVE_REPOSITORY}:${DRIVE_SUBDIRECTORY}:${screen_id}" in
-              StreamScapeTV/iptv-apple:review/ios:mobile.*|\
-              StreamScapeTV/iptv-apple:review/ios:tablet.*|\
-              StreamScapeTV/iptv-apple:review/tvos:tv.*|\
-              StreamScapeTV/iptv-android:review/phone-portrait:mobile.*|\
-              StreamScapeTV/iptv-android:review/phone-landscape:mobile.*|\
-              StreamScapeTV/iptv-android:review/tablet-portrait:mobile.*|\
-              StreamScapeTV/iptv-android:review/tablet-landscape:mobile.*|\
-              StreamScapeTV/iptv-android:review/tv:tv.*) ;;
-              *) echo "direct screenshot evidence screen id is not valid for the repository/review variant" >&2; exit 2 ;;
+              StreamScapeTV/iptv-apple:ios:mobile.*|\
+              StreamScapeTV/iptv-apple:ios:tablet.*|\
+              StreamScapeTV/iptv-apple:tvos:tv.*|\
+              StreamScapeTV/iptv-android:phone-portrait:mobile.*|\
+              StreamScapeTV/iptv-android:phone-landscape:mobile.*|\
+              StreamScapeTV/iptv-android:tablet-portrait:mobile.*|\
+              StreamScapeTV/iptv-android:tablet-landscape:mobile.*|\
+              StreamScapeTV/iptv-android:tv:tv.*) ;;
+              *) echo "candidate screenshot route/evidence id is not valid for the repository profile" >&2; exit 2 ;;
             esac
-            case "${evidence_name}" in
-              *.png)
-                test -f "${DRIVE_FILE_PATH}/${screen_id}.json" || { echo "direct screenshot PNG is missing adjacent metadata" >&2; exit 2; }
-                evidence_mime=image/png
-                ;;
-              *.json)
-                test -f "${DRIVE_FILE_PATH}/${screen_id}.png" || { echo "direct screenshot metadata is missing adjacent PNG" >&2; exit 2; }
-                evidence_mime=application/json
-                ;;
-              *) exit 2 ;;
-            esac
-            upload_direct_screenshot_file "${evidence_path}" "${evidence_name}" "${evidence_mime}"
+            candidate_png="${route_path}/candidate.png"
+            metadata_dir="${route_path}/_meta"
+            candidate_json="${metadata_dir}/candidate.json"
+            test -f "${candidate_png}" && test ! -L "${candidate_png}" || { echo "candidate screenshot PNG is missing" >&2; exit 2; }
+            test -d "${metadata_dir}" && test ! -L "${metadata_dir}" || { echo "candidate screenshot metadata directory is missing" >&2; exit 2; }
+            test -f "${candidate_json}" && test ! -L "${candidate_json}" || { echo "candidate screenshot metadata is missing" >&2; exit 2; }
+            unexpected_route_file="$(find "${route_path}" -mindepth 1 -maxdepth 2 -type f ! -path "${candidate_png}" ! -path "${candidate_json}" -print -quit)"
+            test -z "${unexpected_route_file}" || { echo "candidate screenshot route contains unexpected files" >&2; exit 2; }
+            unexpected_route_dir="$(find "${route_path}" -mindepth 1 -maxdepth 1 -type d ! -name _meta -print -quit)"
+            test -z "${unexpected_route_dir}" || { echo "candidate screenshot route contains unexpected directories" >&2; exit 2; }
+            unexpected_meta_dir="$(find "${metadata_dir}" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+            test -z "${unexpected_meta_dir}" || { echo "candidate screenshot metadata contains unexpected directories" >&2; exit 2; }
+            route_folder_id="$(ensure_folder "${target_folder_id}" "${screen_id}")"
+            meta_folder_id="$(ensure_folder "${route_folder_id}" _meta)"
+            upload_direct_screenshot_file "${candidate_png}" candidate.png image/png "${route_folder_id}"
+            upload_direct_screenshot_file "${candidate_json}" candidate.json application/json "${meta_folder_id}"
           done
           directory_sha256="$(LC_ALL=C sort "${directory_digest_input}" | stdin_sha256)"
           printf 'file_id=\n' >> "${GITHUB_OUTPUT}"
