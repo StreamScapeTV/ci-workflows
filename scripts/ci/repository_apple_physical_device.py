@@ -129,7 +129,10 @@ def _eligible_device(value: object) -> str | None:
     if not isinstance(product_type, str) or IPHONE_MODEL_RE.fullmatch(product_type) is None:
         return None
     transport = connection.get('transportType')
-    if not isinstance(transport, str) or 'usb' not in transport.casefold():
+    if (
+        not isinstance(transport, str)
+        or not any(token in transport.casefold() for token in ('usb', 'wired'))
+    ):
         return None
     identifier = hardware.get('udid') or value.get('identifier')
     if not isinstance(identifier, str) or IDENTIFIER_RE.fullmatch(identifier) is None:
