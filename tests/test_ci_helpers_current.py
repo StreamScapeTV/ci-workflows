@@ -181,8 +181,10 @@ class CiHelperTests(_prior.CiHelperTests):
         for workflow_key, profile, replacement in (
             ("validation.android", "full", "validation.repository/full"),
             ("validation.android", "test", "validation.repository/test"),
+            ("validation.android", "build", "validation.repository/build"),
             ("validation.apple", "build", "validation.repository/build"),
             ("validation.apple", "test", "validation.repository/test"),
+            ("validation.apple", "host", "validation.repository/full"),
             ("validation.python", "release-gates", "validation.repository/full"),
         ):
             self.assertIn(workflow_key, condition)

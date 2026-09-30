@@ -55,8 +55,10 @@ jobs:
           ${{
             (steps.claim.outputs.workflow_key == 'validation.android' && steps.claim.outputs.test_profile == 'full') ||
             (steps.claim.outputs.workflow_key == 'validation.android' && steps.claim.outputs.test_profile == 'test') ||
+            (steps.claim.outputs.workflow_key == 'validation.android' && steps.claim.outputs.test_profile == 'build') ||
             (steps.claim.outputs.workflow_key == 'validation.apple' && steps.claim.outputs.test_profile == 'build') ||
             (steps.claim.outputs.workflow_key == 'validation.apple' && steps.claim.outputs.test_profile == 'test') ||
+            (steps.claim.outputs.workflow_key == 'validation.apple' && steps.claim.outputs.test_profile == 'host') ||
             (steps.claim.outputs.workflow_key == 'validation.python' && steps.claim.outputs.test_profile == 'release-gates')
           }}
         shell: bash
@@ -72,11 +74,17 @@ jobs:
             validation.android/test)
               echo "validation.android/test is retired; use validation.repository/test" >&2
               ;;
+            validation.android/build)
+              echo "validation.android/build is retired; use validation.repository/build" >&2
+              ;;
             validation.apple/build)
               echo "validation.apple/build is retired; use validation.repository/build" >&2
               ;;
             validation.apple/test)
               echo "validation.apple/test is retired; use validation.repository/test" >&2
+              ;;
+            validation.apple/host)
+              echo "validation.apple/host is retired; use validation.repository/full" >&2
               ;;
             validation.python/release-gates)
               echo "validation.python/release-gates is retired; use validation.repository/full" >&2

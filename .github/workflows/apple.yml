@@ -234,9 +234,6 @@ jobs:
             simulator)
               matrix='{"include":[{"lane":"hosted-simulator","cache_save":false}]}'
               ;;
-            host)
-              matrix='{"include":[{"lane":"macos-test","cache_save":true}]}'
-              ;;
             targeted-tests)
               case "${TEST_PLATFORM}" in
                 macos) matrix='{"include":[{"lane":"macos-targeted-tests","cache_save":false}]}' ;;
