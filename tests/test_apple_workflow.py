@@ -15,7 +15,7 @@ class AppleWorkflowTests(unittest.TestCase):
         self.text = self.path.read_text(encoding="utf-8")
         self.workflow = yaml.safe_load(self.text)
 
-    def test_host_is_fast_and_full_is_parallel_platform_gate(self) -> None:
+    def test_full_is_parallel_platform_gate_without_host_alias(self) -> None:
         jobs = self.workflow["jobs"]
         self.assertEqual(set(jobs), {"plan", "execute", "finish"})
 
@@ -24,11 +24,7 @@ class AppleWorkflowTests(unittest.TestCase):
             step for step in plan["steps"] if step.get("name") == "Resolve fixed Apple execution lanes"
         )
         script = profile_step["run"]
-        self.assertIn("host)", script)
-        self.assertIn(
-            '{"include":[{"lane":"macos-test","cache_save":true}]}',
-            script,
-        )
+        self.assertNotIn("host)", script)
         self.assertIn("full)", script)
         self.assertIn('"lane":"ios-build"', script)
         self.assertIn('"lane":"tvos-build"', script)

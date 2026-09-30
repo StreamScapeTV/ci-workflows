@@ -1336,9 +1336,7 @@ jobs:
           ci_run_id: ${{ inputs.ci_run_id }}
 
       - name: Connect to private Git service
-        if: >-
-          ${{ inputs.test_profile != 'smoke'
-              && inputs.test_profile != 'build' }}
+        if: ${{ inputs.test_profile != 'smoke' }}
         uses: StreamScapeTV/ci-workflows/actions/private-git@main
         env:
           TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
@@ -1397,9 +1395,7 @@ jobs:
 
       - name: Resolve IPTV Android default-branch cache scope
         id: android_default_cache_scope
-        if: >-
-          ${{ inputs.test_profile != 'build'
-              && inputs.test_profile != 'emulator' }}
+        if: ${{ inputs.test_profile != 'emulator' }}
         shell: bash
         env:
           SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
@@ -1511,9 +1507,7 @@ jobs:
 
       - name: Resolve IPTV Android non-default cache reader scope
         id: android_branch_cache_scope
-        if: >-
-          ${{ inputs.test_profile != 'build'
-              && inputs.test_profile != 'emulator' }}
+        if: ${{ inputs.test_profile != 'emulator' }}
         shell: bash
         env:
           SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
@@ -1553,9 +1547,7 @@ jobs:
             iptv-android-default-gradle-deps-v2-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Validate generic Android hosted request
-        if: >-
-          ${{ inputs.test_profile == 'build'
-              || inputs.test_profile == 'emulator' }}
+        if: ${{ inputs.test_profile == 'emulator' }}
         shell: bash
         env:
           PROJECT_DIRECTORY: ${{ inputs.project_directory }}
@@ -1877,7 +1869,7 @@ jobs:
           esac
 
           case "${TEST_PROFILE}" in
-            build|emulator)
+            emulator)
               wrapper="${repository_root}/scripts/ci/run-android-hosted-validation.sh"
               export CI_ANDROID_HOSTED_PROFILE="${TEST_PROFILE}"
               run_logged "android-${TEST_PROFILE}" bash "${wrapper}"
@@ -2697,9 +2689,9 @@ jobs:
           elif assertion_failure:
               classification = "assertion_test_failure"
               remediation = "a product test/assertion failed at the exact observed source; fix the failing correctness behavior and rerun."
-          elif profile in {"compile", "build"}:
+          elif profile == "compile":
               classification = "compile_failure"
-              remediation = "the Android compile/build profile failed at the exact observed source; fix build/compile errors before rerunning validation."
+              remediation = "the Android compile profile failed at the exact observed source; fix compile errors before rerunning validation."
           elif profile in {"unit", "targeted-unit", "search-performance"} or (
               profile == "targeted-tests" and platform == "jvm"
           ):
