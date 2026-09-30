@@ -865,6 +865,129 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertIn('"${RUNNER_TEMP}/central-registry-auth"', cleanup)
         self.assertNotIn("actions/setup-java", self.workflow_text)
 
+    def test_gradle_cache_identity_tracks_build_inputs_not_product_source(self) -> None:
+        identity = self.steps_by_name["Resolve bounded Gradle cache identity"]
+        script = identity["run"]
+
+        with tempfile.TemporaryDirectory() as td:
+            workspace = Path(td)
+            source = workspace / "source"
+            auth_home = workspace / "auth-home"
+            (source / "gradle/wrapper").mkdir(parents=True)
+            (source / "gradle/libs.versions.toml").write_text("kotlin = '2.2.0'\n", encoding="utf-8")
+            (source / "gradle/wrapper/gradle-wrapper.properties").write_text(
+                "distributionUrl=https://services.gradle.org/distributions/gradle-9.0-bin.zip\n",
+                encoding="utf-8",
+            )
+            (source / "build.gradle.kts").write_text("plugins {}\n", encoding="utf-8")
+            (source / ".ci").mkdir()
+            (source / ".ci/test.sh").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+            (source / "scripts/ci").mkdir(parents=True)
+            (source / "scripts/ci/run-android-gradle.sh").write_text(
+                "#!/usr/bin/env bash\nexit 0\n", encoding="utf-8"
+            )
+            (source / "src").mkdir()
+            (source / "src/Main.kt").write_text("fun main() = Unit\n", encoding="utf-8")
+            (auth_home / ".gradle").mkdir(parents=True)
+            (auth_home / ".gradle/gradle.properties").write_text("credential-fixture\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+            subprocess.run(["git", "add", "."], cwd=source, check=True)
+
+            def invoke(source_sha: str) -> dict[str, str]:
+                output = workspace / "github-output"
+                output.write_text("", encoding="utf-8")
+                result = subprocess.run(
+                    ["bash", "-c", script],
+                    cwd=ROOT,
+                    env={
+                        **os.environ,
+                        "AUTH_HOME": str(auth_home),
+                        "OBSERVED_SOURCE_SHA": source_sha,
+                        "GITHUB_WORKSPACE": str(workspace),
+                        "GITHUB_OUTPUT": str(output),
+                        "RUNNER_OS": "Linux",
+                        "RUNNER_ARCH": "X64",
+                    },
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                return dict(
+                    line.split("=", 1)
+                    for line in output.read_text(encoding="utf-8").splitlines()
+                )
+
+            baseline = invoke("a" * 40)
+            (source / "src/Main.kt").write_text('fun main() = println("changed")\n', encoding="utf-8")
+            source_only = invoke("b" * 40)
+            self.assertEqual(source_only["fingerprint"], baseline["fingerprint"])
+            self.assertEqual(source_only["restore_key"], baseline["restore_key"])
+            self.assertNotEqual(source_only["cache_key"], baseline["cache_key"])
+
+            for relative, replacement in (
+                ("build.gradle.kts", 'plugins { id("java") }\n'),
+                ("gradle/libs.versions.toml", "kotlin = '2.3.0'\n"),
+                (
+                    "gradle/wrapper/gradle-wrapper.properties",
+                    "distributionUrl=https://services.gradle.org/distributions/gradle-9.1-bin.zip\n",
+                ),
+                (".ci/test.sh", "#!/usr/bin/env bash\nprintf 'changed\\n'\n"),
+                ("scripts/ci/run-android-gradle.sh", "#!/usr/bin/env bash\nprintf 'changed\\n'\n"),
+            ):
+                target = source / relative
+                original = target.read_text(encoding="utf-8")
+                target.write_text(replacement, encoding="utf-8")
+                changed = invoke("b" * 40)
+                self.assertNotEqual(changed["fingerprint"], baseline["fingerprint"], relative)
+                target.write_text(original, encoding="utf-8")
+
+    def test_gradle_cache_save_rejects_secret_bytes_and_prunes_locks(self) -> None:
+        prepare = self.steps_by_name["Prepare bounded Gradle cache save"]
+        script = prepare["run"]
+
+        def invoke(cache_bytes: bytes, *, secret: str) -> tuple[subprocess.CompletedProcess[str], dict[str, str], bool]:
+            with tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                gradle = root / ".gradle"
+                cache_dir = gradle / "caches/modules-2/files-2.1/example/module/1.0"
+                cache_dir.mkdir(parents=True)
+                (gradle / "gradle.properties").write_text("credential-file-outside-cache\n", encoding="utf-8")
+                (cache_dir / "artifact.jar").write_bytes(cache_bytes)
+                lock = cache_dir / "artifact.jar.lock"
+                lock.write_text("lock\n", encoding="utf-8")
+                output = root / "github-output"
+                output.write_text("", encoding="utf-8")
+                result = subprocess.run(
+                    ["bash", "-c", script],
+                    cwd=ROOT,
+                    env={
+                        **os.environ,
+                        "AUTH_HOME": str(root),
+                        "CACHE_SECRET_SOURCE_TOKEN": secret,
+                        "CACHE_SECRET_REGISTRY_READ_TOKEN": "",
+                        "GITHUB_OUTPUT": str(output),
+                    },
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                values = dict(
+                    line.split("=", 1)
+                    for line in output.read_text(encoding="utf-8").splitlines()
+                )
+                return result, values, lock.exists()
+
+        unsafe, unsafe_values, _ = invoke(b"prefix-secret-value-suffix", secret="secret-value")
+        self.assertEqual(unsafe.returncode, 0, unsafe.stderr)
+        self.assertEqual(unsafe_values["save_allowed"], "false")
+        self.assertIn("configured credential value", unsafe.stdout)
+
+        safe, safe_values, lock_exists = invoke(b"safe-gradle-cache-bytes", secret="secret-value")
+        self.assertEqual(safe.returncode, 0, safe.stderr)
+        self.assertEqual(safe_values["save_allowed"], "true")
+        self.assertFalse(lock_exists)
+
     def test_private_agent_state_capability_grant_is_exactly_bound_and_fail_closed(self) -> None:
         self.assertEqual(
             set(self.contract["capabilityTypes"]),
