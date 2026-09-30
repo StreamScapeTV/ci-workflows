@@ -408,6 +408,7 @@ jobs:
             test) entrypoint=.ci/test.sh ;;
             full) entrypoint=.ci/test-full.sh ;;
             ui-test) entrypoint=.ci/test-ui.sh ;;
+            device-test) entrypoint=.ci/device-test.sh ;;
             release)
               entrypoint=.ci/release.sh
               test "${CALLER_REPOSITORY}" = StreamScapeTV/ci-workflows && test "${CALLER_REF}" = refs/heads/main || {
@@ -676,6 +677,9 @@ jobs:
           SOURCE_IS_TAG: ${{ inputs.source_is_tag }}
           OPERATION: ${{ inputs.operation }}
           HOST_OS: ${{ needs.resolve_host.outputs.host_os }}
+          HOST_CLASS: ${{ needs.resolve_host.outputs.host_class }}
+          OBSERVED_SOURCE_SHA: ${{ steps.source_identity.outputs.source_sha }}
+          NORMALIZED_INPUTS: ${{ steps.request.outputs.semantic_inputs_json }}
           CONTRACT: ${{ github.workspace }}/central-ci/contracts/repository-ci-v1.json
           AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
           AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
@@ -692,7 +696,7 @@ jobs:
           trusted = value.get("trustedCapabilityGrant")
           if not isinstance(capability_types, dict) or not isinstance(trusted, dict):
               raise SystemExit("repository CI capability contract is incomplete")
-          expected = {"private_network", "github_git", "registry_netrc", "gradle_maven", "registry_oci_publish", "protected_deployed_conformance"}
+          expected = {"private_network", "github_git", "registry_netrc", "gradle_maven", "registry_oci_publish", "protected_deployed_conformance", "apple_physical_device"}
           if set(capability_types) != expected:
               raise SystemExit("repository CI capability type set is not the reviewed v1 set")
           if trusted.get("source") != "Agent State project configuration":
@@ -701,6 +705,14 @@ jobs:
               raise SystemExit("repository CI trusted capability schema is invalid")
           if trusted.get("defaultCapabilities") != [] or trusted.get("failClosed") is not True:
               raise SystemExit("repository CI trusted capability default must fail closed")
+          physical_config = (trusted.get("capabilityConfiguration") or {}).get("apple_physical_device")
+          if physical_config != {
+              "projectStateKey": "repository_ci_apple_physical_device_v1",
+              "schemaVersion": 1,
+              "maximumAuthorizationSeconds": 86400,
+              "binding": ["repository", "ref", "source_is_tag", "source_sha", "operation", "platform", "device_class", "semantic_inputs_sha256"],
+          }:
+              raise SystemExit("repository CI Apple physical-device capability configuration is invalid")
           print(",".join(sorted(expected)))
           PY_KNOWN_CAPABILITIES
           )"
@@ -816,6 +828,12 @@ jobs:
 
           known_raw, expected_repository, operation, host_os, capability_context, project_key, output_path = sys.argv[1:8]
           known = set(known_raw.split(","))
+          host_class = os.environ.get("HOST_CLASS", "")
+          observed_source_sha = os.environ.get("OBSERVED_SOURCE_SHA", "")
+          try:
+              normalized_inputs = json.loads(os.environ.get("NORMALIZED_INPUTS", "{}"))
+          except json.JSONDecodeError as exc:
+              raise SystemExit("repository CI normalized inputs are invalid") from exc
           state = json.loads(os.environ["PROJECT_STATE"])
           if not isinstance(state, dict):
               raise SystemExit("Agent State project configuration must be one object")
@@ -854,12 +872,72 @@ jobs:
               or capability_context not in {"repository_lifecycle", "repository_parent"}
           ):
               enabled_capabilities.discard("protected_deployed_conformance")
+          if (
+              operation != "device-test"
+              or host_os != "macos"
+              or capability_context not in {"repository_lifecycle", "repository_parent"}
+          ):
+              enabled_capabilities.discard("apple_physical_device")
+
+          physical_authorized_at = ""
+          physical_expires_at = ""
+          if "apple_physical_device" in enabled_capabilities:
+              from datetime import datetime, timezone
+              if host_class != "macos-high-capacity":
+                  raise SystemExit("Apple physical-device capability requires the reviewed high-capacity macOS host")
+              if not isinstance(normalized_inputs, dict) or normalized_inputs.get("schemaVersion") != 1:
+                  raise SystemExit("Apple physical-device capability requires normalized repository inputs")
+              device_inputs = normalized_inputs.get("inputs")
+              if not isinstance(device_inputs, dict) or device_inputs.get("device_platform") != "ios":
+                  raise SystemExit("Apple physical-device capability requires device_platform=ios")
+              descriptor = state.get("repository_ci_apple_physical_device_v1")
+              expected_descriptor_fields = {
+                  "schemaVersion", "repository", "ref", "sourceIsTag", "sourceSha",
+                  "operation", "platform", "deviceClass", "semanticInputsSha256", "authorizedAt", "expiresAt",
+              }
+              if not isinstance(descriptor, dict) or set(descriptor) != expected_descriptor_fields:
+                  raise SystemExit("Apple physical-device authorization descriptor is missing or invalid")
+              semantic_inputs_sha256 = __import__("hashlib").sha256(
+                  json.dumps(normalized_inputs, sort_keys=True, separators=(",", ":")).encode("utf-8")
+              ).hexdigest()
+              if (
+                  descriptor.get("schemaVersion") != 1
+                  or descriptor.get("repository") != expected_repository
+                  or descriptor.get("ref") != os.environ.get("SOURCE_REF", "")
+                  or descriptor.get("sourceIsTag") != (os.environ.get("SOURCE_IS_TAG", "") == "true")
+                  or descriptor.get("sourceSha") != observed_source_sha
+                  or descriptor.get("operation") != "device-test"
+                  or descriptor.get("platform") != "ios"
+                  or descriptor.get("deviceClass") != "iphone"
+                  or descriptor.get("semanticInputsSha256") != semantic_inputs_sha256
+              ):
+                  raise SystemExit("Apple physical-device authorization descriptor does not match this exact request")
+              def parse_utc(value, label):
+                  if not isinstance(value, str) or not value.endswith("Z"):
+                      raise SystemExit(f"Apple physical-device {label} must be UTC")
+                  try:
+                      parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+                  except ValueError as exc:
+                      raise SystemExit(f"Apple physical-device {label} must be UTC") from exc
+                  return parsed.astimezone(timezone.utc)
+              authorized = parse_utc(descriptor.get("authorizedAt"), "authorization start")
+              expires = parse_utc(descriptor.get("expiresAt"), "authorization expiry")
+              now = datetime.now(timezone.utc)
+              if expires <= authorized or (expires - authorized).total_seconds() > 86400:
+                  raise SystemExit("Apple physical-device authorization window is outside the reviewed bound")
+              if now < authorized or now >= expires:
+                  raise SystemExit("Apple physical-device authorization is not currently active")
+              physical_authorized_at = descriptor["authorizedAt"]
+              physical_expires_at = descriptor["expiresAt"]
+
           if "protected_deployed_conformance" in enabled_capabilities and "private_network" not in enabled_capabilities:
               raise SystemExit("protected deployed conformance requires the reviewed private_network capability")
 
           with Path(output_path).open("a", encoding="utf-8") as output:
               for capability in sorted(known):
                   output.write(f"{capability}={'true' if capability in enabled_capabilities else 'false'}\n")
+              output.write(f"apple_physical_device_authorized_at={physical_authorized_at}\n")
+              output.write(f"apple_physical_device_expires_at={physical_expires_at}\n")
               auth_enabled = any(
                   value in enabled_capabilities
                   for value in ("github_git", "registry_netrc", "gradle_maven")
@@ -1210,10 +1288,13 @@ jobs:
           OCI_REGISTRY_HOST: ${{ steps.oci_publish_auth.outputs.registry_host }}
           PROTECTED_CONFORMANCE_ENABLED: ${{ steps.capabilities.outputs.protected_deployed_conformance }}
           PROTECTED_CONFORMANCE_PROJECT_KEY: ${{ steps.capabilities.outputs.project_key }}
+          APPLE_PHYSICAL_DEVICE_ENABLED: ${{ steps.capabilities.outputs.apple_physical_device }}
+          APPLE_PHYSICAL_DEVICE_AUTHORIZED_AT: ${{ steps.capabilities.outputs.apple_physical_device_authorized_at }}
+          APPLE_PHYSICAL_DEVICE_EXPIRES_AT: ${{ steps.capabilities.outputs.apple_physical_device_expires_at }}
           LIFECYCLE_CI_RUN_ID: ${{ inputs.ci_run_id }}
           TRUSTED_CAPABILITY_CI_RUN_ID: ${{ inputs.trusted_capability_ci_run_id }}
           SOURCE_REPOSITORY: ${{ inputs.repository }}
-          CHECKPOINT_ENABLED: ${{ (inputs.ci_run_id != '' || inputs.upload_private_log) && steps.log_seed.outcome == 'success' && 'true' || 'false' }}
+          CHECKPOINT_ENABLED: ${{ inputs.operation != 'device-test' && (inputs.ci_run_id != '' || inputs.upload_private_log) && steps.log_seed.outcome == 'success' && 'true' || 'false' }}
           CHECKPOINT_FILE_ID: ${{ steps.log_seed.outputs.file_id }}
           CHECKPOINT_SEED_SHA256: ${{ steps.log_seed.outputs.file_sha256 }}
           CHECKPOINT_GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
@@ -1264,6 +1345,13 @@ jobs:
           export CI_OPERATION="${OPERATION}"
           export CI_INPUTS_JSON="${NORMALIZED_INPUTS}"
           export CI_PROTECTED_DEPLOYED_CONFORMANCE="${PROTECTED_CONFORMANCE_ENABLED}"
+          export CI_APPLE_PHYSICAL_DEVICE_AUTHORIZED="${APPLE_PHYSICAL_DEVICE_ENABLED}"
+          export CI_APPLE_PHYSICAL_DEVICE_AUTHORIZED_AT="${APPLE_PHYSICAL_DEVICE_AUTHORIZED_AT}"
+          export CI_APPLE_PHYSICAL_DEVICE_EXPIRES_AT="${APPLE_PHYSICAL_DEVICE_EXPIRES_AT}"
+          if test "${OPERATION}" = device-test && test "${APPLE_PHYSICAL_DEVICE_ENABLED}" != true; then
+            echo "repository device-test requires the reviewed Apple physical-device capability" >&2
+            exit 2
+          fi
           if test "${OCI_PUBLISH_ENABLED}" = true; then
             test -n "${OCI_AUTH_FILE}" && test -n "${OCI_HELM_REGISTRY_CONFIG}" \
               && test -n "${OCI_REGISTRY_HOST}" || {
@@ -1404,7 +1492,11 @@ jobs:
           set +e
           (
             cd source
-            "./${ENTRYPOINT}"
+            if test "${OPERATION}" = device-test; then
+              python3 ../central-ci/scripts/ci/repository_apple_physical_device.py execute
+            else
+              "./${ENTRYPOINT}"
+            fi
             product_status=$?
             if test "${product_status}" -eq 0 && test "${PROTECTED_CONFORMANCE_ENABLED}" = true; then
               capability_run_id="${TRUSTED_CAPABILITY_CI_RUN_ID:-${LIFECYCLE_CI_RUN_ID}}"
@@ -1679,6 +1771,7 @@ jobs:
           CI_SECRET_APP_STORE_CONNECT_KEY_ID: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
           CI_SECRET_APP_STORE_CONNECT_ISSUER_ID: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
           CI_SECRET_APP_STORE_CONNECT_API_KEY: ${{ inputs.operation == 'release' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 || '' }}
+          CI_DYNAMIC_SECRET_FILE: ${{ runner.temp }}/central-apple-physical-device-secrets.txt
         run: |
           set -Eeuo pipefail
           python3 - <<'PY_REDACT'
@@ -1707,6 +1800,15 @@ jobs:
                   raise SystemExit(f"repository CI text evidence escapes its Central-owned root: {path.name}")
               paths.append(path)
           secrets = [value.encode() for name, value in os.environ.items() if name.startswith("CI_SECRET_") and value]
+          dynamic_secret_path = Path(os.environ.get("CI_DYNAMIC_SECRET_FILE", str(Path(os.environ["RUNNER_TEMP"]) / "central-apple-physical-device-secrets.txt")))
+          if dynamic_secret_path.exists() or dynamic_secret_path.is_symlink():
+              if dynamic_secret_path.is_symlink() or not dynamic_secret_path.is_file():
+                  raise SystemExit("repository CI dynamic secret evidence must be one regular non-symlink file")
+              if dynamic_secret_path.stat().st_size > 8192:
+                  raise SystemExit("repository CI dynamic secret evidence exceeds the reviewed bound")
+              for line in dynamic_secret_path.read_bytes().splitlines():
+                  if line:
+                      secrets.append(line)
           for path in paths:
               if path.is_symlink() or not path.is_file():
                   raise SystemExit(f"repository CI text evidence must remain one regular non-symlink file: {path.name}")
@@ -1794,6 +1896,7 @@ jobs:
               f"{excluded_oversized_count} oversized artifact(s)"
           )
           PY_REDACT
+          rm -f -- "${CI_DYNAMIC_SECRET_FILE:-${RUNNER_TEMP}/central-apple-physical-device-secrets.txt}"
 
       - name: Package bounded repository CI evidence
         id: evidence
@@ -2002,7 +2105,19 @@ jobs:
             "${RUNNER_TEMP}/central-repository-ci-timeline.json" \
             "${RUNNER_TEMP}/central-protected-deployed-project-state.json" \
             "${RUNNER_TEMP}/central-repository-ci-artifact-selection.json" \
-            "${RUNNER_TEMP}/central-repository-ci-evidence.zip"
+            "${RUNNER_TEMP}/central-repository-ci-evidence.zip" \
+            "${RUNNER_TEMP}/central-apple-physical-device-context.json" \
+            "${RUNNER_TEMP}/central-apple-physical-device-secrets.txt" \
+            "${RUNNER_TEMP}/central-apple-physical-device-inventory.json"
+          for private_device_path in \
+            "${RUNNER_TEMP}/central-apple-physical-device-context.json" \
+            "${RUNNER_TEMP}/central-apple-physical-device-secrets.txt" \
+            "${RUNNER_TEMP}/central-apple-physical-device-inventory.json"; do
+            if test -e "${private_device_path}" || test -L "${private_device_path}"; then
+              echo "repository CI physical-device private residue cleanup failed" >&2
+              exit 1
+            fi
+          done
 
       - name: Finish Agent State run
         if: ${{ always() && inputs.ci_run_id != '' }}

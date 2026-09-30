@@ -57,6 +57,17 @@ class RepositoryExecutionPlanTests(unittest.TestCase):
         self.assertEqual(value["source"], "tracked-repository-plan")
         self.assertEqual(value["operatingSystems"], ["linux", "macos"])
 
+    def test_tracked_plan_selects_device_test_on_macos_only(self) -> None:
+        result = self.run_plan(
+            operation="device-test",
+            host_os="macos",
+            plan={"schemaVersion": 1, "operations": {"device-test": ["macos"]}},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        value = json.loads(result.stdout)
+        self.assertEqual(value["operation"], "device-test")
+        self.assertEqual(value["operatingSystems"], ["macos"])
+
     def test_plan_fails_closed_on_unknown_duplicate_or_missing_operation(self) -> None:
         cases = [
             ({"schemaVersion": 1, "operations": {"test": ["linux", "windows"]}}, "unknown operating system"),
