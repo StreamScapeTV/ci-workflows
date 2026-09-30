@@ -1662,6 +1662,8 @@ class RepositoryWorkflowTests(unittest.TestCase):
         cleanup = self.steps_by_name["Cleanup ephemeral registry and repository evidence"]["run"]
         self.assertIn("central-apple-physical-device-context.json", cleanup)
         self.assertIn("central-apple-physical-device-secrets.txt", cleanup)
+        self.assertIn("repository CI physical-device private residue cleanup failed", cleanup)
+        self.assertIn('test -e "${private_device_path}" || test -L "${private_device_path}"', cleanup)
 
     def test_package_auth_is_generic_file_configuration_not_product_secret_env(self) -> None:
         auth = self.steps_by_name[
