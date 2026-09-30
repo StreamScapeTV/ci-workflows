@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import sys
 
-OPERATIONS = ("build", "test", "full", "ui-test", "release")
+OPERATIONS = ("build", "test", "full", "ui-test", "device-test", "release")
 OPERATING_SYSTEMS = ("linux", "macos")
 MAX_PLAN_BYTES = 8192
 
