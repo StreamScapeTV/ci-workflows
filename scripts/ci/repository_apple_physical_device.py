@@ -17,6 +17,7 @@ ENTRYPOINT = Path('.ci/device-test.sh')
 CONTEXT_NAME = 'central-apple-physical-device-context.json'
 SECRET_NAME = 'central-apple-physical-device-secrets.txt'
 IDENTIFIER_RE = re.compile(r'[A-Za-z0-9-]{16,128}')
+IPHONE_MODEL_RE = re.compile(r'iPhone[0-9]+,[0-9]+')
 PLATFORM = 'com.apple.platform.iphoneos'
 ALLOWED_INTERFACES = {'usb', 'wired'}
 
@@ -118,6 +119,9 @@ def _eligible_device(value: object) -> str | None:
         return None
     if value.get('platform') != PLATFORM:
         return None
+    model_code = value.get('modelCode')
+    if not isinstance(model_code, str) or IPHONE_MODEL_RE.fullmatch(model_code) is None:
+        return None
     interface = value.get('interface')
     if not isinstance(interface, str) or interface.lower() not in ALLOWED_INTERFACES:
         return None
@@ -200,16 +204,33 @@ def prepare_private_state(context_path: Path, secret_path: Path, identifier: str
 def _redact(data: bytes, secrets: tuple[bytes, ...]) -> bytes:
     for secret in secrets:
         if secret:
-            data = data.replace(secret, b'[REDACTED_DEVICE]')
+            # Preserve byte length so chunk-boundary accounting remains exact.
+            data = data.replace(secret, b'*' * len(secret))
     return data
 
 
 def stream_redacted(handle: BinaryIO, secrets: tuple[bytes, ...]) -> None:
+    bounded = tuple(secret for secret in secrets if secret)
+    if not bounded:
+        fail('Apple physical-device redaction requires at least one private value')
+    maximum = max(len(secret) for secret in bounded)
+    if maximum > 4096:
+        fail('Apple physical-device redaction secret exceeds the reviewed bound')
+    overlap = maximum - 1
+    tail = b''
     while True:
-        line = handle.readline()
-        if not line:
+        chunk = handle.read(64 * 1024)
+        if not chunk:
             break
-        sys.stdout.buffer.write(_redact(line, secrets))
+        data = tail + chunk
+        masked = _redact(data, bounded)
+        emit_length = max(0, len(data) - overlap) if overlap else len(data)
+        if emit_length:
+            sys.stdout.buffer.write(masked[:emit_length])
+            sys.stdout.buffer.flush()
+        tail = masked[emit_length:]
+    if tail:
+        sys.stdout.buffer.write(_redact(tail, bounded))
         sys.stdout.buffer.flush()
 
 
