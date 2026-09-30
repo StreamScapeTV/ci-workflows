@@ -630,6 +630,8 @@ jobs:
       - name: Connect to private Git service for Apple dependency materialization
         if: >-
           ${{ (inputs.repository || github.repository) == 'StreamScapeTV/iptv-apple'
+              && inputs.test_profile != 'candidate'
+              && inputs.test_profile != 'screenshot-review'
               && inputs.test_profile != 'native-component'
               && inputs.test_profile != 'simulator'
               && inputs.test_profile != 'swift-package' }}
@@ -642,6 +644,8 @@ jobs:
         if: >-
           ${{ (inputs.repository || github.repository) == 'StreamScapeTV/iptv-apple'
               && inputs.test_profile != 'build'
+              && inputs.test_profile != 'candidate'
+              && inputs.test_profile != 'screenshot-review'
               && inputs.test_profile != 'native-component'
               && inputs.test_profile != 'simulator'
               && inputs.test_profile != 'swift-package' }}
