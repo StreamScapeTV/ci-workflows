@@ -808,9 +808,9 @@ class RepositoryWorkflowTests(unittest.TestCase):
             '{"buildSrc", "build-logic", ".ci"}',
             'path.parts[0] == "scripts" and path.parts[1] == "ci"',
             '"gradle/wrapper/gradle-wrapper.properties" not in selected',
-            '"reviewed 512-file limit"',
-            '"exceeds 1 MiB"',
-            '"reviewed 8 MiB total"',
+            "reviewed 512-file limit",
+            "exceeds 1 MiB",
+            "reviewed 8 MiB total",
             'hashlib.sha256(b"repository-gradle-cache-v1\\0")',
             'f"{prefix}{source_sha}"',
         ):
@@ -818,15 +818,6 @@ class RepositoryWorkflowTests(unittest.TestCase):
         for forbidden in ("inputs.ref", "semantic_inputs_json", "NORMALIZED_INPUTS"):
             self.assertNotIn(forbidden, identity_script)
 
-        cache_paths = (
-            "${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/modules-2/files-2.1\n"
-            "            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/transforms-*\n"
-            "            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/jars-*\n"
-            "            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/*/generated-gradle-jars\n"
-            "            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/*/kotlin-dsl\n"
-            "            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/build-cache-*\n"
-            "            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/wrapper/dists\n"
-        )
         restore = by_name["Restore bounded Gradle user-home cache"]
         self.assertEqual(restore["uses"], "actions/cache/restore@v4")
         self.assertEqual(restore["with"]["key"], "${{ steps.gradle_cache_identity.outputs.cache_key }}")
