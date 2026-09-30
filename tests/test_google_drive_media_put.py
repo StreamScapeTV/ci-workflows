@@ -585,20 +585,20 @@ printf '%s' "$result"
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertEqual(completed.stdout, "created-id")
 
-    def test_repository_screenshots_mode_is_repository_scoped_ref_free_and_flat(self) -> None:
+    def test_repository_screenshots_mode_is_repository_scoped_ref_free_and_route_scoped(self) -> None:
         inputs = self.action["inputs"]
         self.assertEqual(inputs["destination_kind"]["default"], "source-ref")
         self.assertFalse(inputs["ref"]["required"])
         self.assertEqual(inputs["ref"]["default"], "")
         self.assertIn('screenshots_folder_id="$(ensure_folder "${repository_folder_id}" screenshots)"', self.script)
         self.assertIn('target_folder_id="${screenshots_folder_id}"', self.script)
-        self.assertNotIn('target_folder_id="$(ensure_folder "${screenshots_folder_id}" "${DRIVE_SUBDIRECTORY}")"', self.script)
+        self.assertIn('target_folder_id="$(ensure_folder "${screenshots_folder_id}" "${DRIVE_SUBDIRECTORY}")"', self.script)
         self.assertIn("repository-screenshots does not accept ref", self.script)
         self.assertIn("legacy repository screenshot ZIP upload does not accept subdirectory", self.script)
         self.assertIn("repository-screenshots rejects unsupported legacy repository/file-name combination", self.script)
-        self.assertIn("repository-screenshots rejects unsupported direct-evidence review path", self.script)
-        self.assertIn("StreamScapeTV/iptv-apple:review/ios", self.script)
-        self.assertIn("StreamScapeTV/iptv-android:review/phone-portrait", self.script)
+        self.assertIn("repository-screenshots rejects unsupported candidate profile", self.script)
+        self.assertIn("StreamScapeTV/iptv-apple:ios", self.script)
+        self.assertIn("StreamScapeTV/iptv-android:phone-portrait", self.script)
         self.assertIn("StreamScapeTV/iptv-android:phone-portrait.zip", self.script)
         self.assertIn("StreamScapeTV/iptv-android:tv.zip", self.script)
 
@@ -628,6 +628,34 @@ printf '%s' "$result"
             }
             good = subprocess.run(["bash", "-c", preflight], cwd=ROOT, env=base_env, text=True, capture_output=True)
             self.assertEqual(good.returncode, 0, good.stderr)
+
+            candidate_root = Path(temp_dir) / "candidate-evidence"
+            (candidate_root / "mobile.home" / "_meta").mkdir(parents=True)
+            (candidate_root / "mobile.home" / "candidate.png").write_bytes(b"png")
+            (candidate_root / "mobile.home" / "_meta" / "candidate.json").write_text("{}", encoding="utf-8")
+            candidate_env = dict(base_env)
+            candidate_env.update({
+                "DRIVE_OPERATION": "upload-directory",
+                "DRIVE_SUBDIRECTORY": "ios",
+                "DRIVE_FILE_PATH": str(candidate_root),
+                "DRIVE_FILE_NAME": "",
+                "DRIVE_MIME_TYPE": "application/octet-stream",
+            })
+            candidate = subprocess.run(["bash", "-c", preflight], cwd=ROOT, env=candidate_env, text=True, capture_output=True)
+            self.assertEqual(candidate.returncode, 0, candidate.stderr)
+
+            for bad_subdirectory in ("review/ios", "baseline", "candidate", "ios/mobile.home"):
+                env = dict(candidate_env)
+                env["DRIVE_SUBDIRECTORY"] = bad_subdirectory
+                bad = subprocess.run(["bash", "-c", preflight], cwd=ROOT, env=env, text=True, capture_output=True)
+                self.assertNotEqual(bad.returncode, 0)
+                self.assertIn("rejects unsupported candidate profile", bad.stderr)
+
+            ref_env = dict(candidate_env)
+            ref_env["DRIVE_REF"] = "develop"
+            bad_ref = subprocess.run(["bash", "-c", preflight], cwd=ROOT, env=ref_env, text=True, capture_output=True)
+            self.assertNotEqual(bad_ref.returncode, 0)
+            self.assertIn("repository-screenshots does not accept ref", bad_ref.stderr)
 
             for android_file_name in (
                 "phone-portrait.zip",

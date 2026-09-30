@@ -91,8 +91,9 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
             )
             evidence = root / "direct-evidence"
             files = {
-                path.name: path.read_bytes()
-                for path in evidence.iterdir()
+                path.relative_to(evidence).as_posix(): path.read_bytes()
+                for path in evidence.rglob("*")
+                if path.is_file()
             } if evidence.exists() else {}
             return result, files
 
@@ -231,15 +232,19 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
         self.assertIn('variant = capture.get("variant")', script)
         self.assertIn("capture_identity = (screen_id, variant)", script)
         self.assertIn('evidence_stem = screen_id if variant is None else f"{screen_id}--variant--{variant}"', script)
-        self.assertIn('(direct_dir / f"{evidence_stem}.png").write_bytes(image)', script)
-        self.assertIn('(direct_dir / f"{evidence_stem}.json").write_text(', script)
+        self.assertIn('evidence_dir = direct_dir / evidence_stem', script)
+        self.assertIn('"review_slot": "candidate"', script)
+        self.assertIn('"review_drive_path": f"{expected_root}/{profile}/{evidence_stem}/candidate.png"', script)
+        self.assertIn('meta_dir = evidence_dir / "_meta"', script)
+        self.assertIn('(evidence_dir / "candidate.png").write_bytes(image)', script)
+        self.assertIn('(meta_dir / "candidate.json").write_text(', script)
         self.assertIn('"cache": index.get("cache")', script)
         self.assertIn('"normalization": index.get("normalization")', script)
 
-        upload = next(step for step in steps if step["name"] == "Upload direct Android screenshot-review evidence")
+        upload = next(step for step in steps if step["name"] == "Upload Android screenshot-review candidate evidence by route")
         self.assertEqual(upload["with"]["operation"], "upload-directory")
         self.assertEqual(upload["with"]["destination_kind"], "repository-screenshots")
-        self.assertEqual(upload["with"]["subdirectory"], "review/${{ steps.screenshot_package.outputs.capture_profile }}")
+        self.assertEqual(upload["with"]["subdirectory"], "${{ steps.screenshot_package.outputs.capture_profile }}")
         self.assertEqual(upload["with"]["file_path"], "${{ steps.screenshot_package.outputs.evidence_dir }}")
         self.assertNotIn("file_name", upload["with"])
 
@@ -256,14 +261,14 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
         self.assertEqual(
             set(files),
             {
-                f"{canonical_id}--variant--movie.png",
-                f"{canonical_id}--variant--movie.json",
-                f"{canonical_id}--variant--series.png",
-                f"{canonical_id}--variant--series.json",
+                f"{canonical_id}--variant--movie/candidate.png",
+                f"{canonical_id}--variant--movie/_meta/candidate.json",
+                f"{canonical_id}--variant--series/candidate.png",
+                f"{canonical_id}--variant--series/_meta/candidate.json",
             },
         )
-        movie = json.loads(files[f"{canonical_id}--variant--movie.json"])
-        series = json.loads(files[f"{canonical_id}--variant--series.json"])
+        movie = json.loads(files[f"{canonical_id}--variant--movie/_meta/candidate.json"])
+        series = json.loads(files[f"{canonical_id}--variant--series/_meta/candidate.json"])
         self.assertEqual(movie["screen_id"], canonical_id)
         self.assertEqual(series["screen_id"], canonical_id)
         self.assertEqual(movie["variant"], "movie")
@@ -312,10 +317,15 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
             captures=[{"canonical_id": "mobile.home"}],
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(set(files), {"mobile.home.png", "mobile.home.json"})
-        metadata = json.loads(files["mobile.home.json"])
+        self.assertEqual(set(files), {"mobile.home/candidate.png", "mobile.home/_meta/candidate.json"})
+        metadata = json.loads(files["mobile.home/_meta/candidate.json"])
         self.assertEqual(metadata["screen_id"], "mobile.home")
         self.assertIsNone(metadata["variant"])
+        self.assertEqual(metadata["review_slot"], "candidate")
+        self.assertEqual(
+            metadata["review_drive_path"],
+            "repositories/iptv-android/screenshots/phone-portrait/mobile.home/candidate.png",
+        )
 
     def test_normal_lanes_receive_demo_secrets_only_and_scrub_all_fixed_values(self) -> None:
         steps = self.workflow["jobs"]["screenshot"]["steps"]
@@ -340,7 +350,7 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
         self.assertIn("file_found=false", script)
         self.assertIn("file_found=true", script)
         self.assertIn("repository-screenshots rejects unsupported legacy repository/file-name combination", script)
-        self.assertIn("repository-screenshots rejects unsupported direct-evidence review path", script)
+        self.assertIn("repository-screenshots rejects unsupported candidate profile", script)
         self.assertIn("upload-directory", script)
         for name in ("phone-portrait.zip", "phone-landscape.zip", "tablet-portrait.zip", "tablet-landscape.zip", "tv.zip", "ios.zip", "tvos.zip"):
             self.assertIn(name, script)

@@ -882,11 +882,16 @@ jobs:
                       "captured_at_utc": capture.get("captured_at_utc"),
                       "cache": index.get("cache"),
                       "normalization": index.get("normalization"),
+                      "review_slot": "candidate",
+                      "review_drive_path": f"{expected_root}/{profile}/{evidence_stem}/candidate.png",
                   }
                   if metadata["canonical_path"] is None or metadata["navigation_plan"] is None:
                       raise SystemExit("Android screenshot-review capture lacks direct-review provenance")
-                  (direct_dir / f"{evidence_stem}.png").write_bytes(image)
-                  (direct_dir / f"{evidence_stem}.json").write_text(
+                  evidence_dir = direct_dir / evidence_stem
+                  meta_dir = evidence_dir / "_meta"
+                  meta_dir.mkdir(parents=True, exist_ok=False)
+                  (evidence_dir / "candidate.png").write_bytes(image)
+                  (meta_dir / "candidate.json").write_text(
                       json.dumps(metadata, indent=2, sort_keys=True) + "\n",
                       encoding="utf-8",
                   )
@@ -896,7 +901,7 @@ jobs:
               output.write(f"capture_profile={profile}\n")
           PY_ANDROID_SCREENSHOT_PACKAGE
 
-      - name: Upload direct Android screenshot-review evidence
+      - name: Upload Android screenshot-review candidate evidence by route
         id: screenshot_upload
         if: ${{ steps.screenshot_selection.outputs.should_run == 'true' && steps.screenshot_package.outcome == 'success' }}
         uses: StreamScapeTV/ci-workflows/actions/google-drive@main
@@ -909,7 +914,7 @@ jobs:
           repository: StreamScapeTV/iptv-android
           operation: upload-directory
           destination_kind: repository-screenshots
-          subdirectory: review/${{ steps.screenshot_package.outputs.capture_profile }}
+          subdirectory: ${{ steps.screenshot_package.outputs.capture_profile }}
           file_path: ${{ steps.screenshot_package.outputs.evidence_dir }}
 
       - name: Stop Android screenshot emulator

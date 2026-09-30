@@ -1303,7 +1303,7 @@ jobs:
           if package.name != file_name or not package.is_file():
               raise SystemExit("screenshot-review package path/name mismatch")
           expected_root = "repositories/iptv-apple/screenshots"
-          expected_path = f"{expected_root}/{file_name}"
+          expected_path = f"{expected_root}/{source_sha}/{file_name}"
           try:
               with zipfile.ZipFile(package) as archive:
                   if archive.testzip() is not None:
@@ -1355,11 +1355,16 @@ jobs:
                   metadata = json.loads(archive.read(metadata_member))
                   if metadata.get("screen_id") != screen_id or metadata.get("source_sha") != source_sha:
                       raise SystemExit("screenshot-review per-screen metadata provenance mismatch")
+                  metadata["review_slot"] = "candidate"
+                  metadata["review_drive_path"] = f"{expected_root}/{platform}/{screen_id}/candidate.png"
                   image_bytes = archive.read(screenshot_member)
                   if len(image_bytes) < 64 or not image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
                       raise SystemExit("screenshot-review capture is not a valid PNG payload")
-                  (direct_dir / f"{screen_id}.png").write_bytes(image_bytes)
-                  (direct_dir / f"{screen_id}.json").write_text(
+                  route_dir = direct_dir / screen_id
+                  meta_dir = route_dir / "_meta"
+                  meta_dir.mkdir(parents=True, exist_ok=False)
+                  (route_dir / "candidate.png").write_bytes(image_bytes)
+                  (meta_dir / "candidate.json").write_text(
                       json.dumps(metadata, indent=2, sort_keys=True) + "\n",
                       encoding="utf-8",
                   )
@@ -1371,7 +1376,7 @@ jobs:
               output.write(f"evidence_dir={direct_dir}\n")
           PY_SCREENSHOT_PACKAGE
 
-      - name: Upload direct screenshot-review evidence to repository review folder
+      - name: Upload screenshot-review candidate evidence by route
         if: ${{ inputs.test_profile == 'screenshot-review' && steps.screenshot_package.outcome == 'success' }}
         uses: StreamScapeTV/ci-workflows/actions/google-drive@main
         env:
@@ -1383,7 +1388,7 @@ jobs:
           repository: ${{ inputs.repository || github.repository }}
           operation: upload-directory
           destination_kind: repository-screenshots
-          subdirectory: review/${{ steps.screenshot_package.outputs.platform }}
+          subdirectory: ${{ steps.screenshot_package.outputs.platform }}
           file_path: ${{ steps.screenshot_package.outputs.evidence_dir }}
 
       - name: Clean screenshot-review package state
