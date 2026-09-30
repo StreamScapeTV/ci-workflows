@@ -137,33 +137,43 @@ def _eligible_device(value: object) -> str | None:
     return identifier
 
 
+def _cleanup_private_inventory(inventory_path: Path) -> None:
+    if inventory_path.is_symlink() or inventory_path.is_file():
+        inventory_path.unlink()
+    elif inventory_path.exists():
+        fail('Apple physical-device discovery private inventory is not a regular file')
+    if inventory_path.exists() or inventory_path.is_symlink():
+        fail('Apple physical-device discovery private inventory cleanup failed')
+
+
 def discover_attached_iphone(runner_temp: Path) -> str:
     inventory_path = runner_temp / INVENTORY_NAME
     if inventory_path.exists() or inventory_path.is_symlink():
         fail('Apple physical-device discovery private inventory already exists')
+    payload: object | None = None
     try:
-        completed = subprocess.run(
-            [
-                'xcrun',
-                'devicectl',
-                'list',
-                'devices',
-                '--json-output',
-                str(inventory_path),
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=60,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise DeviceError('Apple physical-device discovery failed before product execution') from exc
-    if completed.returncode != 0:
-        fail('Apple physical-device discovery failed before product execution')
-    if inventory_path.is_symlink() or not inventory_path.is_file():
-        fail('Apple physical-device discovery returned no private inventory')
-    try:
+        try:
+            completed = subprocess.run(
+                [
+                    'xcrun',
+                    'devicectl',
+                    'list',
+                    'devices',
+                    '--json-output',
+                    str(inventory_path),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise DeviceError('Apple physical-device discovery failed before product execution') from exc
+        if completed.returncode != 0:
+            fail('Apple physical-device discovery failed before product execution')
+        if inventory_path.is_symlink() or not inventory_path.is_file():
+            fail('Apple physical-device discovery returned no private inventory')
         if inventory_path.stat().st_size > 1024 * 1024:
             fail('Apple physical-device discovery inventory exceeds the reviewed bound')
         try:
@@ -171,12 +181,8 @@ def discover_attached_iphone(runner_temp: Path) -> str:
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             raise DeviceError('Apple physical-device discovery returned invalid data') from exc
     finally:
-        if inventory_path.is_symlink():
-            fail('Apple physical-device discovery private inventory became a symlink')
-        if inventory_path.exists():
-            inventory_path.unlink()
-        if inventory_path.exists() or inventory_path.is_symlink():
-            fail('Apple physical-device discovery private inventory cleanup failed')
+        _cleanup_private_inventory(inventory_path)
+
     if not isinstance(payload, dict):
         fail('Apple physical-device discovery returned invalid data')
     result = payload.get('result')
