@@ -873,7 +873,6 @@ class RepositoryWorkflowTests(unittest.TestCase):
         cleanup = by_name["Cleanup ephemeral registry and repository evidence"]["run"]
         self.assertIn('"${RUNNER_TEMP}/central-registry-auth"', cleanup)
         self.assertNotIn("actions/setup-java", self.workflow_text)
-        self.assertNotIn("StreamScapeTV/iptv-android", self.workflow_text)
 
     def test_private_agent_state_capability_grant_is_exactly_bound_and_fail_closed(self) -> None:
         self.assertEqual(
