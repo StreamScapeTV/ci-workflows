@@ -710,7 +710,7 @@ jobs:
               "projectStateKey": "repository_ci_apple_physical_device_v1",
               "schemaVersion": 1,
               "maximumAuthorizationSeconds": 86400,
-              "binding": ["repository", "ref", "source_is_tag", "source_sha", "operation", "platform", "device_class"],
+              "binding": ["repository", "ref", "source_is_tag", "source_sha", "operation", "platform", "device_class", "semantic_inputs_sha256"],
           }:
               raise SystemExit("repository CI Apple physical-device capability configuration is invalid")
           print(",".join(sorted(expected)))
@@ -893,10 +893,13 @@ jobs:
               descriptor = state.get("repository_ci_apple_physical_device_v1")
               expected_descriptor_fields = {
                   "schemaVersion", "repository", "ref", "sourceIsTag", "sourceSha",
-                  "operation", "platform", "deviceClass", "authorizedAt", "expiresAt",
+                  "operation", "platform", "deviceClass", "semanticInputsSha256", "authorizedAt", "expiresAt",
               }
               if not isinstance(descriptor, dict) or set(descriptor) != expected_descriptor_fields:
                   raise SystemExit("Apple physical-device authorization descriptor is missing or invalid")
+              semantic_inputs_sha256 = __import__("hashlib").sha256(
+                  json.dumps(normalized_inputs, sort_keys=True, separators=(",", ":")).encode("utf-8")
+              ).hexdigest()
               if (
                   descriptor.get("schemaVersion") != 1
                   or descriptor.get("repository") != expected_repository
@@ -906,6 +909,7 @@ jobs:
                   or descriptor.get("operation") != "device-test"
                   or descriptor.get("platform") != "ios"
                   or descriptor.get("deviceClass") != "iphone"
+                  or descriptor.get("semanticInputsSha256") != semantic_inputs_sha256
               ):
                   raise SystemExit("Apple physical-device authorization descriptor does not match this exact request")
               def parse_utc(value, label):
