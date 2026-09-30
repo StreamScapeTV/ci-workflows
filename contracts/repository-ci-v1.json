@@ -8,7 +8,8 @@
       "test": ".ci/test.sh",
       "full": ".ci/test-full.sh",
       "ui-test": ".ci/test-ui.sh",
-      "release": ".ci/release.sh"
+      "release": ".ci/release.sh",
+      "device-test": ".ci/device-test.sh"
     },
     "hostExecution": {
       "linux": {
@@ -20,13 +21,14 @@
     },
     "scriptEnvironment": {
       "CI_HOST_OS": "Current child operating system selected by the tracked repository execution plan, or by legacy host_os only when no plan exists.",
-      "CI_OPERATION": "Selected fixed semantic operation: build, test, full, ui-test, or separately authorized release.",
+      "CI_OPERATION": "Selected fixed semantic operation: build, test, full, ui-test, device-test, or separately authorized release.",
       "CI_INPUTS_JSON": "Canonical JSON object with schemaVersion=1 and an inputs object validated against the operation schema.",
       "CI_LOG_DIR": "Central-owned optional text evidence directory.",
       "CI_ARTIFACT_DIR": "Central-owned optional bounded artifact evidence directory.",
       "CI_PROGRESS_FILE": "Central-owned optional progress text file.",
       "CI_HOST_CLASS": "Resolved reviewed generic host class; informational and read-only for repository scripts.",
-      "CI_PROTECTED_DEPLOYED_CONFORMANCE": "Informational boolean set only while the trusted protected_deployed_conformance capability is admitted; protected targets, scenarios and credentials are not exposed through CI_INPUTS_JSON."
+      "CI_PROTECTED_DEPLOYED_CONFORMANCE": "Informational boolean set only while the trusted protected_deployed_conformance capability is admitted; protected targets, scenarios and credentials are not exposed through CI_INPUTS_JSON.",
+      "CI_DEVICE_CONTEXT_FILE": "Ephemeral mode-0600 Central-owned device context path set only while an authorized physical-device capability wraps the fixed device-test entrypoint; raw device identifiers are never workflow inputs or durable evidence."
     },
     "adoptionSteps": [
       "Add tracked executable fixed entrypoints under .ci/; unsupported operations must fail closed explicitly.",
@@ -97,7 +99,8 @@
         "test": "operating-system-list",
         "full": "operating-system-list",
         "ui-test": "operating-system-list",
-        "release": "operating-system-list"
+        "release": "operating-system-list",
+        "device-test": "operating-system-list"
       }
     }
   },
@@ -141,6 +144,12 @@
         "type": "string",
         "maxLength": 64,
         "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$"
+      },
+      "device_platform": {
+        "type": "enum",
+        "values": [
+          "ios"
+        ]
       }
     },
     "operations": {
@@ -183,6 +192,16 @@
           "release_kind",
           "build_identity"
         ]
+      },
+      "device-test": {
+        "allowed": [
+          "device_platform",
+          "test_selectors"
+        ],
+        "required": [
+          "device_platform",
+          "test_selectors"
+        ]
       }
     }
   },
@@ -192,7 +211,8 @@
     "registry_netrc": "Configure ephemeral HTTPS .netrc credentials for the approved private package registry host.",
     "gradle_maven": "Configure ephemeral Gradle properties centralRegistryUsername and centralRegistryReadToken for a repository that consumes a private Maven registry.",
     "registry_oci_publish": "Configure isolated authenticated OCI image and Helm registry publication state for an authorized repository release without exposing the write credential to repository code.",
-    "protected_deployed_conformance": "Materialize one fixed protected deployed-conformance bundle from Central secrets and a trusted Agent State descriptor, execute one tracked no-argv Python certifier after repository full validation, and require bounded deterministic reset/readback before cleanup."
+    "protected_deployed_conformance": "Materialize one fixed protected deployed-conformance bundle from Central secrets and a trusted Agent State descriptor, execute one tracked no-argv Python certifier after repository full validation, and require bounded deterministic reset/readback before cleanup.",
+    "apple_physical_device": "Authorize one exact-source, time-bounded iOS/iPhone physical-device execution on the reviewed high-capacity macOS host; Central discovers/fences the attached device and exposes only an ephemeral private device-context file to the fixed repository device-test entrypoint."
   },
   "infrastructure": {
     "githubHost": "github.com"
@@ -220,7 +240,23 @@
       2,
       3
     ],
-    "hostPolicyOwnedByAgentState": true
+    "hostPolicyOwnedByAgentState": true,
+    "capabilityConfiguration": {
+      "apple_physical_device": {
+        "projectStateKey": "repository_ci_apple_physical_device_v1",
+        "schemaVersion": 1,
+        "maximumAuthorizationSeconds": 86400,
+        "binding": [
+          "repository",
+          "ref",
+          "source_is_tag",
+          "source_sha",
+          "operation",
+          "platform",
+          "device_class"
+        ]
+      }
+    }
   },
   "migrationLedger": {
     "source": "Agent State ci-workflows project configuration",
