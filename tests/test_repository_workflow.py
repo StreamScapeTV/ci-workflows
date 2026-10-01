@@ -432,6 +432,33 @@ class RepositoryWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(ui.returncode, 0, ui.stderr)
 
+        ui_custom, ui_custom_output = self.run_repository_request(
+            operation="ui-test",
+            host_os="macos",
+            semantic={
+                "product_target": "ios",
+                "test_selectors": [
+                    "AppUITests/NavigationRegression/testCredentialFreeRoute",
+                    "AppUITests/LaunchSmoke/testSignedOutRoot",
+                ],
+            },
+        )
+        self.assertEqual(ui_custom.returncode, 0, ui_custom.stderr)
+        ui_inputs = json.loads(
+            next(
+                line
+                for line in ui_custom_output.splitlines()
+                if line.startswith("semantic_inputs_json=")
+            ).split("=", 1)[1]
+        )["inputs"]
+        self.assertEqual(
+            ui_inputs["test_selectors"],
+            [
+                "AppUITests/NavigationRegression/testCredentialFreeRoute",
+                "AppUITests/LaunchSmoke/testSignedOutRoot",
+            ],
+        )
+
         for semantic, message in (
             ({"unknown": "value"}, "unknown field"),
             ({"product_target": "../escape"}, "outside the reviewed bound"),
@@ -491,6 +518,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         operations = self.contract["semanticInputs"]["operations"]
         for operation in ("build", "test", "full"):
             self.assertIn("build_configuration", operations[operation]["allowed"])
+        self.assertIn("test_selectors", operations["ui-test"]["allowed"])
         self.assertNotIn("build_configuration", operations["ui-test"]["allowed"])
         self.assertNotIn("build_configuration", operations["release"]["allowed"])
 
@@ -552,6 +580,30 @@ class RepositoryWorkflowTests(unittest.TestCase):
 
         no_semantics = self.run_dispatch_request("full", {"host_os": "macos"})
         self.assertEqual(no_semantics.returncode, 0, no_semantics.stderr)
+
+        ui_custom = self.run_dispatch_request(
+            "ui-test",
+            {
+                "host_os": "macos",
+                "semantic_inputs": json.dumps(
+                    {
+                        "product_target": "ios",
+                        "test_selectors": ["AppUITests/NavigationRegression/testCredentialFreeRoute"],
+                    }
+                ),
+            },
+        )
+        self.assertEqual(ui_custom.returncode, 0, ui_custom.stderr)
+
+        ui_injected = self.run_dispatch_request(
+            "ui-test",
+            {
+                "host_os": "macos",
+                "semantic_inputs": json.dumps({"test_selectors": ["-only-testing:Injected"]}),
+            },
+        )
+        self.assertNotEqual(ui_injected.returncode, 0)
+        self.assertIn("invalid selector", ui_injected.stderr)
 
         physical = self.run_dispatch_request(
             "device-test",
