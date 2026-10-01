@@ -353,7 +353,7 @@ def collect_sample(
 
     vm_service_log_inventory_observed = False
     vm_service_publication_ports: set[int] = set()
-    if "flutter" in tool_processes:
+    if {"flutter", "dart"}.intersection(tool_processes):
         probes = 0
         for simulator in simulators:
             udid = simulator["udid"]

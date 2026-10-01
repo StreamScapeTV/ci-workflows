@@ -35,7 +35,7 @@ class RepositoryRuntimeProbeTests(unittest.TestCase):
             {
                 ("ps", "-axo", "pid=,ppid=,state=,etime=,comm="): mod.CommandResult(
                     0,
-                    "10 1 S 00:10 /opt/flutter/bin/flutter\n"
+                    "10 1 S 00:10 /opt/flutter/bin/cache/dart-sdk/bin/dart\n"
                     "20 10 S 00:05 /usr/bin/xcodebuild\n"
                     "30 1 S 00:02 /Users/runner/Library/Developer/CoreSimulator/Devices/"
                     + udid
@@ -89,7 +89,7 @@ class RepositoryRuntimeProbeTests(unittest.TestCase):
         )
         sample = mod.collect_sample(sequence=7, runner=runner, observed_at="2026-09-29T12:00:00Z")
         self.assertEqual(sample["sequence"], 7)
-        self.assertEqual(sample["tool_processes"], ["flutter", "xcodebuild"])
+        self.assertEqual(sample["tool_processes"], ["dart", "xcodebuild"])
         self.assertEqual(sample["simulator_app_processes"], ["App"])
         self.assertEqual(sample["third_party_apps"][udid], ["dev.example.app"])
         self.assertEqual(sample["listeners"], [{"pid": 30, "comm": "App", "endpoint": "127.0.0.1:53123"}])
