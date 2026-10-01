@@ -74,6 +74,11 @@ class RepositoryRuntimeProbeTests(unittest.TestCase):
                     "30 1 S 00:02 /private/var/containers/Bundle/Application/X/App.app/App\n"
                     "31 1 S 00:01 SpringBoard\n",
                 ),
+                mod._vm_service_log_command(udid, 30): mod.CommandResult(
+                    0,
+                    "2026-09-29 App[30] flutter: The Dart VM service is listening on "
+                    "http://127.0.0.1:53123/SECRET-AUTH-CODE=/\n",
+                ),
                 ("lsof", "-nP", "-iTCP", "-sTCP:LISTEN"): mod.CommandResult(
                     0,
                     "COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME\n"
@@ -88,8 +93,12 @@ class RepositoryRuntimeProbeTests(unittest.TestCase):
         self.assertEqual(sample["simulator_app_processes"], ["App"])
         self.assertEqual(sample["third_party_apps"][udid], ["dev.example.app"])
         self.assertEqual(sample["listeners"], [{"pid": 30, "comm": "App", "endpoint": "127.0.0.1:53123"}])
+        self.assertTrue(sample["vm_service_log_inventory_observed"])
+        self.assertEqual(sample["vm_service_publication_ports"], [53123])
+        self.assertTrue(sample["vm_service_listener_match"])
         encoded = mod._encode_sample(sample)
         self.assertNotIn(b"--dart-define", encoded)
+        self.assertNotIn(b"SECRET-AUTH-CODE", encoded)
         self.assertLessEqual(len(encoded), mod.MAX_LINE_BYTES)
 
     def test_summary_reports_observed_launch_boundaries(self) -> None:
@@ -123,6 +132,9 @@ class RepositoryRuntimeProbeTests(unittest.TestCase):
                     "simulator_app_processes": ["App"],
                     "listener_inventory_observed": True,
                     "listeners": [{"pid": 30, "comm": "App", "endpoint": "127.0.0.1:53000"}],
+                    "vm_service_log_inventory_observed": True,
+                    "vm_service_publication_ports": [53000],
+                    "vm_service_listener_match": True,
                     "errors": [],
                 },
             ]
@@ -134,6 +146,64 @@ class RepositoryRuntimeProbeTests(unittest.TestCase):
             self.assertIn("simulator_app_process_seen=1", lines[0])
             self.assertIn("candidate_listener_seen=1", lines[0])
             self.assertIn("xcodebuild_seen=1", lines[0])
+            self.assertIn("vm_service_log_inventory_observed=1", lines[0])
+            self.assertIn("vm_service_publication_seen=1", lines[0])
+            self.assertIn("vm_service_listener_match=1", lines[0])
+
+    def test_collect_sample_distinguishes_listener_without_vm_service_publication(self) -> None:
+        udid = "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+        runner = FakeRunner(
+            {
+                ("ps", "-axo", "pid=,ppid=,state=,etime=,comm="): mod.CommandResult(
+                    0,
+                    "10 1 S 00:10 /opt/flutter/bin/flutter\n",
+                ),
+                ("xcrun", "simctl", "list", "devices", "booted", "-j"): mod.CommandResult(
+                    0,
+                    json.dumps(
+                        {
+                            "devices": {
+                                "runtime": [
+                                    {"name": "iPhone 17", "udid": udid, "state": "Booted"}
+                                ]
+                            }
+                        }
+                    ),
+                ),
+                ("xcrun", "simctl", "listapps", udid): mod.CommandResult(
+                    0,
+                    '{\n    "dev.example.app" = {\n'
+                    '        CFBundleExecutable = App;\n'
+                    '    };\n}\n',
+                ),
+                (
+                    "xcrun",
+                    "simctl",
+                    "spawn",
+                    udid,
+                    "ps",
+                    "-axo",
+                    "pid=,ppid=,state=,etime=,comm=",
+                ): mod.CommandResult(
+                    0,
+                    "30 1 S 00:02 /private/var/containers/Bundle/Application/X/App.app/App\n",
+                ),
+                mod._vm_service_log_command(udid, 30): mod.CommandResult(
+                    0,
+                    "2026-09-29 App[30] flutter: first frame rendered\n",
+                ),
+                ("lsof", "-nP", "-iTCP", "-sTCP:LISTEN"): mod.CommandResult(
+                    0,
+                    "COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME\n"
+                    "App 30 runner 9u IPv4 0 0t0 TCP 127.0.0.1:53123 (LISTEN)\n",
+                ),
+            }
+        )
+        sample = mod.collect_sample(sequence=1, runner=runner)
+        self.assertTrue(sample["vm_service_log_inventory_observed"])
+        self.assertEqual(sample["vm_service_publication_ports"], [])
+        self.assertFalse(sample["vm_service_listener_match"])
+        self.assertEqual(sample["listeners"][0]["endpoint"], "127.0.0.1:53123")
 
     def test_append_summary_keeps_probe_out_of_process_arguments(self) -> None:
         with tempfile.TemporaryDirectory() as td:
