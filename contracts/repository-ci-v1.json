@@ -28,6 +28,11 @@
       "CI_PROGRESS_FILE": "Central-owned optional progress text file.",
       "CI_HOST_CLASS": "Resolved reviewed generic host class; informational and read-only for repository scripts.",
       "CI_PROTECTED_DEPLOYED_CONFORMANCE": "Informational boolean set only while the trusted protected_deployed_conformance capability is admitted; protected targets, scenarios and credentials are not exposed through CI_INPUTS_JSON.",
+      "CI_BACKUP_S3_ENDPOINT": "Fixed private S3-compatible backup endpoint exposed only to an exact authorized backup_s3_read repository release.",
+      "CI_BACKUP_S3_BUCKET": "Fixed private backup bucket exposed only to an exact authorized backup_s3_read repository release.",
+      "CI_BACKUP_S3_REGION": "Optional fixed backup region exposed only to an exact authorized backup_s3_read repository release; empty when the provider does not require one.",
+      "CI_BACKUP_S3_ACCESS_KEY_ID": "Read-only backup-store access-key identifier exposed only to an exact authorized backup_s3_read repository release.",
+      "CI_BACKUP_S3_SECRET_ACCESS_KEY": "Read-only backup-store secret key exposed only to an exact authorized backup_s3_read repository release.",
       "CI_DEVICE_CONTEXT_FILE": "Ephemeral mode-0600 Central-owned device context path set only while an authorized physical-device capability wraps the fixed device-test entrypoint; raw device identifiers are never workflow inputs or durable evidence."
     },
     "adoptionSteps": [
@@ -211,6 +216,7 @@
     "registry_netrc": "Configure ephemeral HTTPS .netrc credentials for the approved private package registry host.",
     "gradle_maven": "Configure ephemeral Gradle properties centralRegistryUsername and centralRegistryReadToken for a repository that consumes a private Maven registry.",
     "registry_oci_publish": "Configure isolated authenticated OCI image and Helm registry publication state for an authorized repository release without exposing the write credential to repository code.",
+    "backup_s3_read": "Expose one fixed read-only S3-compatible production-backup connection bundle only to an exact authorized repository release; restore, database, migration, health, smoke, and cleanup commands remain repository-owned.",
     "protected_deployed_conformance": "Materialize one fixed protected deployed-conformance bundle from Central secrets and a trusted Agent State descriptor, execute one tracked no-argv Python certifier after repository full validation, and require bounded deterministic reset/readback before cleanup.",
     "apple_physical_device": "Authorize one exact-source, time-bounded iOS/iPhone physical-device execution on the reviewed high-capacity macOS host; Central discovers/fences the attached device and exposes only an ephemeral private device-context file to the fixed repository device-test entrypoint."
   },
@@ -242,6 +248,19 @@
     ],
     "hostPolicyOwnedByAgentState": true,
     "capabilityConfiguration": {
+      "backup_s3_read": {
+        "projectStateKey": "repository_ci_backup_s3_read_v1",
+        "schemaVersion": 1,
+        "binding": [
+          "project_key",
+          "ci_run_id",
+          "repository",
+          "ref",
+          "source_is_tag",
+          "source_sha",
+          "operation"
+        ]
+      },
       "apple_physical_device": {
         "projectStateKey": "repository_ci_apple_physical_device_v1",
         "schemaVersion": 1,

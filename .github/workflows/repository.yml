@@ -100,6 +100,16 @@ name: Repository-owned CI
         required: false
       PROTECTED_DEPLOYED_SETUP_CREDENTIAL:
         required: false
+      BACKUP_S3_ENDPOINT:
+        required: false
+      BACKUP_S3_BUCKET:
+        required: false
+      BACKUP_S3_REGION:
+        required: false
+      BACKUP_S3_ACCESS_KEY_ID:
+        required: false
+      BACKUP_S3_SECRET_ACCESS_KEY:
+        required: false
 
 permissions:
   contents: read
@@ -696,7 +706,7 @@ jobs:
           trusted = value.get("trustedCapabilityGrant")
           if not isinstance(capability_types, dict) or not isinstance(trusted, dict):
               raise SystemExit("repository CI capability contract is incomplete")
-          expected = {"private_network", "github_git", "registry_netrc", "gradle_maven", "registry_oci_publish", "protected_deployed_conformance", "apple_physical_device"}
+          expected = {"private_network", "github_git", "registry_netrc", "gradle_maven", "registry_oci_publish", "backup_s3_read", "protected_deployed_conformance", "apple_physical_device"}
           if set(capability_types) != expected:
               raise SystemExit("repository CI capability type set is not the reviewed v1 set")
           if trusted.get("source") != "Agent State project configuration":
@@ -705,7 +715,15 @@ jobs:
               raise SystemExit("repository CI trusted capability schema is invalid")
           if trusted.get("defaultCapabilities") != [] or trusted.get("failClosed") is not True:
               raise SystemExit("repository CI trusted capability default must fail closed")
-          physical_config = (trusted.get("capabilityConfiguration") or {}).get("apple_physical_device")
+          capability_configuration = trusted.get("capabilityConfiguration") or {}
+          backup_config = capability_configuration.get("backup_s3_read")
+          if backup_config != {
+              "projectStateKey": "repository_ci_backup_s3_read_v1",
+              "schemaVersion": 1,
+              "binding": ["project_key", "ci_run_id", "repository", "ref", "source_is_tag", "source_sha", "operation"],
+          }:
+              raise SystemExit("repository CI backup S3 read capability configuration is invalid")
+          physical_config = capability_configuration.get("apple_physical_device")
           if physical_config != {
               "projectStateKey": "repository_ci_apple_physical_device_v1",
               "schemaVersion": 1,
@@ -820,7 +838,7 @@ jobs:
 
           project_response="$(rpc get_project_state "$(jq -cn --arg project "${project_key}" '{p_project_key:$project}')")"
           project_state="$(jq -c '.state // {}' <<<"${project_response}")"
-          PROJECT_STATE="${project_state}" python3 - "${known_capabilities}" "${SOURCE_REPOSITORY}" "${OPERATION}" "${HOST_OS}" "${capability_context}" "${project_key}" "${GITHUB_OUTPUT}" <<'PY_CAPABILITIES'
+          PROJECT_STATE="${project_state}" CAPABILITY_RUN_ID="${capability_run_id}" python3 - "${known_capabilities}" "${SOURCE_REPOSITORY}" "${OPERATION}" "${HOST_OS}" "${capability_context}" "${project_key}" "${GITHUB_OUTPUT}" <<'PY_CAPABILITIES'
           from pathlib import Path
           import json
           import os
@@ -830,6 +848,7 @@ jobs:
           known = set(known_raw.split(","))
           host_class = os.environ.get("HOST_CLASS", "")
           observed_source_sha = os.environ.get("OBSERVED_SOURCE_SHA", "")
+          capability_run_id = os.environ.get("CAPABILITY_RUN_ID", "")
           try:
               normalized_inputs = json.loads(os.environ.get("NORMALIZED_INPUTS", "{}"))
           except json.JSONDecodeError as exc:
@@ -867,6 +886,11 @@ jobs:
           ):
               enabled_capabilities.discard("registry_oci_publish")
           if (
+              operation != "release"
+              or capability_context not in {"repository_lifecycle", "repository_parent"}
+          ):
+              enabled_capabilities.discard("backup_s3_read")
+          if (
               operation != "full"
               or host_os != "linux"
               or capability_context not in {"repository_lifecycle", "repository_parent"}
@@ -878,6 +902,26 @@ jobs:
               or capability_context not in {"repository_lifecycle", "repository_parent"}
           ):
               enabled_capabilities.discard("apple_physical_device")
+
+          if "backup_s3_read" in enabled_capabilities:
+              descriptor = state.get("repository_ci_backup_s3_read_v1")
+              expected_descriptor_fields = {
+                  "schemaVersion", "projectKey", "ciRunId", "repository", "ref",
+                  "sourceIsTag", "sourceSha", "operation",
+              }
+              if not isinstance(descriptor, dict) or set(descriptor) != expected_descriptor_fields:
+                  raise SystemExit("backup S3 read authorization descriptor is missing or invalid")
+              if (
+                  descriptor.get("schemaVersion") != 1
+                  or descriptor.get("projectKey") != project_key
+                  or descriptor.get("ciRunId") != capability_run_id
+                  or descriptor.get("repository") != expected_repository
+                  or descriptor.get("ref") != os.environ.get("SOURCE_REF", "")
+                  or descriptor.get("sourceIsTag") != (os.environ.get("SOURCE_IS_TAG", "") == "true")
+                  or descriptor.get("sourceSha") != observed_source_sha
+                  or descriptor.get("operation") != "release"
+              ):
+                  raise SystemExit("backup S3 read authorization descriptor does not match this exact release run")
 
           physical_authorized_at = ""
           physical_expires_at = ""
@@ -1291,10 +1335,11 @@ jobs:
           APPLE_PHYSICAL_DEVICE_ENABLED: ${{ steps.capabilities.outputs.apple_physical_device }}
           APPLE_PHYSICAL_DEVICE_AUTHORIZED_AT: ${{ steps.capabilities.outputs.apple_physical_device_authorized_at }}
           APPLE_PHYSICAL_DEVICE_EXPIRES_AT: ${{ steps.capabilities.outputs.apple_physical_device_expires_at }}
+          BACKUP_S3_READ_ENABLED: ${{ steps.capabilities.outputs.backup_s3_read }}
           LIFECYCLE_CI_RUN_ID: ${{ inputs.ci_run_id }}
           TRUSTED_CAPABILITY_CI_RUN_ID: ${{ inputs.trusted_capability_ci_run_id }}
           SOURCE_REPOSITORY: ${{ inputs.repository }}
-          CHECKPOINT_ENABLED: ${{ inputs.operation != 'device-test' && (inputs.ci_run_id != '' || inputs.upload_private_log) && steps.log_seed.outcome == 'success' && 'true' || 'false' }}
+          CHECKPOINT_ENABLED: ${{ inputs.operation != 'device-test' && steps.capabilities.outputs.backup_s3_read != 'true' && (inputs.ci_run_id != '' || inputs.upload_private_log) && steps.log_seed.outcome == 'success' && 'true' || 'false' }}
           CHECKPOINT_FILE_ID: ${{ steps.log_seed.outputs.file_id }}
           CHECKPOINT_SEED_SHA256: ${{ steps.log_seed.outputs.file_sha256 }}
           CHECKPOINT_GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
@@ -1317,6 +1362,11 @@ jobs:
           CI_SECRET_REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           CI_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
           CI_SECRET_REGISTRY_WRITE_TOKEN: ${{ secrets.REGISTRY_WRITE_TOKEN }}
+          CI_SECRET_BACKUP_S3_ENDPOINT: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_ENDPOINT || '' }}
+          CI_SECRET_BACKUP_S3_BUCKET: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_BUCKET || '' }}
+          CI_SECRET_BACKUP_S3_REGION: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_REGION || '' }}
+          CI_SECRET_BACKUP_S3_ACCESS_KEY_ID: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_ACCESS_KEY_ID || '' }}
+          CI_SECRET_BACKUP_S3_SECRET_ACCESS_KEY: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_SECRET_ACCESS_KEY || '' }}
           CI_SECRET_PROTECTED_DEPLOYED_HTTPS_TARGET: ${{ steps.capabilities.outputs.protected_deployed_conformance == 'true' && secrets.PROTECTED_DEPLOYED_HTTPS_TARGET || '' }}
           CI_SECRET_PROTECTED_DEPLOYED_WSS_TARGET: ${{ steps.capabilities.outputs.protected_deployed_conformance == 'true' && secrets.PROTECTED_DEPLOYED_WSS_TARGET || '' }}
           CI_SECRET_PROTECTED_DEPLOYED_HTTP_SCENARIO: ${{ steps.capabilities.outputs.protected_deployed_conformance == 'true' && secrets.PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64 || '' }}
@@ -1335,6 +1385,19 @@ jobs:
           protected_http_scenario="${CI_SECRET_PROTECTED_DEPLOYED_HTTP_SCENARIO:-}"
           protected_websocket_scenario="${CI_SECRET_PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO:-}"
           protected_setup_credential="${CI_SECRET_PROTECTED_DEPLOYED_SETUP_CREDENTIAL:-}"
+          backup_s3_endpoint="${CI_SECRET_BACKUP_S3_ENDPOINT:-}"
+          backup_s3_bucket="${CI_SECRET_BACKUP_S3_BUCKET:-}"
+          backup_s3_region="${CI_SECRET_BACKUP_S3_REGION:-}"
+          backup_s3_access_key_id="${CI_SECRET_BACKUP_S3_ACCESS_KEY_ID:-}"
+          backup_s3_secret_access_key="${CI_SECRET_BACKUP_S3_SECRET_ACCESS_KEY:-}"
+          if test "${BACKUP_S3_READ_ENABLED}" = true; then
+            test "${OPERATION}" = release || { echo "backup S3 read capability is bounded to repository release" >&2; exit 2; }
+            test -n "${backup_s3_endpoint}" && test -n "${backup_s3_bucket}" \
+              && test -n "${backup_s3_access_key_id}" && test -n "${backup_s3_secret_access_key}" || {
+                echo "reviewed backup S3 read capability is missing its fixed connection bundle" >&2
+                exit 1
+              }
+          fi
           if test "${AUTH_ENABLED}" = true; then
             export HOME="${AUTH_HOME}"
             export GIT_CONFIG_GLOBAL="${AUTH_GIT_CONFIG}"
@@ -1479,6 +1542,11 @@ jobs:
             CI_SECRET_REGISTRY_USERNAME \
             CI_SECRET_REGISTRY_READ_TOKEN \
             CI_SECRET_REGISTRY_WRITE_TOKEN \
+            CI_SECRET_BACKUP_S3_ENDPOINT \
+            CI_SECRET_BACKUP_S3_BUCKET \
+            CI_SECRET_BACKUP_S3_REGION \
+            CI_SECRET_BACKUP_S3_ACCESS_KEY_ID \
+            CI_SECRET_BACKUP_S3_SECRET_ACCESS_KEY \
             CI_SECRET_PROTECTED_DEPLOYED_HTTPS_TARGET \
             CI_SECRET_PROTECTED_DEPLOYED_WSS_TARGET \
             CI_SECRET_PROTECTED_DEPLOYED_HTTP_SCENARIO \
@@ -1494,6 +1562,13 @@ jobs:
             cd source
             if test "${OPERATION}" = device-test; then
               python3 ../central-ci/scripts/ci/repository_apple_physical_device.py execute
+            elif test "${BACKUP_S3_READ_ENABLED}" = true; then
+              CI_BACKUP_S3_ENDPOINT="${backup_s3_endpoint}" \
+              CI_BACKUP_S3_BUCKET="${backup_s3_bucket}" \
+              CI_BACKUP_S3_REGION="${backup_s3_region}" \
+              CI_BACKUP_S3_ACCESS_KEY_ID="${backup_s3_access_key_id}" \
+              CI_BACKUP_S3_SECRET_ACCESS_KEY="${backup_s3_secret_access_key}" \
+                "./${ENTRYPOINT}"
             else
               "./${ENTRYPOINT}"
             fi
@@ -1569,6 +1644,7 @@ jobs:
           status="${pipeline_status[0]}"
           capture_status="${pipeline_status[1]}"
           set -e
+          unset backup_s3_endpoint backup_s3_bucket backup_s3_region backup_s3_access_key_id backup_s3_secret_access_key
           stop_runtime_probe
           if test -n "${runtime_probe_path}" && test -s "${runtime_probe_path}"; then
             if ! python3 central-ci/scripts/ci/repository_runtime_probe.py summary \
@@ -1762,6 +1838,11 @@ jobs:
           CI_SECRET_REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           CI_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
           CI_SECRET_REGISTRY_WRITE_TOKEN: ${{ secrets.REGISTRY_WRITE_TOKEN }}
+          CI_SECRET_BACKUP_S3_ENDPOINT: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_ENDPOINT || '' }}
+          CI_SECRET_BACKUP_S3_BUCKET: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_BUCKET || '' }}
+          CI_SECRET_BACKUP_S3_REGION: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_REGION || '' }}
+          CI_SECRET_BACKUP_S3_ACCESS_KEY_ID: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_ACCESS_KEY_ID || '' }}
+          CI_SECRET_BACKUP_S3_SECRET_ACCESS_KEY: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_SECRET_ACCESS_KEY || '' }}
           CI_SECRET_PROTECTED_DEPLOYED_HTTPS_TARGET: ${{ steps.capabilities.outputs.protected_deployed_conformance == 'true' && secrets.PROTECTED_DEPLOYED_HTTPS_TARGET || '' }}
           CI_SECRET_PROTECTED_DEPLOYED_WSS_TARGET: ${{ steps.capabilities.outputs.protected_deployed_conformance == 'true' && secrets.PROTECTED_DEPLOYED_WSS_TARGET || '' }}
           CI_SECRET_PROTECTED_DEPLOYED_HTTP_SCENARIO: ${{ steps.capabilities.outputs.protected_deployed_conformance == 'true' && secrets.PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64 || '' }}

@@ -36,6 +36,7 @@ one semantic parent operation; it never selects runner labels or capabilities.
 | Ephemeral generic HTTPS package-registry read authentication | Optional generic capability: `registry_netrc` | Central configures the reviewed registry login in the operation environment. |
 | Ephemeral Gradle private-Maven read authentication | Optional generic capability: `gradle_maven` | Central configures bounded Gradle properties for read-side dependency resolution. |
 | Private OCI image + Helm OCI publication authentication | Optional generic capability: `registry_oci_publish` | Only for an authorized Linux repository release, Central establishes isolated Buildah/Skopeo + Helm registry auth with the existing reviewed write credential; product scripts own image/chart coordinates, immutability checks, push/read-back commands and release semantics. |
+| Production-backup S3 read connection | Optional generic capability: `backup_s3_read` | Authorized repository release only. A private descriptor binds the exact project/run/repository/ref/source SHA/operation; Central projects only the fixed read-only S3 connection bundle into `.ci/release.sh`, disables raw periodic log checkpoints for that execution, and leaves backup/restore/database/migration/test/cleanup commands repository-owned. |
 | Protected deployed external conformance | Optional generic capability: `protected_deployed_conformance` | Linux `full` validation only. Central binds one trusted Agent State descriptor to one tracked no-argv Python certifier, materializes fixed protected target/scenario/setup material as mode-0600 files, keeps protocol expectations repository-owned, and requires same-origin deterministic reset/readback before deleting the private bundle. |
 | Xcode, Gradle, Android SDK, Node, Python, Flutter and other product/toolchain commands | Repository-owned behavior | Fixed `.ci/*` scripts own toolchain installation/use, targets, tasks, selectors and product semantics. Central does not construct product argv. |
 | Simulator, emulator and product-local test-environment lifecycle | Repository-owned behavior | Repository scripts own bounded product execution lifecycle. Physical-device infrastructure may remain separately governed and is not a v1 freeze blocker. |
@@ -64,6 +65,7 @@ Repository CI v1 has exactly these non-host optional capability types:
 - `registry_netrc`
 - `gradle_maven`
 - `registry_oci_publish`
+- `backup_s3_read`
 - `protected_deployed_conformance`
 
 A project may receive only a reviewed unique subset through private Agent State configuration.

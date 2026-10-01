@@ -88,6 +88,16 @@ name: Repository-owned CI execution plan
         required: false
       PROTECTED_DEPLOYED_SETUP_CREDENTIAL:
         required: false
+      BACKUP_S3_ENDPOINT:
+        required: false
+      BACKUP_S3_BUCKET:
+        required: false
+      BACKUP_S3_REGION:
+        required: false
+      BACKUP_S3_ACCESS_KEY_ID:
+        required: false
+      BACKUP_S3_SECRET_ACCESS_KEY:
+        required: false
 
 permissions:
   contents: read
@@ -243,6 +253,11 @@ jobs:
       REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
       REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
       REGISTRY_WRITE_TOKEN: ${{ matrix.host_os == 'linux' && secrets.REGISTRY_WRITE_TOKEN || '' }}
+      BACKUP_S3_ENDPOINT: ${{ inputs.operation == 'release' && secrets.BACKUP_S3_ENDPOINT || '' }}
+      BACKUP_S3_BUCKET: ${{ inputs.operation == 'release' && secrets.BACKUP_S3_BUCKET || '' }}
+      BACKUP_S3_REGION: ${{ inputs.operation == 'release' && secrets.BACKUP_S3_REGION || '' }}
+      BACKUP_S3_ACCESS_KEY_ID: ${{ inputs.operation == 'release' && secrets.BACKUP_S3_ACCESS_KEY_ID || '' }}
+      BACKUP_S3_SECRET_ACCESS_KEY: ${{ inputs.operation == 'release' && secrets.BACKUP_S3_SECRET_ACCESS_KEY || '' }}
       APPLE_TEAM_ID: ${{ matrix.host_os == 'macos' && secrets.APPLE_TEAM_ID || '' }}
       APP_STORE_CONNECT_KEY_ID: ${{ matrix.host_os == 'macos' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
       APP_STORE_CONNECT_ISSUER_ID: ${{ matrix.host_os == 'macos' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}

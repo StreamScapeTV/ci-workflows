@@ -97,7 +97,7 @@ Central sets these host values before invoking the repository entrypoint:
 
 ## Capability lifetime
 
-Shared capability authorization is resolved by Central before `.ci/*` execution. Long-lived operation capabilities such as `private_network`, `github_git`, `registry_netrc`, `gradle_maven`, and `registry_oci_publish` are established for the reviewed execution lifetime. `protected_deployed_conformance` is different by design: the ordinary tracked `full` entrypoint sees only its informational enablement bit; Central materializes the protected bundle only after that entrypoint succeeds, then executes the separately bound certifier and deterministic reset before cleanup. Product scripts never acquire Central infrastructure credentials.
+Shared capability authorization is resolved by Central before `.ci/*` execution. Long-lived operation capabilities such as `private_network`, `github_git`, `registry_netrc`, `gradle_maven`, `registry_oci_publish`, and exact-run `backup_s3_read` are established for the reviewed execution lifetime. `protected_deployed_conformance` is different by design: the ordinary tracked `full` entrypoint sees only its informational enablement bit; Central materializes the protected bundle only after that entrypoint succeeds, then executes the separately bound certifier and deterministic reset before cleanup. Product scripts never acquire Central infrastructure credentials.
 
 ## What host-class proof establishes
 
@@ -133,6 +133,7 @@ The frozen v1 non-host capability catalog is:
 - `registry_netrc` — Central configures ephemeral HTTPS package-registry read authentication through the operation's tool defaults.
 - `gradle_maven` — Central configures ephemeral Gradle private-Maven read properties.
 - `registry_oci_publish` — for an authorized Linux repository `release`, Central creates isolated Buildah/Skopeo and Helm registry authentication using the reviewed private registry write credential. Repository code receives authenticated tool defaults plus the fixed registry host, never the raw write token; image/chart namespaces and publication coordinates remain repository-owned.
+- `backup_s3_read` — authorized repository `release` only. Central requires a separate private descriptor bound to the exact project, Agent State CI run, repository, tag/ref, observed source SHA, and release operation, then exposes one fixed read-only S3-compatible backup connection bundle only to `.ci/release.sh`. Backup selection, Barman/CloudNativePG restore, PostgreSQL topology, migrations, health/smoke checks, restored-data handling, and cleanup remain repository-owned. Periodic raw-log checkpointing is disabled while this capability is active; final text/artifact evidence is still secret-scrubbed before Drive upload.
 - `protected_deployed_conformance` — Linux `full` validation only, and only when the same trusted grant also includes `private_network`. Central resolves a separate private `protected_deployed_conformance` Agent State descriptor bound to the exact repository/run, writes the approved HTTP/WSS scenario documents as mode-0600 files, projects a finite protected bundle into repository-owned environment names, executes one tracked no-argv Python certifier after the ordinary `.ci/test-full.sh` succeeds, stores only bounded private diagnostics/evidence, performs the descriptor's same-origin reset/readback, then deletes the private bundle. Public callers cannot select the target, scenario, credential, entrypoint, environment names, reset target, expected protocol statuses, or pass/defer semantics.
 
 Capability authorization is private Agent State policy. Repository source cannot enable a capability,
@@ -165,6 +166,11 @@ The supported repository-script interface is finite:
 | `CI_ARTIFACT_DIR` | Always | Writable Central-owned directory for bounded artifacts. |
 | `CI_PROGRESS_FILE` | Always | Writable Central-owned text file for progress/heartbeat information. |
 | `CI_OCI_REGISTRY` | `registry_oci_publish` Linux release only | Read-only fixed private OCI registry host. |
+| `CI_BACKUP_S3_ENDPOINT` | `backup_s3_read` authorized release only | Fixed private S3-compatible backup endpoint. |
+| `CI_BACKUP_S3_BUCKET` | `backup_s3_read` authorized release only | Fixed private production-backup bucket. |
+| `CI_BACKUP_S3_REGION` | `backup_s3_read` authorized release only | Optional fixed region; empty when not required by the provider. |
+| `CI_BACKUP_S3_ACCESS_KEY_ID` | `backup_s3_read` authorized release only | Read-only backup-store access-key identifier. |
+| `CI_BACKUP_S3_SECRET_ACCESS_KEY` | `backup_s3_read` authorized release only | Read-only backup-store secret key. |
 | `CI_PROTECTED_DEPLOYED_CONFORMANCE` | `protected_deployed_conformance` Linux full only | Informational `true`/`false`; protected targets, scenarios, credentials and identity values are passed only to the separately executed protected certifier, not through `CI_INPUTS_JSON`. |
 | `CI_APPLE_TEAM_ID` | Authorized macOS `release` only | Existing Apple signing team identifier supplied by Central. |
 | `CI_APP_STORE_CONNECT_KEY_ID` | Authorized macOS `release` only | Existing App Store Connect API key identifier supplied by Central. |
@@ -277,6 +283,12 @@ A generic configuration example is:
 This policy is private. Public Central source and documentation do not contain the concrete migration
 ledger or consumer-to-capability/host bindings.
 
+### Backup S3 read descriptor
+
+When `backup_s3_read` is present in `repository_ci.capabilities`, the same private project state must carry `repository_ci_backup_s3_read_v1`. Its schema is deliberately identity-only: `schemaVersion`, `projectKey`, `ciRunId`, `repository`, `ref`, `sourceIsTag`, `sourceSha`, and `operation`. Every field must match the exact claimed Agent State release run and exact observed source, and `operation` must be `release`; otherwise capability admission fails closed. No endpoint, bucket, region, credential, backup selector, object prefix, command, or environment-map value is stored in Agent State.
+
+The fixed endpoint/bucket/optional-region/read-only credentials remain Central secrets. They are projected only into the single tracked `.ci/release.sh` process through the five `CI_BACKUP_S3_*` variables. Central disables periodic raw-log checkpoints while the capability is active, then performs the normal configured-secret scrub and artifact quarantine before any final private Drive evidence upload. Repository code owns backup selection and all recovery/database/migration/application/smoke/cleanup behavior.
+
 ### Protected deployed-conformance descriptor
 
 The generic capability authorization remains in `repository_ci.capabilities`. When `protected_deployed_conformance` is granted, the same private project state must also carry a separate `protected_deployed_conformance` descriptor. It is not a public workflow input. Schema version 2 binds exactly one repository, the `full` operation, one tracked `scripts/*.py` or `tools/*.py` no-argv entrypoint, a finite environment projection, the canonical SemVer release version, and a bounded same-origin reset/readback plan. The confidential target URLs, compressed scenario JSON and setup credential remain fixed Central secrets and are never stored in Agent State.
@@ -302,6 +314,8 @@ maps, or product release commands. The direct immutable-tag `release.repository`
 preparation path while that compatibility flow is live.
 
 An authorized Linux `release.repository` may additionally receive the privately granted `registry_oci_publish` capability. Central establishes isolated Buildah/Skopeo and Helm authentication and exposes only standard tool configuration plus `CI_OCI_REGISTRY`; the raw write token never enters the repository process. The repository owns image/chart names, namespaces, build/package commands, immutability checks, push/read-back behavior, and release decisions.
+
+An authorized `release.repository` may also receive `backup_s3_read` only when its separate exact-run descriptor matches the current project, Agent State CI run, immutable source ref/SHA, repository, and release operation. Central exposes the fixed read-only S3 connection variables only to `.ci/release.sh`; it does not select backups or run Barman, CloudNativePG, PostgreSQL, migrations, application health checks, smoke assertions, or cleanup.
 
 ## Private evidence, retention and cleanup
 
