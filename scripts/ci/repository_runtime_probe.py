@@ -32,6 +32,7 @@ MAX_APP_IDS = 16
 MAX_LISTENERS = 16
 MAX_ERRORS = 8
 MAX_SUMMARY_SAMPLES = 6
+MAX_VM_SERVICE_LOG_PROBES = 4
 
 _TOOL_NAMES = {
     "dart",
@@ -46,6 +47,12 @@ _BUNDLE_KEY = re.compile(
 _BUNDLE_EXECUTABLE = re.compile(
     r'^\s*CFBundleExecutable\s*=\s*(?:"([^"]+)"|([^;]+))\s*;\s*$'
 )
+_VM_SERVICE_PUBLICATION = re.compile(
+    r'(?:The )?(?:Dart VM service is listening on|Observatory listening on)\s+'
+    r'https?://(?:127\.0\.0\.1|localhost|\[::1\]):([0-9]{1,5})(?:/|$)',
+    re.IGNORECASE,
+)
+_ENDPOINT_PORT = re.compile(r':([0-9]{1,5})$')
 
 
 class ProbeError(RuntimeError):
@@ -209,6 +216,52 @@ def _simulator_app_rows(raw: str, executable_names: set[str]) -> list[dict[str, 
     return rows
 
 
+def _vm_service_log_command(udid: str, pid: int) -> tuple[str, ...]:
+    predicate = (
+        f"eventType = logEvent AND processIdentifier == {pid} AND "
+        '(eventMessage CONTAINS[c] "Dart VM Service is listening on" OR '
+        'eventMessage CONTAINS[c] "Observatory listening on")'
+    )
+    return (
+        "xcrun",
+        "simctl",
+        "spawn",
+        udid,
+        "log",
+        "show",
+        "--last",
+        "2m",
+        "--style",
+        "compact",
+        "--predicate",
+        predicate,
+    )
+
+
+def _vm_service_publication_ports(raw: str) -> list[int]:
+    ports: set[int] = set()
+    for match in _VM_SERVICE_PUBLICATION.finditer(raw):
+        port = int(match.group(1))
+        if 1 <= port <= 65535:
+            ports.add(port)
+        if len(ports) >= MAX_LISTENERS:
+            break
+    return sorted(ports)
+
+
+def _listener_ports(rows: list[dict[str, object]]) -> set[int]:
+    ports: set[int] = set()
+    for row in rows:
+        endpoint = str(row.get("endpoint", ""))
+        match = _ENDPOINT_PORT.search(endpoint)
+        if match is None:
+            continue
+        port = int(match.group(1))
+        if 1 <= port <= 65535:
+            ports.add(port)
+    return ports
+
+
 def _listener_rows(raw: str, relevant_pids: set[int]) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for line in raw.splitlines()[1:]:
@@ -259,6 +312,7 @@ def collect_sample(
     app_inventory_observed = False
     third_party_apps: dict[str, list[str]] = {}
     simulator_processes: list[dict[str, object]] = []
+    simulator_processes_by_udid: dict[str, list[dict[str, object]]] = {}
     for simulator in simulators:
         udid = simulator["udid"]
         result = runner(("xcrun", "simctl", "listapps", udid))
@@ -273,9 +327,9 @@ def collect_sample(
             ("xcrun", "simctl", "spawn", udid, "ps", "-axo", "pid=,ppid=,state=,etime=,comm=")
         )
         if process_result.returncode == 0:
-            simulator_processes.extend(
-                _simulator_app_rows(process_result.stdout, executable_names)
-            )
+            app_rows = _simulator_app_rows(process_result.stdout, executable_names)
+            simulator_processes.extend(app_rows)
+            simulator_processes_by_udid[udid] = app_rows
         else:
             errors.append("simulator_process_inventory_unavailable")
 
@@ -296,6 +350,33 @@ def collect_sample(
             if not bool(row.get("simulator_app"))
         }
     )
+
+    vm_service_log_inventory_observed = False
+    vm_service_publication_ports: set[int] = set()
+    if {"flutter", "dart"}.intersection(tool_processes):
+        probes = 0
+        for simulator in simulators:
+            udid = simulator["udid"]
+            for row in simulator_processes_by_udid.get(udid, []):
+                if probes >= MAX_VM_SERVICE_LOG_PROBES:
+                    break
+                probes += 1
+                log_result = runner(_vm_service_log_command(udid, int(row["pid"])))
+                if log_result.returncode == 0:
+                    vm_service_log_inventory_observed = True
+                    vm_service_publication_ports.update(
+                        _vm_service_publication_ports(log_result.stdout)
+                    )
+                else:
+                    errors.append("vm_service_log_unavailable")
+            if probes >= MAX_VM_SERVICE_LOG_PROBES:
+                break
+
+    vm_service_ports = sorted(vm_service_publication_ports)[:MAX_LISTENERS]
+    vm_service_listener_match = bool(
+        set(vm_service_ports).intersection(_listener_ports(listeners))
+    )
+
     simulator_app_processes = sorted(
         {
             str(row["comm"])
@@ -316,6 +397,9 @@ def collect_sample(
         "simulator_app_processes": simulator_app_processes,
         "listener_inventory_observed": listener_inventory_observed,
         "listeners": listeners,
+        "vm_service_log_inventory_observed": vm_service_log_inventory_observed,
+        "vm_service_publication_ports": vm_service_ports,
+        "vm_service_listener_match": vm_service_listener_match,
         "errors": sorted(set(errors))[:MAX_ERRORS],
     }
 
@@ -407,6 +491,15 @@ def summary_lines(path: Path) -> list[str]:
     flutter_seen = any(
         "flutter" in (sample.get("tool_processes") or []) for sample in samples
     )
+    vm_service_log_inventory_seen = any(
+        sample.get("vm_service_log_inventory_observed") is True for sample in samples
+    )
+    vm_service_publication_seen = any(
+        bool(sample.get("vm_service_publication_ports")) for sample in samples
+    )
+    vm_service_listener_match_seen = any(
+        sample.get("vm_service_listener_match") is True for sample in samples
+    )
 
     lines = [
         "CENTRAL runtime-probe summary "
@@ -415,7 +508,10 @@ def summary_lines(path: Path) -> list[str]:
         f"simulator_app_process_seen={int(app_process_seen)} "
         f"listener_inventory_observed={int(listener_inventory_seen)} "
         f"candidate_listener_seen={int(listener_seen)} "
-        f"xcodebuild_seen={int(xcodebuild_seen)} flutter_seen={int(flutter_seen)}"
+        f"xcodebuild_seen={int(xcodebuild_seen)} flutter_seen={int(flutter_seen)} "
+        f"vm_service_log_inventory_observed={int(vm_service_log_inventory_seen)} "
+        f"vm_service_publication_seen={int(vm_service_publication_seen)} "
+        f"vm_service_listener_match={int(vm_service_listener_match_seen)}"
     ]
     for sample in samples[-MAX_SUMMARY_SAMPLES:]:
         compact = json.dumps(sample, sort_keys=True, separators=(",", ":"))
