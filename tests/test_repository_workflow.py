@@ -305,6 +305,14 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertIn("CI_OPERATION", adoption["scriptEnvironment"])
         self.assertIn("CI_INPUTS_JSON", adoption["scriptEnvironment"])
         self.assertIn("CI_PROTECTED_DEPLOYED_CONFORMANCE", adoption["scriptEnvironment"])
+        for name in (
+            "CI_BACKUP_S3_ENDPOINT",
+            "CI_BACKUP_S3_BUCKET",
+            "CI_BACKUP_S3_REGION",
+            "CI_BACKUP_S3_ACCESS_KEY_ID",
+            "CI_BACKUP_S3_SECRET_ACCESS_KEY",
+        ):
+            self.assertIn(name, adoption["scriptEnvironment"])
         self.assertIn("CI_DEVICE_CONTEXT_FILE", adoption["scriptEnvironment"])
         self.assertGreaterEqual(len(adoption["adoptionSteps"]), 5)
         self.assertIn("raw_argv", adoption["forbiddenCallerSurface"])
@@ -1089,7 +1097,14 @@ class RepositoryWorkflowTests(unittest.TestCase):
     def test_private_agent_state_capability_grant_is_exactly_bound_and_fail_closed(self) -> None:
         self.assertEqual(
             set(self.contract["capabilityTypes"]),
-            {"private_network", "github_git", "registry_netrc", "gradle_maven", "registry_oci_publish", "protected_deployed_conformance", "apple_physical_device"},
+            {"private_network", "github_git", "registry_netrc", "gradle_maven", "registry_oci_publish", "backup_s3_read", "protected_deployed_conformance", "apple_physical_device"},
+        )
+        backup_contract = self.contract["trustedCapabilityGrant"]["capabilityConfiguration"]["backup_s3_read"]
+        self.assertEqual(backup_contract["projectStateKey"], "repository_ci_backup_s3_read_v1")
+        self.assertEqual(backup_contract["schemaVersion"], 1)
+        self.assertEqual(
+            backup_contract["binding"],
+            ["project_key", "ci_run_id", "repository", "ref", "source_is_tag", "source_sha", "operation"],
         )
         physical_contract = self.contract["trustedCapabilityGrant"]["capabilityConfiguration"]["apple_physical_device"]
         self.assertEqual(physical_contract["projectStateKey"], "repository_ci_apple_physical_device_v1")
@@ -1125,6 +1140,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertEqual(trusted_values["registry_netrc"], "true")
         self.assertEqual(trusted_values["gradle_maven"], "false")
         self.assertEqual(trusted_values["registry_oci_publish"], "false")
+        self.assertEqual(trusted_values["backup_s3_read"], "false")
         self.assertEqual(trusted_values["protected_deployed_conformance"], "false")
         self.assertEqual(trusted_values["apple_physical_device"], "false")
         self.assertEqual(trusted_values["auth_enabled"], "true")
@@ -1146,6 +1162,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertEqual(v2_values["private_network"], "true")
         self.assertEqual(v2_values["gradle_maven"], "true")
         self.assertEqual(v2_values["registry_oci_publish"], "false")
+        self.assertEqual(v2_values["backup_s3_read"], "false")
         self.assertEqual(v2_values["protected_deployed_conformance"], "false")
         self.assertEqual(v2_values["apple_physical_device"], "false")
         self.assertEqual(v2_values["auth_enabled"], "true")
@@ -1175,6 +1192,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertEqual(v3_values["private_network"], "true")
         self.assertEqual(v3_values["github_git"], "true")
         self.assertEqual(v3_values["registry_oci_publish"], "false")
+        self.assertEqual(v3_values["backup_s3_read"], "false")
         self.assertEqual(v3_values["protected_deployed_conformance"], "false")
         self.assertEqual(v3_values["apple_physical_device"], "false")
         self.assertEqual(v3_values["auth_enabled"], "true")
@@ -1311,6 +1329,210 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertNotEqual(duplicate_capability.returncode, 0)
         self.assertIn("unique list", duplicate_capability.stderr)
 
+
+    def test_backup_s3_read_is_exact_release_run_bound_and_uses_fixed_secret_bundle(self) -> None:
+        run_id = "11111111-1111-4111-8111-111111111111"
+        source_sha = "b" * 40
+        descriptor = {
+            "schemaVersion": 1,
+            "projectKey": "private-project",
+            "ciRunId": run_id,
+            "repository": "ExampleOrg/service-backend",
+            "ref": "3.2.3",
+            "sourceIsTag": True,
+            "sourceSha": source_sha,
+            "operation": "release",
+        }
+        state = {
+            "repository_ci": {
+                "schemaVersion": 1,
+                "repository": "ExampleOrg/service-backend",
+                "capabilities": ["backup_s3_read"],
+            },
+            "repository_ci_backup_s3_read_v1": descriptor,
+        }
+        accepted, values = self.run_capability_resolver(
+            run_repository="ExampleOrg/service-backend",
+            run_ref="3.2.3",
+            source_ref="3.2.3",
+            run_is_tag=True,
+            source_is_tag="true",
+            operation="release",
+            host_os="linux",
+            run_profile="linux",
+            run_workflow="release.repository",
+            project_state=state,
+            ci_run_id=run_id,
+            observed_source_sha=source_sha,
+        )
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertEqual(values["backup_s3_read"], "true")
+        self.assertEqual(values["auth_enabled"], "false")
+
+        build, build_values = self.run_capability_resolver(
+            run_repository="ExampleOrg/service-backend",
+            operation="build",
+            host_os="linux",
+            project_state=state,
+            ci_run_id=run_id,
+            observed_source_sha=source_sha,
+        )
+        self.assertEqual(build.returncode, 0, build.stderr)
+        self.assertEqual(build_values["backup_s3_read"], "false")
+
+        changed_sha, _ = self.run_capability_resolver(
+            run_repository="ExampleOrg/service-backend",
+            run_ref="3.2.3",
+            source_ref="3.2.3",
+            run_is_tag=True,
+            source_is_tag="true",
+            operation="release",
+            host_os="linux",
+            run_profile="linux",
+            run_workflow="release.repository",
+            project_state=state,
+            ci_run_id=run_id,
+            observed_source_sha="c" * 40,
+        )
+        self.assertNotEqual(changed_sha.returncode, 0)
+        self.assertIn("does not match this exact release run", changed_sha.stderr)
+
+        changed_run, _ = self.run_capability_resolver(
+            run_repository="ExampleOrg/service-backend",
+            run_ref="3.2.3",
+            source_ref="3.2.3",
+            run_is_tag=True,
+            source_is_tag="true",
+            operation="release",
+            host_os="linux",
+            run_profile="linux",
+            run_workflow="release.repository",
+            project_state=state,
+            ci_run_id="22222222-2222-4222-8222-222222222222",
+            observed_source_sha=source_sha,
+        )
+        self.assertNotEqual(changed_run.returncode, 0)
+        self.assertIn("does not match this exact release run", changed_run.stderr)
+
+        missing_descriptor, _ = self.run_capability_resolver(
+            run_repository="ExampleOrg/service-backend",
+            run_ref="3.2.3",
+            source_ref="3.2.3",
+            run_is_tag=True,
+            source_is_tag="true",
+            operation="release",
+            host_os="linux",
+            run_profile="linux",
+            run_workflow="release.repository",
+            project_state={
+                "repository_ci": {
+                    "schemaVersion": 1,
+                    "repository": "ExampleOrg/service-backend",
+                    "capabilities": ["backup_s3_read"],
+                }
+            },
+            ci_run_id=run_id,
+            observed_source_sha=source_sha,
+        )
+        self.assertNotEqual(missing_descriptor.returncode, 0)
+        self.assertIn("authorization descriptor is missing or invalid", missing_descriptor.stderr)
+
+        secret_names = (
+            "BACKUP_S3_ENDPOINT",
+            "BACKUP_S3_BUCKET",
+            "BACKUP_S3_REGION",
+            "BACKUP_S3_ACCESS_KEY_ID",
+            "BACKUP_S3_SECRET_ACCESS_KEY",
+        )
+        workflow_secrets = self.workflow["on"]["workflow_call"]["secrets"]
+        for name in secret_names:
+            self.assertIn(name, workflow_secrets)
+            self.assertFalse(workflow_secrets[name]["required"])
+
+        release_secrets = self.dispatch["jobs"]["repository_release"]["secrets"]
+        validation_secrets = self.dispatch["jobs"]["repository"]["secrets"]
+        for name in secret_names:
+            self.assertEqual(release_secrets[name], f"${{{{ secrets.{name} }}}}")
+            self.assertNotIn(name, validation_secrets)
+
+        plan = yaml.safe_load(
+            (ROOT / ".github/workflows/repository-plan.yml").read_text(encoding="utf-8")
+        )
+        child_secrets = plan["jobs"]["execute"]["secrets"]
+        for name in secret_names:
+            expression = child_secrets[name]
+            self.assertIn("inputs.operation == 'release'", expression)
+            self.assertIn(f"secrets.{name}", expression)
+
+        execute = self.steps_by_name["Execute fixed repository-owned entrypoint"]
+        self.assertEqual(
+            execute["env"]["BACKUP_S3_READ_ENABLED"],
+            "${{ steps.capabilities.outputs.backup_s3_read }}",
+        )
+        self.assertIn("steps.capabilities.outputs.backup_s3_read != 'true'", execute["env"]["CHECKPOINT_ENABLED"])
+        for name in secret_names:
+            secret_env = f"CI_SECRET_{name}"
+            self.assertIn(secret_env, execute["env"])
+            self.assertIn("steps.capabilities.outputs.backup_s3_read == 'true'", execute["env"][secret_env])
+            self.assertIn(secret_env, execute["run"])
+            self.assertIn(secret_env, self.steps_by_name["Scrub configured CI secrets from private text evidence"]["env"])
+        for env_name in (
+            "CI_BACKUP_S3_ENDPOINT",
+            "CI_BACKUP_S3_BUCKET",
+            "CI_BACKUP_S3_REGION",
+            "CI_BACKUP_S3_ACCESS_KEY_ID",
+            "CI_BACKUP_S3_SECRET_ACCESS_KEY",
+        ):
+            self.assertIn(f'{env_name}="${{backup_s3_', execute["run"])
+            self.assertNotIn(env_name, execute["env"])
+        self.assertIn("reviewed backup S3 read capability is missing its fixed connection bundle", execute["run"])
+        self.assertIn(
+            "unset backup_s3_endpoint backup_s3_bucket backup_s3_region backup_s3_access_key_id backup_s3_secret_access_key",
+            execute["run"],
+        )
+
+    def test_backup_s3_secret_is_scrubbed_and_secret_artifact_is_quarantined(self) -> None:
+        scrub = self.steps_by_name["Scrub configured CI secrets from private text evidence"]["run"]
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log_dir = root / "logs"
+            artifact_dir = root / "artifacts"
+            log_dir.mkdir()
+            artifact_dir.mkdir()
+            secret = "backup-secret-value"
+            ci_log = root / "central.log"
+            ci_log.write_text(f"restore credential={secret}\n", encoding="utf-8")
+            progress = root / "progress.txt"
+            progress.write_text("running\n", encoding="utf-8")
+            secret_artifact = artifact_dir / "unsafe.json"
+            secret_artifact.write_text(json.dumps({"credential": secret}), encoding="utf-8")
+            safe_artifact = artifact_dir / "safe.json"
+            safe_artifact.write_text('{"status":"ok"}\n', encoding="utf-8")
+            github_output = root / "github-output"
+            github_output.write_text("", encoding="utf-8")
+            result = subprocess.run(
+                ["bash", "-c", scrub],
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "RUNNER_TEMP": str(root),
+                    "CI_LOG": str(ci_log),
+                    "CI_PROGRESS_FILE": str(progress),
+                    "CI_LOG_DIR": str(log_dir),
+                    "CI_ARTIFACT_DIR": str(artifact_dir),
+                    "CI_SECRET_BACKUP_S3_SECRET_ACCESS_KEY": secret,
+                    "GITHUB_OUTPUT": str(github_output),
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn(secret, ci_log.read_text(encoding="utf-8"))
+            self.assertIn("[REDACTED]", ci_log.read_text(encoding="utf-8"))
+            selection = json.loads((root / "central-repository-ci-artifact-selection.json").read_text(encoding="utf-8"))
+            selected = [item["path"] for item in selection["artifacts"]]
+            self.assertEqual(selected, ["safe.json"])
 
     def test_protected_deployed_conformance_is_full_linux_private_network_only(self) -> None:
         grant = {
@@ -1634,6 +1856,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         for capability in ("private_network", "github_git", "registry_netrc", "gradle_maven"):
             self.assertEqual(values[capability], "true")
         self.assertEqual(values["registry_oci_publish"], "false")
+        self.assertEqual(values["backup_s3_read"], "false")
         self.assertEqual(values["protected_deployed_conformance"], "false")
         self.assertEqual(values["apple_physical_device"], "false")
         self.assertEqual(values["auth_enabled"], "true")

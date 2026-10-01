@@ -99,7 +99,7 @@ class PublicIdentityBoundaryTests(unittest.TestCase):
         path = ROOT / "docs/repository-ci-capability-audit.md"
         text = path.read_text(encoding="utf-8")
         self.assertFalse(concrete_consumer_repositories(text), path.as_posix())
-        for capability in ("private_network", "github_git", "registry_netrc", "gradle_maven", "registry_oci_publish", "protected_deployed_conformance"):
+        for capability in ("private_network", "github_git", "registry_netrc", "gradle_maven", "registry_oci_publish", "backup_s3_read", "protected_deployed_conformance"):
             self.assertIn(f"`{capability}`", text)
         self.assertIn("exactly these non-host optional capability types", text)
         self.assertIn("No generic cache capability is required", text)
@@ -146,7 +146,7 @@ class PublicIdentityBoundaryTests(unittest.TestCase):
             "CI_APP_STORE_CONNECT_API_KEY_P8_BASE64",
         ):
             self.assertIn(f"`{variable}`", text)
-        for capability in ("private_network", "github_git", "registry_netrc", "gradle_maven", "registry_oci_publish", "protected_deployed_conformance"):
+        for capability in ("private_network", "github_git", "registry_netrc", "gradle_maven", "registry_oci_publish", "backup_s3_read", "protected_deployed_conformance"):
             self.assertIn(f"`{capability}`", text)
         self.assertIn('"repository": "organization/example-service"', text)
         self.assertIn("repository-ci-capability-audit.md", text)
