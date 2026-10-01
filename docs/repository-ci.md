@@ -195,6 +195,13 @@ own toolchain terminology. Absence means the repository's reviewed default. The 
 authorize signing, provisioning, TestFlight/App Store publication, or the generic `release`
 operation.
 
+For `test` and `ui-test`, `test_selectors` is the same bounded semantic string-list: at most 64
+items, each at most 240 characters from the reviewed selector alphabet, with leading-dash values
+rejected. Central never translates selectors into tool arguments. The tracked repository entrypoint
+validates its own selector namespace and maps the semantic packet to its fixed product test graph.
+`ui-test` may continue to use the finite `ui_mode` values (`smoke` or `full-ordinary`) when no
+custom selector packet is needed.
+
 A minimal parser can be as small as:
 
 ```sh

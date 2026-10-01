@@ -183,7 +183,8 @@
       "ui-test": {
         "allowed": [
           "product_target",
-          "ui_mode"
+          "ui_mode",
+          "test_selectors"
         ],
         "required": []
       },
