@@ -18,7 +18,6 @@ workflows:
   source_checkpoint_publish: .github/workflows/source-checkpoint-publish.yml
   central_dispatch: .github/workflows/central-ci-dispatch.yml
   ci_log_retention: .github/workflows/ci-log-retention.yml
-  agent_state_issue_reconcile: .github/workflows/agent-state-issue-reconcile.yml
   github_issue_dependency_projection: .github/workflows/github-issue-dependency-projection.yml
   self_check: .github/workflows/self-check.yml
   runner_images: .github/workflows/runner-images.yml
