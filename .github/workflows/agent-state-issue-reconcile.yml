@@ -1,0 +1,26 @@
+name: Agent State issue reconciliation
+
+"on":
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: central-ci-agent-state-issue-reconcile
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    uses: ./.github/workflows/python.yml
+    with:
+      repository: StreamScapeTV/agent-state-supabase
+      ref: main
+      test_profile: agent-state-issue-reconcile
+    secrets:
+      SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
+      SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+      AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+      AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
