@@ -198,10 +198,13 @@ class NativeTargetedProfileTests(unittest.TestCase):
             'for tool in "${sdkmanager}" "${avdmanager}" "${adb}" "${emulator}"; do',
             prepare,
         )
-        self.assertIn("system-images;android-36;google_apis;x86_64", prepare)
-        self.assertIn("avd_name='central-android-api36'", prepare)
+        self.assertIn("system-images;android-37;google_apis;x86_64", prepare)
+        self.assertIn("avd_name='central-android-api37'", prepare)
         self.assertIn("serial='emulator-5554'", prepare)
         self.assertIn("seq 1 180", prepare)
+        self.assertIn('shell getprop ro.build.version.sdk', prepare)
+        self.assertIn('test "${device_api}" = 37', prepare)
+        self.assertIn('[android-emulator] serial=%s api=%s avd=%s', prepare)
         self.assertIn('avd_home="${RUNNER_TEMP}/central-android-avd"', prepare)
         self.assertIn('avd_path="${avd_home}/${avd_name}.avd"', prepare)
         self.assertIn('export ANDROID_AVD_HOME="${avd_home}"', prepare)
