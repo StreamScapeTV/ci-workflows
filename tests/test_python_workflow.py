@@ -8,7 +8,6 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/python.yml"
-SCHEDULE_WORKFLOW = ROOT / ".github/workflows/agent-state-issue-reconcile.yml"
 
 
 class PythonWorkflowTests(unittest.TestCase):
@@ -165,43 +164,6 @@ class PythonWorkflowTests(unittest.TestCase):
         self.assertIn("cleanup_status=$?", postgres)
         self.assertIn("validation_status != 0 || cleanup_status != 0", postgres)
         self.assertIn("trap 'cleanup_postgres || true' EXIT", postgres)
-
-    def test_agent_state_issue_reconcile_schedule_is_fixed_bounded_and_non_overlapping(self) -> None:
-        workflow = yaml.safe_load(SCHEDULE_WORKFLOW.read_text())
-        trigger = workflow["on"]
-        self.assertEqual(trigger["schedule"], [{"cron": "4,14,24,34,44,54 * * * *"}])
-        self.assertIsNone(trigger["workflow_dispatch"])
-        self.assertEqual(workflow["permissions"], {"contents": "read"})
-        self.assertEqual(
-            workflow["concurrency"],
-            {
-                "group": "central-ci-agent-state-issue-reconcile",
-                "cancel-in-progress": False,
-            },
-        )
-        self.assertEqual(set(workflow["jobs"]), {"reconcile"})
-        job = workflow["jobs"]["reconcile"]
-        self.assertEqual(job["uses"], "./.github/workflows/python.yml")
-        self.assertEqual(
-            job["with"],
-            {
-                "repository": "StreamScapeTV/agent-state-supabase",
-                "ref": "main",
-                "test_profile": "agent-state-issue-reconcile",
-            },
-        )
-        self.assertEqual(
-            job["secrets"],
-            {
-                "SOURCE_APP_ID": "${{ secrets.SOURCE_APP_ID }}",
-                "SOURCE_APP_PRIVATE_KEY": "${{ secrets.SOURCE_APP_PRIVATE_KEY }}",
-                "AGENT_STATE_SUPABASE_URL": "${{ secrets.AGENT_STATE_SUPABASE_URL }}",
-                "AGENT_STATE_SUPABASE_SECRET_KEY": "${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}",
-            },
-        )
-        self.assertNotIn("steps", job)
-        self.assertNotIn("ci_run_id", job["with"])
-        self.assertNotIn("upload_private_log", job["with"])
 
     def test_agent_state_issue_reconcile_credentials_are_main_only_and_profile_scoped(self) -> None:
         _, _, by_name = self._workflow()

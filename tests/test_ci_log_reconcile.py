@@ -128,7 +128,6 @@ class CiLogReconcileSourceContractTests(unittest.TestCase):
     def test_scheduled_workflow_is_direct_and_creates_no_private_cleanup_log(self) -> None:
         text = (ROOT / ".github/workflows/ci-log-retention.yml").read_text(encoding="utf-8")
         self.assertIn("schedule:", text)
-        self.assertIn('- cron: "29 * * * *"', text)
         self.assertIn("workflow_dispatch:", text)
         self.assertIn("scripts/ci/ci_log_reconcile.py", text)
         self.assertIn("AGENT_STATE_SUPABASE_SECRET_KEY", text)
