@@ -1765,7 +1765,7 @@ jobs:
             printf 'Android emulator API mismatch: expected 37, observed %s\n' "${device_api:-unavailable}" >&2
             exit 1
           }
-          printf '[android-emulator] serial=%s api=%s avd=%s\n' "${serial}" "${device_api}" "${avd_name}" | tee -a "${CI_LOG}"
+          printf '[android-emulator] serial=%s api=%s avd=%s\n' "${serial}" "${device_api}" "${avd_name}" >> "${CI_LOG}"
           "${adb}" -s "${serial}" shell input keyevent 82 >/dev/null 2>&1 || true
 
       - name: Preflight tag-driven Android post-publication bump
