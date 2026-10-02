@@ -169,7 +169,7 @@ class PythonWorkflowTests(unittest.TestCase):
     def test_agent_state_issue_reconcile_schedule_is_fixed_bounded_and_non_overlapping(self) -> None:
         workflow = yaml.safe_load(SCHEDULE_WORKFLOW.read_text())
         trigger = workflow["on"]
-        self.assertEqual(trigger["schedule"], [{"cron": "*/10 * * * *"}])
+        self.assertEqual(trigger["schedule"], [{"cron": "4,14,24,34,44,54 * * * *"}])
         self.assertIsNone(trigger["workflow_dispatch"])
         self.assertEqual(workflow["permissions"], {"contents": "read"})
         self.assertEqual(

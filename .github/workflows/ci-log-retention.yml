@@ -2,7 +2,7 @@ name: Private CI log retention
 
 "on":
   schedule:
-    - cron: "17 * * * *"
+    - cron: "29 * * * *"
   workflow_dispatch:
 
 permissions:

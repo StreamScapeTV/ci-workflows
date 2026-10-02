@@ -210,7 +210,7 @@ class ProjectionSourceContractTests(unittest.TestCase):
         workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
         self.assertEqual(workflow["permissions"], {"contents": "read"})
         self.assertEqual(workflow["on"]["workflow_dispatch"], None)
-        self.assertEqual(workflow["on"]["schedule"][0]["cron"], "*/5 * * * *")
+        self.assertEqual(workflow["on"]["schedule"][0]["cron"], "2,7,12,17,22,27,32,37,42,47,52,57 * * * *")
         steps = {step.get("name"): step for step in workflow["jobs"]["project"]["steps"]}
         token = steps["Prepare fixed Issues-write token"]
         self.assertEqual(token["uses"], "actions/create-github-app-token@v2")
