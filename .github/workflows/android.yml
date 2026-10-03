@@ -349,10 +349,7 @@ jobs:
           avd_name='central-screenshot-cache-bootstrap'
           avd_home="${RUNNER_TEMP}/central-android-screenshot-cache-avd"
           avd_path="${avd_home}/${avd_name}.avd"
-          "${sdkmanager}" --install platform-tools emulator >> "${CI_LOG}" 2>&1
-          if test ! -d "${image_dir}"; then
-            "${sdkmanager}" --install "${image}" >> "${CI_LOG}" 2>&1
-          fi
+          "${sdkmanager}" --install platform-tools emulator "${image}" >> "${CI_LOG}" 2>&1
           adb="$(command -v adb || true)"; test -n "${adb}" || adb="${sdk_root}/platform-tools/adb"
           emulator="$(command -v emulator || true)"; test -n "${emulator}" || emulator="${sdk_root}/emulator/emulator"
           test -x "${adb}" && test -x "${emulator}" || { echo "Android screenshot-cache emulator runtime is unavailable" >&2; exit 1; }
@@ -1714,7 +1711,6 @@ jobs:
           done
 
           image='system-images;android-37.0;google_apis_ps16k;x86_64'
-          image_dir="${sdk_root}/system-images/android-37.0/google_apis_ps16k/x86_64"
           avd_name='central-android-api37'
           serial='emulator-5554'
           "${sdkmanager}" --install platform-tools emulator "${image}" >> "${CI_LOG}" 2>&1
