@@ -1398,8 +1398,13 @@ jobs:
                 exit 1
               }
           fi
+          runner_home="${HOME}"
           if test "${AUTH_ENABLED}" = true; then
-            export HOME="${AUTH_HOME}"
+            if test "${HOST_OS}" = macos && test "${OPERATION}" = device-test; then
+              export HOME="${runner_home}"
+            else
+              export HOME="${AUTH_HOME}"
+            fi
             export GIT_CONFIG_GLOBAL="${AUTH_GIT_CONFIG}"
             export GIT_TERMINAL_PROMPT=0
           fi
