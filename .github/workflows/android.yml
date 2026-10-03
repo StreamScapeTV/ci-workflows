@@ -1697,8 +1697,8 @@ jobs:
             }
           done
 
-          image='system-images;android-36;google_apis;x86_64'
-          avd_name='central-android-api36'
+          image='system-images;android-37;google_apis;x86_64'
+          avd_name='central-android-api37'
           serial='emulator-5554'
           "${sdkmanager}" --install platform-tools emulator "${image}" >> "${CI_LOG}" 2>&1
 
@@ -1760,6 +1760,12 @@ jobs:
             echo "Android emulator did not boot within the bounded timeout" >&2
             exit 1
           }
+          device_api="$("${adb}" -s "${serial}" shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r')"
+          test "${device_api}" = 37 || {
+            printf 'Android emulator API mismatch: expected 37, observed %s\n' "${device_api:-unavailable}" >&2
+            exit 1
+          }
+          printf '[android-emulator] serial=%s api=%s avd=%s\n' "${serial}" "${device_api}" "${avd_name}" >> "${CI_LOG}"
           "${adb}" -s "${serial}" shell input keyevent 82 >/dev/null 2>&1 || true
 
       - name: Preflight tag-driven Android post-publication bump
