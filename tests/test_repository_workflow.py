@@ -1956,6 +1956,63 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertIn("repository CI physical-device private residue cleanup failed", cleanup)
         self.assertIn('test -e "${private_device_path}" || test -L "${private_device_path}"', cleanup)
 
+    def test_macos_device_test_preserves_runner_home_with_isolated_git_auth(self) -> None:
+        execute = self.steps_by_name["Execute fixed repository-owned entrypoint"]
+        script = execute["run"]
+        start = script.index('runner_home="${HOME}"')
+        end = script.index('          export CI_HOST_OS="${HOST_OS}"')
+        auth_fragment = script[start:end]
+
+        self.assertIn('if test "${HOST_OS}" = macos && test "${OPERATION}" = device-test; then', auth_fragment)
+        self.assertIn('export HOME="${runner_home}"', auth_fragment)
+        self.assertIn('export HOME="${AUTH_HOME}"', auth_fragment)
+        self.assertIn('export GIT_CONFIG_GLOBAL="${AUTH_GIT_CONFIG}"', auth_fragment)
+        self.assertIn('export GIT_TERMINAL_PROMPT=0', auth_fragment)
+
+        def invoke(host_os: str, operation: str) -> dict[str, str]:
+            probe = auth_fragment + """
+printf 'HOME=%s\\n' "${HOME}"
+printf 'GIT_CONFIG_GLOBAL=%s\\n' "${GIT_CONFIG_GLOBAL:-}"
+printf 'GIT_TERMINAL_PROMPT=%s\\n' "${GIT_TERMINAL_PROMPT:-}"
+"""
+            result = subprocess.run(
+                ["bash", "-c", probe],
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "HOME": "/runner/home",
+                    "AUTH_ENABLED": "true",
+                    "AUTH_HOME": "/tmp/central-auth-home",
+                    "AUTH_GIT_CONFIG": "/tmp/central-auth/gitconfig",
+                    "HOST_OS": host_os,
+                    "OPERATION": operation,
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return dict(
+                line.split("=", 1)
+                for line in result.stdout.splitlines()
+                if "=" in line
+            )
+
+        physical = invoke("macos", "device-test")
+        self.assertEqual(physical["HOME"], "/runner/home")
+        self.assertEqual(physical["GIT_CONFIG_GLOBAL"], "/tmp/central-auth/gitconfig")
+        self.assertEqual(physical["GIT_TERMINAL_PROMPT"], "0")
+
+        macos_test = invoke("macos", "test")
+        self.assertEqual(macos_test["HOME"], "/tmp/central-auth-home")
+        self.assertEqual(macos_test["GIT_CONFIG_GLOBAL"], "/tmp/central-auth/gitconfig")
+        self.assertEqual(macos_test["GIT_TERMINAL_PROMPT"], "0")
+
+        linux_test = invoke("linux", "test")
+        self.assertEqual(linux_test["HOME"], "/tmp/central-auth-home")
+        self.assertEqual(linux_test["GIT_CONFIG_GLOBAL"], "/tmp/central-auth/gitconfig")
+        self.assertEqual(linux_test["GIT_TERMINAL_PROMPT"], "0")
+
     def test_package_auth_is_generic_file_configuration_not_product_secret_env(self) -> None:
         auth = self.steps_by_name[
             "Configure ephemeral generic package-manager authentication"
