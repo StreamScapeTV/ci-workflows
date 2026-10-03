@@ -1960,7 +1960,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         execute = self.steps_by_name["Execute fixed repository-owned entrypoint"]
         script = execute["run"]
         start = script.index('runner_home="${HOME}"')
-        end = script.index('          export CI_HOST_OS="${HOST_OS}"')
+        end = script.index('export CI_HOST_OS="${HOST_OS}"')
         auth_fragment = script[start:end]
 
         self.assertIn('if test "${HOST_OS}" = macos && test "${OPERATION}" = device-test; then', auth_fragment)
