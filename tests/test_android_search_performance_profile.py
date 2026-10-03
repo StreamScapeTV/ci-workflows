@@ -345,8 +345,9 @@ class AndroidGenericHostedProfileContractTest(unittest.TestCase):
         self.assertIn("inputs.test_profile == 'targeted-tests'", prepare["if"])
         self.assertIn("inputs.test_platform == 'instrumentation'", prepare["if"])
         script = prepare["run"]
-        self.assertIn("system-images;android-37;google_apis;x86_64", script)
+        self.assertIn("system-images;android-37.0;google_apis_ps16k;x86_64", script)
         self.assertIn("central-android-api37", script)
+        self.assertIn("cmdline-tools;22.0", script)
         self.assertIn("emulator-5554", script)
         self.assertIn("seq 1 180", script)
         self.assertIn("sys.boot_completed", script)

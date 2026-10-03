@@ -349,7 +349,10 @@ jobs:
           avd_name='central-screenshot-cache-bootstrap'
           avd_home="${RUNNER_TEMP}/central-android-screenshot-cache-avd"
           avd_path="${avd_home}/${avd_name}.avd"
-          "${sdkmanager}" --install platform-tools emulator "${image}" >> "${CI_LOG}" 2>&1
+          "${sdkmanager}" --install platform-tools emulator >> "${CI_LOG}" 2>&1
+          if test ! -d "${image_dir}"; then
+            "${sdkmanager}" --install "${image}" >> "${CI_LOG}" 2>&1
+          fi
           adb="$(command -v adb || true)"; test -n "${adb}" || adb="${sdk_root}/platform-tools/adb"
           emulator="$(command -v emulator || true)"; test -n "${emulator}" || emulator="${sdk_root}/emulator/emulator"
           test -x "${adb}" && test -x "${emulator}" || { echo "Android screenshot-cache emulator runtime is unavailable" >&2; exit 1; }
@@ -1697,7 +1700,21 @@ jobs:
             }
           done
 
-          image='system-images;android-37;google_apis;x86_64'
+          if test ! -x "${sdk_root}/cmdline-tools/22.0/bin/sdkmanager" ||
+            test ! -x "${sdk_root}/cmdline-tools/22.0/bin/avdmanager"; then
+            "${sdkmanager}" --install "cmdline-tools;22.0" >> "${CI_LOG}" 2>&1
+          fi
+          sdkmanager="${sdk_root}/cmdline-tools/22.0/bin/sdkmanager"
+          avdmanager="${sdk_root}/cmdline-tools/22.0/bin/avdmanager"
+          for tool in "${sdkmanager}" "${avdmanager}"; do
+            test -x "${tool}" || {
+              printf 'Required Android API-37 command-line tool is unavailable: %s\n' "${tool}" >&2
+              exit 1
+            }
+          done
+
+          image='system-images;android-37.0;google_apis_ps16k;x86_64'
+          image_dir="${sdk_root}/system-images/android-37.0/google_apis_ps16k/x86_64"
           avd_name='central-android-api37'
           serial='emulator-5554'
           "${sdkmanager}" --install platform-tools emulator "${image}" >> "${CI_LOG}" 2>&1
