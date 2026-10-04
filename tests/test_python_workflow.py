@@ -44,13 +44,13 @@ class PythonWorkflowTests(unittest.TestCase):
         self.assertLess(names.index("Resolve source Python version"), names.index("Set up source Python"))
         self.assertLess(names.index("Set up source Python"), names.index("Run fixed Python profile"))
 
-    def test_python_executor_keeps_generic_profiles_and_one_bounded_privileged_profile(self) -> None:
+    def test_python_executor_keeps_only_current_generic_profiles(self) -> None:
         source = WORKFLOW.read_text()
         self.assertNotIn('python-version: "3.12"', source)
         self.assertNotIn("inputs.python_version", source)
         self.assertNotIn("release-gates)", source)
         self.assertNotIn("bash scripts/run_release_gates.sh", source)
-        self.assertIn("agent-state-issue-reconcile)", source)
+        self.assertNotIn("agent-state-issue-reconcile)", source)
 
 
     def _run_backend_postgres_fixture(
@@ -165,34 +165,22 @@ class PythonWorkflowTests(unittest.TestCase):
         self.assertIn("validation_status != 0 || cleanup_status != 0", postgres)
         self.assertIn("trap 'cleanup_postgres || true' EXIT", postgres)
 
-    def test_agent_state_issue_reconcile_credentials_are_main_only_and_profile_scoped(self) -> None:
-        _, _, by_name = self._workflow()
+
+    def test_agent_state_issue_reconcile_profile_and_privileged_wiring_are_retired(self) -> None:
+        workflow, _, by_name = self._workflow()
         commands = by_name["Run fixed Python profile"]
         env = commands["env"]
-        gate = (
-            "inputs.test_profile == 'agent-state-issue-reconcile' && "
-            "inputs.repository == 'StreamScapeTV/agent-state-supabase' && "
-            "inputs.ref == 'main'"
-        )
-        self.assertEqual(env["SOURCE_REPOSITORY"], "${{ inputs.repository || github.repository }}")
-        self.assertEqual(env["SOURCE_REF"], "${{ inputs.ref || github.ref_name }}")
-        self.assertEqual(env["GITHUB_TOKEN"], "${{ " + gate + " && steps.source.outputs.token || '' }}")
-        self.assertEqual(
-            env["SUPABASE_URL"],
-            "${{ " + gate + " && secrets.AGENT_STATE_SUPABASE_URL || '' }}",
-        )
-        self.assertEqual(
-            env["SUPABASE_SERVICE_ROLE_KEY"],
-            "${{ " + gate + " && secrets.AGENT_STATE_SUPABASE_SECRET_KEY || '' }}",
-        )
+        source = WORKFLOW.read_text()
 
-        run = commands["run"]
-        self.assertIn('test "${SOURCE_REPOSITORY}" = "StreamScapeTV/agent-state-supabase"', run)
-        self.assertIn('test "${SOURCE_REF}" = "main"', run)
-        self.assertIn("scripts/reconcile_github_issue_inventory.py --owner StreamScapeTV", run)
-        self.assertIn("--owner StreamScapeTV --apply", run)
-        self.assertIn('("missing", "extra", "github_navigation_mismatches")', run)
-        self.assertIn("post-apply GitHub/Agent State equality failed", run)
+        self.assertNotIn("agent-state-issue-reconcile", source)
+        self.assertNotIn("scripts/reconcile_github_issue_inventory.py", source)
+        self.assertNotIn("GITHUB_TOKEN", env)
+        self.assertNotIn("SUPABASE_URL", env)
+        self.assertNotIn("SUPABASE_SERVICE_ROLE_KEY", env)
+
+        secrets = workflow["on"]["workflow_call"]["secrets"]
+        self.assertIn("AGENT_STATE_SUPABASE_URL", secrets)
+        self.assertIn("AGENT_STATE_SUPABASE_SECRET_KEY", secrets)
 
 
 if __name__ == "__main__":
