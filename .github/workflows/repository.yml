@@ -2376,6 +2376,13 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
+          REQUEST_OUTCOME: ${{ steps.request.outcome }}
+          SOURCE_IDENTITY_OUTCOME: ${{ steps.source_identity.outcome }}
+          EXECUTE_OUTCOME: ${{ steps.execute_contract.outcome }}
+          SCRUB_OUTCOME: ${{ steps.scrub.outcome }}
+          EVIDENCE_OUTCOME: ${{ steps.evidence.outcome }}
+          DRIVE_OUTCOME: ${{ steps.drive.outcome }}
+          EVIDENCE_DRIVE_OUTCOME: ${{ steps.evidence_drive.outcome }}
           CLEANUP_OUTCOME: ${{ steps.cleanup.outcome }}
         run: |
           set -Eeuo pipefail
@@ -2384,7 +2391,16 @@ jobs:
             exit 0
           fi
           status=failed
-          test "${CLEANUP_OUTCOME}" = success && status=complete
+          if test "${REQUEST_OUTCOME}" = success \
+             && test "${SOURCE_IDENTITY_OUTCOME}" = success \
+             && test "${EXECUTE_OUTCOME}" = success \
+             && test "${SCRUB_OUTCOME}" = success \
+             && test "${EVIDENCE_OUTCOME}" = success \
+             && test "${DRIVE_OUTCOME}" = success \
+             && test "${EVIDENCE_DRIVE_OUTCOME}" = success \
+             && test "${CLEANUP_OUTCOME}" = success; then
+            status=complete
+          fi
           if ! python3 central-ci/scripts/ci/repository_log_timeline.py finish \
             --phase cleanup-settlement \
             --status "${status}" \

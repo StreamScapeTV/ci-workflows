@@ -249,10 +249,13 @@ def _settle_product(product: ProductProgress, repository_status: str) -> Product
     open_indexes = [index for index, status in enumerate(statuses) if status not in TERMINAL_STATUSES]
     if not open_indexes:
         return product
-    if repository_status == "succeeded":
+    if repository_status in {"succeeded", "skipped"}:
         for index in open_indexes:
             statuses[index] = "skipped"
-    elif repository_status == "skipped":
+    elif any(status == "failed" for status in statuses):
+        # Preserve the first explicit repository-owned failure as the narrow
+        # diagnostic signal. Later work never becomes a second synthetic
+        # failure merely because the fixed entrypoint exits nonzero.
         for index in open_indexes:
             statuses[index] = "skipped"
     else:

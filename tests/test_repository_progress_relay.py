@@ -172,6 +172,75 @@ class RepositoryProgressRelayTests(unittest.TestCase):
         self.assertEqual(status["evidence"], "running")
         self.assertEqual(failed["current_step_id"], "evidence")
 
+    def test_entrypoint_failure_preserves_explicit_product_failure_and_skips_later_work(self) -> None:
+        product = mod.ProductProgress(
+            ("dependencies", "tests", "package"),
+            ("succeeded", "failed", "pending"),
+        )
+        settled = mod._settle_product(product, "failed")
+        self.assertEqual(
+            settled.statuses,
+            ("succeeded", "failed", "skipped"),
+        )
+
+    def test_failed_entrypoint_with_terminal_product_plan_surfaces_failed_settlement(self) -> None:
+        product = mod.ProductProgress(
+            ("dependencies", "build", "tests"),
+            ("succeeded", "succeeded", "succeeded"),
+        )
+        projection = mod.compose_projection(
+            mod.TimelineProgress(
+                {
+                    "source-admission": "complete",
+                    "private-capabilities": "complete",
+                    "repository-entrypoint": "failed",
+                    "evidence": "complete",
+                    "cleanup-settlement": "failed",
+                },
+                None,
+            ),
+            product,
+        )
+        statuses = {item["id"]: item["status"] for item in projection["steps"]}
+        self.assertEqual(statuses["dependencies"], "succeeded")
+        self.assertEqual(statuses["build"], "succeeded")
+        self.assertEqual(statuses["tests"], "succeeded")
+        self.assertEqual(statuses["cleanup-settlement"], "failed")
+        self.assertEqual(projection["current_step_id"], "cleanup-settlement")
+        self.assertEqual(projection["current_step_status"], "failed")
+
+    def test_cleanup_settlement_uses_overall_ci_result_not_cleanup_alone(self) -> None:
+        import yaml
+
+        workflow = yaml.safe_load((ROOT / ".github/workflows/repository.yml").read_text(encoding="utf-8"))
+        steps = workflow["jobs"]["execute"]["steps"]
+        by_name = {step.get("name"): step for step in steps if step.get("name")}
+        settlement = by_name["Finalize cleanup settlement timeline"]
+        env = settlement["env"]
+        for key in (
+            "REQUEST_OUTCOME",
+            "SOURCE_IDENTITY_OUTCOME",
+            "EXECUTE_OUTCOME",
+            "SCRUB_OUTCOME",
+            "EVIDENCE_OUTCOME",
+            "DRIVE_OUTCOME",
+            "EVIDENCE_DRIVE_OUTCOME",
+            "CLEANUP_OUTCOME",
+        ):
+            self.assertIn(key, env)
+        script = settlement["run"]
+        for name in (
+            "REQUEST_OUTCOME",
+            "SOURCE_IDENTITY_OUTCOME",
+            "EXECUTE_OUTCOME",
+            "SCRUB_OUTCOME",
+            "EVIDENCE_OUTCOME",
+            "DRIVE_OUTCOME",
+            "EVIDENCE_DRIVE_OUTCOME",
+            "CLEANUP_OUTCOME",
+        ):
+            self.assertIn(f'test "${{{name}}}" = success', script)
+
     def test_relay_reports_only_changes_then_final_flush(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
