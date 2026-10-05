@@ -746,6 +746,8 @@ jobs:
                   output.write(f"{capability}=false\n")
               output.write("auth_enabled=false\n")
               output.write("project_key=\n")
+              output.write("progress_relay_allowed=false\n")
+              output.write("progress_ci_run_id=\n")
           PY_NONE
           }
 
@@ -989,6 +991,21 @@ jobs:
               output.write(f"auth_enabled={'true' if auth_enabled else 'false'}\n")
               output.write(f"project_key={project_key}\n")
           PY_CAPABILITIES
+          case "${capability_context}" in
+            repository_lifecycle|repository_parent)
+              {
+                printf 'progress_relay_allowed=true\n'
+                printf 'progress_ci_run_id=%s\n' "${capability_run_id}"
+              } >> "${GITHUB_OUTPUT}"
+              ;;
+            *)
+              {
+                printf 'progress_relay_allowed=false\n'
+                printf 'progress_ci_run_id=\n'
+              } >> "${GITHUB_OUTPUT}"
+              ;;
+          esac
+
 
       - name: Connect reviewed private network capability
         if: ${{ steps.capabilities.outputs.private_network == 'true' }}
@@ -1277,6 +1294,58 @@ jobs:
             printf 'registry_host=%s\n' 'git.faruqi.dev'
           } >> "${GITHUB_OUTPUT}"
 
+      - name: Resolve bounded progress relay owner
+        id: progress_owner
+        shell: bash
+        env:
+          RELAY_ALLOWED: ${{ steps.capabilities.outputs.progress_relay_allowed }}
+          CAPABILITY_RUN_ID: ${{ steps.capabilities.outputs.progress_ci_run_id }}
+          LIFECYCLE_CI_RUN_ID: ${{ inputs.ci_run_id }}
+          TRUSTED_CAPABILITY_CI_RUN_ID: ${{ inputs.trusted_capability_ci_run_id }}
+          OPERATION: ${{ inputs.operation }}
+          HOST_OS: ${{ needs.resolve_host.outputs.host_os }}
+        run: |
+          set -Eeuo pipefail
+          owner_id=
+          if test "${RELAY_ALLOWED:-false}" = true && test -n "${CAPABILITY_RUN_ID:-}"; then
+            if test -n "${LIFECYCLE_CI_RUN_ID}"; then
+              test "${CAPABILITY_RUN_ID}" = "${LIFECYCLE_CI_RUN_ID}" || {
+                echo "repository progress relay lifecycle identity mismatch" >&2
+                exit 2
+              }
+              owner_id="${CAPABILITY_RUN_ID}"
+            elif test -n "${TRUSTED_CAPABILITY_CI_RUN_ID}"; then
+              test "${CAPABILITY_RUN_ID}" = "${TRUSTED_CAPABILITY_CI_RUN_ID}" || {
+                echo "repository progress relay trusted parent identity mismatch" >&2
+                exit 2
+              }
+              plan_rel=.ci/execution-plan.json
+              plan_path="source/${plan_rel}"
+              args=(--operation "${OPERATION}" --legacy-host-os "${HOST_OS}")
+              if git -C source ls-files --error-unmatch -- "${plan_rel}" >/dev/null 2>&1; then
+                mode="$(git -C source ls-files -s -- "${plan_rel}" | awk 'NR==1 {print $1}')"
+                test "${mode}" = 100644 || { echo "repository progress execution plan must be tracked mode 100644" >&2; exit 2; }
+                test -f "${plan_path}" && test ! -L "${plan_path}" || {
+                  echo "repository progress execution plan must be a regular non-symlink file" >&2
+                  exit 2
+                }
+                args+=(--plan "${plan_path}")
+              else
+                test ! -e "${plan_path}" && test ! -L "${plan_path}" || {
+                  echo "repository progress execution plan must be tracked" >&2
+                  exit 2
+                }
+              fi
+              selection="$(python3 central-ci/scripts/ci/repository_execution_plan.py "${args[@]}")"
+              child_count="$(jq '.operatingSystems | length' <<<"${selection}")"
+              selected_os="$(jq -r '.operatingSystems[0] // empty' <<<"${selection}")"
+              if test "${child_count}" = 1 && test "${selected_os}" = "${HOST_OS}"; then
+                owner_id="${CAPABILITY_RUN_ID}"
+              fi
+            fi
+          fi
+          printf 'ci_run_id=%s\n' "${owner_id}" >> "${GITHUB_OUTPUT}"
+
       - name: Record private-capabilities completion and start repository entrypoint
         shell: bash
         run: |
@@ -1294,6 +1363,47 @@ jobs:
             --state-path "${timeline}"
           cp -- "${CI_LOG}" "${seed}"
           chmod 600 "${seed}"
+
+      - name: Start bounded Agent State progress relay
+        id: progress_relay_start
+        if: ${{ steps.progress_owner.outputs.ci_run_id != '' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          PROGRESS_CI_RUN_ID: ${{ steps.progress_owner.outputs.ci_run_id }}
+        run: |
+          set -Eeuo pipefail
+          credentials="$(jq -cn \
+            --arg url "${AGENT_STATE_SUPABASE_URL}" \
+            --arg key "${AGENT_STATE_SUPABASE_SECRET_KEY}" \
+            '{url:$url,key:$key}')"
+          relay_pid_file="${RUNNER_TEMP}/central-repository-progress-relay.pid"
+          relay_state="${RUNNER_TEMP}/central-repository-progress-relay-state.json"
+          relay_stdout="${RUNNER_TEMP}/central-repository-progress-relay.stdout"
+          relay_stderr="${RUNNER_TEMP}/central-repository-progress-relay.stderr"
+          rm -f -- "${relay_pid_file}" "${relay_state}" "${relay_stdout}" "${relay_stderr}"
+          env -i \
+            PATH="${PATH}" \
+            HOME="${HOME}" \
+            RUNNER_TRACKING_ID="${RUNNER_TRACKING_ID:-}" \
+            python3 central-ci/scripts/ci/repository_progress_relay.py watch \
+              --ci-run-id "${PROGRESS_CI_RUN_ID}" \
+              --progress-path "${CI_PROGRESS_FILE}" \
+              --timeline-state-path "${RUNNER_TEMP}/central-repository-ci-timeline.json" \
+              --log-path "${CI_LOG}" \
+              --state-path "${relay_state}" \
+              --heartbeat-seconds 60 \
+              < <(printf '%s\n' "${credentials}") \
+              >"${relay_stdout}" 2>"${relay_stderr}" &
+          relay_pid=$!
+          printf '%s\n' "${relay_pid}" > "${relay_pid_file}"
+          chmod 600 "${relay_pid_file}"
+          sleep 1
+          if ! kill -0 "${relay_pid}" 2>/dev/null; then
+            echo "::warning::repository CI progress relay did not remain active; product execution will continue" >&2
+          fi
 
       - name: Seed stable private repository CI log object
         id: log_seed
@@ -1823,6 +1933,26 @@ jobs:
               --progress-path "${CI_PROGRESS_FILE}"; then
               echo "::warning::repository CI timeline reconciliation failed; evidence handling continues" >&2
             fi
+            if ! python3 central-ci/scripts/ci/repository_log_timeline.py fill-skipped \
+              --through repository-entrypoint \
+              --log-path "${CI_LOG}" \
+              --state-path "${timeline}"; then
+              echo "::warning::repository CI timeline skip reconciliation failed; evidence handling continues" >&2
+            fi
+          fi
+
+      - name: Start bounded Central evidence timeline phase
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          timeline="${RUNNER_TEMP}/central-repository-ci-timeline.json"
+          if test -f "${timeline}"; then
+            python3 central-ci/scripts/ci/repository_log_timeline.py start \
+              --phase evidence \
+              --log-path "${CI_LOG}" \
+              --state-path "${timeline}"
           fi
 
       - name: Scrub configured CI secrets from private text evidence
@@ -2171,6 +2301,45 @@ jobs:
           file_name: ${{ github.run_id }}-${{ github.run_attempt }}-repository-${{ inputs.operation }}-${{ needs.resolve_host.outputs.host_os }}-evidence.zip
           mime_type: application/zip
 
+      - name: Finalize evidence timeline and start cleanup settlement
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: bash
+        env:
+          SCRUB_OUTCOME: ${{ steps.scrub.outcome }}
+          EVIDENCE_OUTCOME: ${{ steps.evidence.outcome }}
+          DRIVE_OUTCOME: ${{ steps.drive.outcome }}
+          EVIDENCE_DRIVE_OUTCOME: ${{ steps.evidence_drive.outcome }}
+          REQUIRES_UPLOAD: ${{ (inputs.ci_run_id != '' || inputs.upload_private_log) && 'true' || 'false' }}
+        run: |
+          set -Eeuo pipefail
+          timeline="${RUNNER_TEMP}/central-repository-ci-timeline.json"
+          if test ! -f "${timeline}"; then
+            exit 0
+          fi
+          status=failed
+          if test "${SCRUB_OUTCOME}" = success \
+             && test "${EVIDENCE_OUTCOME}" = success \
+             && { test "${REQUIRES_UPLOAD}" != true \
+                  || { test "${DRIVE_OUTCOME}" = success && test "${EVIDENCE_DRIVE_OUTCOME}" = success; }; }; then
+            status=complete
+          fi
+          if ! python3 central-ci/scripts/ci/repository_log_timeline.py finish \
+            --phase evidence \
+            --status "${status}" \
+            --log-path "${CI_LOG}" \
+            --state-path "${timeline}"; then
+            echo "::warning::repository CI evidence timeline finalization failed; cleanup continues" >&2
+            python3 central-ci/scripts/ci/repository_log_timeline.py fill-skipped \
+              --through evidence \
+              --log-path "${CI_LOG}" \
+              --state-path "${timeline}" || true
+          fi
+          python3 central-ci/scripts/ci/repository_log_timeline.py start \
+            --phase cleanup-settlement \
+            --log-path "${CI_LOG}" \
+            --state-path "${timeline}"
+
       - name: Cleanup ephemeral registry and repository evidence
         id: cleanup
         if: ${{ always() }}
@@ -2184,11 +2353,8 @@ jobs:
             "${RUNNER_TEMP}/repository-ci-logs" \
             "${RUNNER_TEMP}/repository-ci-artifacts"
           rm -f -- \
-            "${RUNNER_TEMP}/repository-ci-progress.txt" \
-            "${RUNNER_TEMP}/central-repository-ci.log" \
             "${RUNNER_TEMP}/central-repository-ci-log-checkpoint-seed.txt" \
             "${RUNNER_TEMP}/central-repository-ci-log-checkpoint-status.json" \
-            "${RUNNER_TEMP}/central-repository-ci-timeline.json" \
             "${RUNNER_TEMP}/central-protected-deployed-project-state.json" \
             "${RUNNER_TEMP}/central-repository-ci-artifact-selection.json" \
             "${RUNNER_TEMP}/central-repository-ci-evidence.zip" \
@@ -2204,6 +2370,105 @@ jobs:
               exit 1
             fi
           done
+
+      - name: Finalize cleanup settlement timeline
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: bash
+        env:
+          REQUEST_OUTCOME: ${{ steps.request.outcome }}
+          SOURCE_IDENTITY_OUTCOME: ${{ steps.source_identity.outcome }}
+          EXECUTE_OUTCOME: ${{ steps.execute_contract.outcome }}
+          SCRUB_OUTCOME: ${{ steps.scrub.outcome }}
+          EVIDENCE_OUTCOME: ${{ steps.evidence.outcome }}
+          DRIVE_OUTCOME: ${{ steps.drive.outcome }}
+          EVIDENCE_DRIVE_OUTCOME: ${{ steps.evidence_drive.outcome }}
+          CLEANUP_OUTCOME: ${{ steps.cleanup.outcome }}
+        run: |
+          set -Eeuo pipefail
+          timeline="${RUNNER_TEMP}/central-repository-ci-timeline.json"
+          if test ! -f "${timeline}"; then
+            exit 0
+          fi
+          status=failed
+          if test "${REQUEST_OUTCOME}" = success \
+             && test "${SOURCE_IDENTITY_OUTCOME}" = success \
+             && test "${EXECUTE_OUTCOME}" = success \
+             && test "${SCRUB_OUTCOME}" = success \
+             && test "${EVIDENCE_OUTCOME}" = success \
+             && test "${DRIVE_OUTCOME}" = success \
+             && test "${EVIDENCE_DRIVE_OUTCOME}" = success \
+             && test "${CLEANUP_OUTCOME}" = success; then
+            status=complete
+          fi
+          if ! python3 central-ci/scripts/ci/repository_log_timeline.py finish \
+            --phase cleanup-settlement \
+            --status "${status}" \
+            --log-path "${CI_LOG}" \
+            --state-path "${timeline}"; then
+            echo "::warning::repository CI cleanup-settlement timeline finalization failed" >&2
+          fi
+
+      - name: Finalize bounded Agent State progress relay
+        id: progress_relay_finish
+        if: ${{ always() && steps.progress_owner.outputs.ci_run_id != '' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          pid_file="${RUNNER_TEMP}/central-repository-progress-relay.pid"
+          stderr_file="${RUNNER_TEMP}/central-repository-progress-relay.stderr"
+          if test -f "${pid_file}" && test ! -L "${pid_file}"; then
+            relay_pid="$(cat "${pid_file}")"
+            if [[ "${relay_pid}" =~ ^[1-9][0-9]*$ ]] && kill -0 "${relay_pid}" 2>/dev/null; then
+              kill -TERM "${relay_pid}" 2>/dev/null || true
+              for _ in $(seq 1 50); do
+                kill -0 "${relay_pid}" 2>/dev/null || break
+                sleep 0.2
+              done
+              if kill -0 "${relay_pid}" 2>/dev/null; then
+                echo "::warning::repository CI progress relay did not stop after final flush window" >&2
+                kill -KILL "${relay_pid}" 2>/dev/null || true
+              fi
+            fi
+          fi
+          if test -f "${stderr_file}" && test ! -L "${stderr_file}"; then
+            while IFS= read -r warning; do
+              test -z "${warning}" || echo "::warning::${warning}" >&2
+            done < "${stderr_file}"
+          fi
+
+      - name: Cleanup retained repository progress evidence
+        id: progress_cleanup
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -f -- \
+            "${RUNNER_TEMP}/central-repository-ci.log" \
+            "${RUNNER_TEMP}/repository-ci-progress.txt" \
+            "${RUNNER_TEMP}/central-repository-ci-timeline.json"
+          for path in \
+            "${RUNNER_TEMP}/central-repository-ci.log" \
+            "${RUNNER_TEMP}/repository-ci-progress.txt" \
+            "${RUNNER_TEMP}/central-repository-ci-timeline.json"; do
+            if test -e "${path}" || test -L "${path}"; then
+              echo "repository CI retained progress evidence cleanup failed" >&2
+              exit 1
+            fi
+          done
+
+      - name: Cleanup bounded progress relay control state
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -f -- \
+            "${RUNNER_TEMP}/central-repository-progress-relay.pid" \
+            "${RUNNER_TEMP}/central-repository-progress-relay-state.json" \
+            "${RUNNER_TEMP}/central-repository-progress-relay.stdout" \
+            "${RUNNER_TEMP}/central-repository-progress-relay.stderr"
 
       - name: Finish Agent State run
         if: ${{ always() && inputs.ci_run_id != '' }}
@@ -2223,4 +2488,5 @@ jobs:
                 && steps.drive.outcome == 'success'
                 && steps.evidence_drive.outcome == 'success'
                 && steps.cleanup.outcome == 'success'
+                && steps.progress_cleanup.outcome == 'success'
                 && 'succeeded' || 'failed' }}

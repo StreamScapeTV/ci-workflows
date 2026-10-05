@@ -33,6 +33,7 @@ scripts:
   repository_log_checkpoint: scripts/ci/repository_log_checkpoint.py
   repository_log_capture: scripts/ci/repository_log_capture.py
   repository_log_timeline: scripts/ci/repository_log_timeline.py
+  repository_progress_relay: scripts/ci/repository_progress_relay.py
   repository_runtime_probe: scripts/ci/repository_runtime_probe.py
   repository_execution_plan: scripts/ci/repository_execution_plan.py
   repository_apple_physical_device: scripts/ci/repository_apple_physical_device.py

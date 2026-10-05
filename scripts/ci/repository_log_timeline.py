@@ -18,8 +18,10 @@ PHASES = {
     "source-admission": 1,
     "private-capabilities": 2,
     "repository-entrypoint": 3,
+    "evidence": 4,
+    "cleanup-settlement": 5,
 }
-TERMINAL_STATUSES = {"complete", "failed", "cancelled"}
+TERMINAL_STATUSES = {"complete", "failed", "cancelled", "skipped"}
 STATE_SCHEMA_VERSION = 1
 MAX_STATE_BYTES = 16 * 1024
 MAX_MARKER_BYTES = 512
@@ -64,6 +66,23 @@ def _load_state(state_path: Path) -> dict[str, object]:
     last_completed = state.get("last_completed_ordinal")
     if not isinstance(last_completed, int) or isinstance(last_completed, bool) or not 0 <= last_completed <= len(PHASES):
         raise TimelineError("invalid_state_ordinal")
+    completed = state.get("completed")
+    if completed is None:
+        completed = {
+            name: "complete"
+            for name, ordinal in PHASES.items()
+            if ordinal <= last_completed
+        }
+        state["completed"] = completed
+    if not isinstance(completed, dict):
+        raise TimelineError("invalid_completed_phases")
+    expected_completed = {
+        name for name, ordinal in PHASES.items() if ordinal <= last_completed
+    }
+    if set(completed) != expected_completed:
+        raise TimelineError("invalid_completed_phases")
+    if any(status not in TERMINAL_STATUSES for status in completed.values()):
+        raise TimelineError("invalid_completed_phases")
     active = state.get("active")
     if active is not None:
         if not isinstance(active, dict):
@@ -114,6 +133,7 @@ def start_phase(
         state = {
             "schema_version": STATE_SCHEMA_VERSION,
             "last_completed_ordinal": 0,
+            "completed": {},
             "active": None,
         }
     if state.get("active") is not None:
@@ -179,6 +199,10 @@ def finish_phase(
     _append_marker(log_path, marker)
     state["active"] = None
     state["last_completed_ordinal"] = ordinal
+    completed = state.setdefault("completed", {})
+    if not isinstance(completed, dict):
+        raise TimelineError("invalid_completed_phases")
+    completed[phase] = status
     _write_state(state_path, state)
 
 
@@ -212,6 +236,34 @@ def finish_active_phase(
     )
     return True
 
+
+
+def fill_skipped_through(
+    *,
+    log_path: Path,
+    state_path: Path,
+    through_phase: str,
+) -> None:
+    target = PHASES.get(through_phase)
+    if target is None:
+        raise TimelineError("unsupported_phase")
+    if not state_path.exists():
+        raise TimelineError("invalid_state_path")
+    while True:
+        state = _load_state(state_path)
+        if state.get("active") is not None:
+            raise TimelineError("phase_already_active")
+        last_completed = int(state["last_completed_ordinal"])
+        if last_completed >= target:
+            return
+        next_phase = next(name for name, ordinal in PHASES.items() if ordinal == last_completed + 1)
+        start_phase(log_path=log_path, state_path=state_path, phase=next_phase)
+        finish_phase(
+            log_path=log_path,
+            state_path=state_path,
+            phase=next_phase,
+            status="skipped",
+        )
 
 def active_entrypoint_marker(
     *,
@@ -261,6 +313,11 @@ def main() -> int:
     reconcile.add_argument("--state-path", required=True)
     reconcile.add_argument("--progress-path")
 
+    fill = subparsers.add_parser("fill-skipped")
+    fill.add_argument("--through", choices=tuple(PHASES), required=True)
+    fill.add_argument("--log-path", required=True)
+    fill.add_argument("--state-path", required=True)
+
     args = parser.parse_args()
     try:
         if args.command == "start":
@@ -277,12 +334,18 @@ def main() -> int:
                 status=args.status,
                 progress_path=Path(args.progress_path) if args.progress_path else None,
             )
-        else:
+        elif args.command == "finish-active":
             finish_active_phase(
                 log_path=Path(args.log_path),
                 state_path=Path(args.state_path),
                 status=args.status,
                 progress_path=Path(args.progress_path) if args.progress_path else None,
+            )
+        else:
+            fill_skipped_through(
+                log_path=Path(args.log_path),
+                state_path=Path(args.state_path),
+                through_phase=args.through,
             )
     except TimelineError as exc:
         print(f"repository CI timeline failed: {exc}", file=__import__("sys").stderr)

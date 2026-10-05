@@ -2119,7 +2119,21 @@ printf 'GIT_TERMINAL_PROMPT=%s\\n' "${GIT_TERMINAL_PROMPT:-}"
         cleanup = by_name["Cleanup ephemeral registry and repository evidence"]["run"]
         self.assertIn("central-repository-ci-log-checkpoint-seed.txt", cleanup)
         self.assertIn("central-repository-ci-log-checkpoint-status.json", cleanup)
-        self.assertIn("central-repository-ci-timeline.json", cleanup)
+        self.assertNotIn("central-repository-ci-timeline.json", cleanup)
+        retained_cleanup = by_name["Cleanup retained repository progress evidence"]
+        self.assertEqual(retained_cleanup["if"], "${{ always() }}")
+        self.assertIn("central-repository-ci-timeline.json", retained_cleanup["run"])
+        self.assertIn("central-repository-ci.log", retained_cleanup["run"])
+        self.assertIn("repository-ci-progress.txt", retained_cleanup["run"])
+        names = [step.get("name") for step in self.workflow["jobs"]["execute"]["steps"]]
+        self.assertLess(
+            names.index("Finalize bounded Agent State progress relay"),
+            names.index("Cleanup retained repository progress evidence"),
+        )
+        self.assertLess(
+            names.index("Cleanup retained repository progress evidence"),
+            names.index("Finish Agent State run"),
+        )
 
     def test_repository_timeline_has_fixed_central_phases_and_terminal_entrypoint_states(self) -> None:
         by_name = self.steps_by_name
