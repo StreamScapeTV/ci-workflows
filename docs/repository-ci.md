@@ -165,6 +165,22 @@ The supported repository-script interface is finite:
 | `CI_LOG_DIR` | Always | Writable Central-owned directory for optional text diagnostics. |
 | `CI_ARTIFACT_DIR` | Always | Writable Central-owned directory for bounded artifacts. |
 | `CI_PROGRESS_FILE` | Always | Writable Central-owned text file for progress/heartbeat information. |
+
+### Bounded live progress
+
+`CI_PROGRESS_FILE` remains a private repository-owned diagnostic surface. Existing free-form lines are retained only in the private evidence/log path and are never copied into Agent State. A repository may additionally emit the reviewed structured subset by prefixing one compact JSON object with `CI_PROGRESS_V1 `:
+
+```text
+CI_PROGRESS_V1 {"kind":"plan","steps":["dependencies","build","tests"]}
+CI_PROGRESS_V1 {"kind":"step","step":"dependencies","status":"running"}
+CI_PROGRESS_V1 {"kind":"step","step":"dependencies","status":"succeeded"}
+CI_PROGRESS_V1 {"kind":"step","step":"build","status":"running"}
+```
+
+The V1 plan is ordered and contains 1 through 32 unique product step IDs matching `[a-z][a-z0-9._-]{0,47}`. Step events contain only the planned step ID and one of `pending`, `running`, `succeeded`, `failed`, or `skipped`. No labels, timestamps, URLs, paths, selectors, logs, credentials, device identity, environment maps, topology, or arbitrary metadata are accepted. Invalid structured lines fail closed for public progress projection but do not change the product CI result.
+
+Central combines the last safe structured product state with its fixed wrapper phases (`source-admission`, `private-capabilities`, `repository-entrypoint`, `evidence`, `cleanup-settlement`) and relays only that bounded current projection to the exact Agent State CI run. Repository scripts never receive Agent State mutation credentials and never call Agent State directly. Detailed child progress is relayed to an aggregate parent only when the tracked execution plan selects exactly one OS child; concurrent multi-OS children do not race one ordered Agent State progress row.
+
 | `CI_OCI_REGISTRY` | `registry_oci_publish` Linux release only | Read-only fixed private OCI registry host. |
 | `CI_BACKUP_S3_ENDPOINT` | `backup_s3_read` authorized release only | Fixed private S3-compatible backup endpoint. |
 | `CI_BACKUP_S3_BUCKET` | `backup_s3_read` authorized release only | Fixed private production-backup bucket. |

@@ -25,7 +25,7 @@
       "CI_INPUTS_JSON": "Canonical JSON object with schemaVersion=1 and an inputs object validated against the operation schema.",
       "CI_LOG_DIR": "Central-owned optional text evidence directory.",
       "CI_ARTIFACT_DIR": "Central-owned optional bounded artifact evidence directory.",
-      "CI_PROGRESS_FILE": "Central-owned optional progress text file.",
+      "CI_PROGRESS_FILE": "Central-owned optional private progress text file. Free-form lines remain private evidence; only the bounded CI_PROGRESS_V1 structured subset may be relayed by Central into Agent State.",
       "CI_HOST_CLASS": "Resolved reviewed generic host class; informational and read-only for repository scripts.",
       "CI_PROTECTED_DEPLOYED_CONFORMANCE": "Informational boolean set only while the trusted protected_deployed_conformance capability is admitted; protected targets, scenarios and credentials are not exposed through CI_INPUTS_JSON.",
       "CI_BACKUP_S3_ENDPOINT": "Fixed private S3-compatible backup endpoint exposed only to an exact authorized backup_s3_read repository release.",
@@ -107,6 +107,45 @@
         "release": "operating-system-list",
         "device-test": "operating-system-list"
       }
+    },
+    "progressProtocol": {
+      "structuredPrefix": "CI_PROGRESS_V1 ",
+      "schemaVersion": 1,
+      "maximumProductSteps": 32,
+      "stepIdPattern": "^[a-z][a-z0-9._-]{0,47}$",
+      "statuses": [
+        "pending",
+        "running",
+        "succeeded",
+        "failed",
+        "skipped"
+      ],
+      "planEvent": {
+        "kind": "plan",
+        "fields": [
+          "steps"
+        ]
+      },
+      "stepEvent": {
+        "kind": "step",
+        "fields": [
+          "step",
+          "status"
+        ]
+      },
+      "freeFormLinesRemainPrivate": true,
+      "productCallsAgentStateDirectly": false,
+      "centralOwnsAgentStateRelay": true,
+      "centralWrapperSteps": [
+        "source-admission",
+        "private-capabilities",
+        "repository-entrypoint",
+        "evidence",
+        "cleanup-settlement"
+      ],
+      "singlePlannedChildMayRelayParentProgress": true,
+      "multiOsChildrenRaceOneProgressProjection": false,
+      "progressReportingAffectsCiResult": false
     }
   },
   "semanticInputs": {

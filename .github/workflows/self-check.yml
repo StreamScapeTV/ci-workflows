@@ -37,6 +37,7 @@ jobs:
           tests.test_repository_host_classes
           tests.test_repository_execution_plan
           tests.test_repository_log_checkpoint
+          tests.test_repository_progress_relay
           tests.test_repository_log_capture
           tests.test_repository_runtime_probe
           tests.test_public_identity_boundary

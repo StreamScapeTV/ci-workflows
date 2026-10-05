@@ -105,6 +105,44 @@ class RepositoryLogCheckpointTests(unittest.TestCase):
             self.assertIsNone(final_state["active"])
             self.assertEqual(final_state["last_completed_ordinal"], 3)
 
+
+    def test_timeline_extends_through_evidence_cleanup_and_can_skip_unreached_phases(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            log = root / "log.txt"
+            state = root / "timeline.json"
+            log.write_text("", encoding="utf-8")
+            timeline_mod.start_phase(log_path=log, state_path=state, phase="source-admission")
+            timeline_mod.finish_phase(
+                log_path=log, state_path=state, phase="source-admission", status="failed"
+            )
+            timeline_mod.fill_skipped_through(
+                log_path=log, state_path=state, through_phase="repository-entrypoint"
+            )
+            timeline_mod.start_phase(log_path=log, state_path=state, phase="evidence")
+            timeline_mod.finish_phase(log_path=log, state_path=state, phase="evidence", status="complete")
+            timeline_mod.start_phase(log_path=log, state_path=state, phase="cleanup-settlement")
+            timeline_mod.finish_phase(
+                log_path=log, state_path=state, phase="cleanup-settlement", status="complete"
+            )
+            value = json.loads(state.read_text(encoding="utf-8"))
+            self.assertEqual(value["last_completed_ordinal"], 5)
+            self.assertEqual(
+                value["completed"],
+                {
+                    "source-admission": "failed",
+                    "private-capabilities": "skipped",
+                    "repository-entrypoint": "skipped",
+                    "evidence": "complete",
+                    "cleanup-settlement": "complete",
+                },
+            )
+            text = log.read_text(encoding="utf-8")
+            self.assertIn("name=private-capabilities status=skipped", text)
+            self.assertIn("name=repository-entrypoint status=skipped", text)
+            self.assertIn("name=evidence status=complete", text)
+            self.assertIn("name=cleanup-settlement status=complete", text)
+
     def test_timeline_rejects_unknown_or_out_of_order_phase_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
