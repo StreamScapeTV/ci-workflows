@@ -62,6 +62,11 @@
         "capacity": "standard",
         "ownership": "Central hosted execution"
       },
+      "linux-high-capacity": {
+        "hostOs": "linux",
+        "capacity": "high",
+        "ownership": "Central reviewed self-hosted high-capacity execution"
+      },
       "macos-hosted": {
         "hostOs": "macos",
         "capacity": "standard",

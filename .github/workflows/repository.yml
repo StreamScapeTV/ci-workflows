@@ -161,6 +161,10 @@ jobs:
                 host_os=linux
                 runs_on='["ubuntu-24.04"]'
                 ;;
+              linux-high-capacity)
+                host_os=linux
+                runs_on='["self-hosted","linux","x64","ubuntu-latest-xl"]'
+                ;;
               macos-hosted)
                 host_os=macos
                 runs_on='["macos-latest"]'
@@ -333,6 +337,29 @@ jobs:
     runs-on: ${{ fromJSON(needs.resolve_host.outputs.runs_on) }}
     timeout-minutes: 300
     steps:
+      - name: Assert reviewed Linux high-capacity runner
+        if: ${{ needs.resolve_host.outputs.host_class == 'linux-high-capacity' }}
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          RUNNER_OS: ${{ runner.os }}
+          RUNNER_ARCH: ${{ runner.arch }}
+        run: |
+          set -Eeuo pipefail
+          test "${RUNNER_ENVIRONMENT}" = self-hosted || {
+            echo "linux-high-capacity must execute on a self-hosted runner" >&2
+            exit 1
+          }
+          test "${RUNNER_OS}" = Linux || {
+            echo "linux-high-capacity must execute on Linux" >&2
+            exit 1
+          }
+          test "${RUNNER_ARCH}" = X64 || {
+            echo "linux-high-capacity must execute on X64" >&2
+            exit 1
+          }
+          echo "repository CI linux-high-capacity matched the reviewed self-hosted/linux/x64/ubuntu-latest-xl selector"
+
       - name: Initialize private execution paths
         shell: bash
         run: |
@@ -2470,6 +2497,20 @@ jobs:
             "${RUNNER_TEMP}/central-repository-progress-relay.stdout" \
             "${RUNNER_TEMP}/central-repository-progress-relay.stderr"
 
+      - name: Cleanup persistent runner workspace
+        id: workspace_cleanup
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for path in "${GITHUB_WORKSPACE}/source" "${GITHUB_WORKSPACE}/central-ci"; do
+            rm -rf -- "${path}"
+            if test -e "${path}" || test -L "${path}"; then
+              echo "repository CI persistent workspace cleanup failed: ${path}" >&2
+              exit 1
+            fi
+          done
+
       - name: Finish Agent State run
         if: ${{ always() && inputs.ci_run_id != '' }}
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
@@ -2489,4 +2530,5 @@ jobs:
                 && steps.evidence_drive.outcome == 'success'
                 && steps.cleanup.outcome == 'success'
                 && steps.progress_cleanup.outcome == 'success'
+                && steps.workspace_cleanup.outcome == 'success'
                 && 'succeeded' || 'failed' }}

@@ -130,7 +130,7 @@ class RepositoryHostClassTests(unittest.TestCase):
         host_classes = self.contract["adoption"]["hostClasses"]
         self.assertEqual(
             list(host_classes),
-            ["linux-hosted", "macos-hosted", "macos-high-capacity"],
+            ["linux-hosted", "linux-high-capacity", "macos-hosted", "macos-high-capacity"],
         )
         self.assertFalse(self.contract["adoption"]["hostSelection"]["callerSuppliesHostClass"])
         self.assertFalse(self.contract["adoption"]["hostSelection"]["callerSuppliesRunnerLabels"])
@@ -164,6 +164,7 @@ class RepositoryHostClassTests(unittest.TestCase):
     def test_all_reviewed_host_classes_map_to_expected_host_os_and_central_runner(self) -> None:
         cases = {
             "linux-hosted": ("linux", ["ubuntu-24.04"]),
+            "linux-high-capacity": ("linux", ["self-hosted", "linux", "x64", "ubuntu-latest-xl"]),
             "macos-hosted": ("macos", ["macos-latest"]),
             "macos-high-capacity": ("macos", ["macOS", "ARM64"]),
         }
@@ -174,6 +175,44 @@ class RepositoryHostClassTests(unittest.TestCase):
                 self.assertEqual(values["host_class"], host_class)
                 self.assertEqual(values["host_os"], expected_os)
                 self.assertEqual(json.loads(values["runs_on"]), expected_runs_on)
+
+    def test_linux_high_capacity_runtime_assertion_is_self_hosted_linux_x64_only(self) -> None:
+        execute = self.workflow["jobs"]["execute"]
+        step = next(
+            item for item in execute["steps"]
+            if item.get("name") == "Assert reviewed Linux high-capacity runner"
+        )
+        self.assertEqual(
+            step["if"],
+            "${{ needs.resolve_host.outputs.host_class == 'linux-high-capacity' }}",
+        )
+        self.assertEqual(step["env"]["RUNNER_ENVIRONMENT"], "${{ runner.environment }}")
+        self.assertEqual(step["env"]["RUNNER_OS"], "${{ runner.os }}")
+        self.assertEqual(step["env"]["RUNNER_ARCH"], "${{ runner.arch }}")
+        for token in (
+            '"${RUNNER_ENVIRONMENT}" = self-hosted',
+            '"${RUNNER_OS}" = Linux',
+            '"${RUNNER_ARCH}" = X64',
+            "ubuntu-latest-xl selector",
+        ):
+            self.assertIn(token, step["run"])
+        self.assertNotIn("runner.name", json.dumps(step))
+
+    def test_persistent_workspace_cleanup_is_terminally_accounted(self) -> None:
+        execute = self.workflow["jobs"]["execute"]
+        step = next(
+            item for item in execute["steps"]
+            if item.get("name") == "Cleanup persistent runner workspace"
+        )
+        self.assertEqual(step["if"], "${{ always() }}")
+        self.assertIn('"${GITHUB_WORKSPACE}/source"', step["run"])
+        self.assertIn('"${GITHUB_WORKSPACE}/central-ci"', step["run"])
+        self.assertIn("persistent workspace cleanup failed", step["run"])
+        finish = next(
+            item for item in execute["steps"]
+            if item.get("name") == "Finish Agent State run"
+        )
+        self.assertIn("steps.workspace_cleanup.outcome == 'success'", finish["with"]["status"])
 
     def test_unknown_or_failed_agent_state_resolution_fails_closed(self) -> None:
         unknown, _ = self.run_resolver(host_class="arbitrary-runner")
@@ -289,6 +328,7 @@ class RepositoryHostClassTests(unittest.TestCase):
     def test_docs_use_generic_non_identifying_policy_examples(self) -> None:
         for value in (
             "linux-hosted",
+            "linux-high-capacity",
             "macos-hosted",
             "macos-high-capacity",
             "resolve_repository_ci_host_class",
