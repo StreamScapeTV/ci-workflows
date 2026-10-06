@@ -188,10 +188,10 @@ Central combines the last safe structured product state with its fixed wrapper p
 | `CI_BACKUP_S3_ACCESS_KEY_ID` | `backup_s3_read` authorized release only | Read-only backup-store access-key identifier. |
 | `CI_BACKUP_S3_SECRET_ACCESS_KEY` | `backup_s3_read` authorized release only | Read-only backup-store secret key. |
 | `CI_PROTECTED_DEPLOYED_CONFORMANCE` | `protected_deployed_conformance` Linux full only | Informational `true`/`false`; protected targets, scenarios, credentials and identity values are passed only to the separately executed protected certifier, not through `CI_INPUTS_JSON`. |
-| `CI_APPLE_TEAM_ID` | Authorized macOS `release` only | Existing Apple signing team identifier supplied by Central. |
-| `CI_APP_STORE_CONNECT_KEY_ID` | Authorized macOS `release` only | Existing App Store Connect API key identifier supplied by Central. |
-| `CI_APP_STORE_CONNECT_ISSUER_ID` | Authorized macOS `release` only | Existing App Store Connect issuer identifier supplied by Central. |
-| `CI_APP_STORE_CONNECT_API_KEY_P8_BASE64` | Authorized macOS `release` only | Existing App Store Connect API key material supplied by Central. |
+| `CI_APPLE_TEAM_ID` | macOS `build`, `test`, `full`, `ui-test`, `device-test`, and authorized `release` | Existing Apple signing team identifier supplied by Central. Credential presence does not grant release authority. |
+| `CI_APP_STORE_CONNECT_KEY_ID` | macOS `build`, `test`, `full`, `ui-test`, `device-test`, and authorized `release` | Existing App Store Connect API key identifier supplied by Central. Credential presence does not grant release authority. |
+| `CI_APP_STORE_CONNECT_ISSUER_ID` | macOS `build`, `test`, `full`, `ui-test`, `device-test`, and authorized `release` | Existing App Store Connect issuer identifier supplied by Central. Credential presence does not grant release authority. |
+| `CI_APP_STORE_CONNECT_API_KEY_P8_BASE64` | macOS `build`, `test`, `full`, `ui-test`, `device-test`, and authorized `release` | Existing App Store Connect API key material supplied by Central. Credential presence does not grant release authority. |
 
 Repository stdout/stderr is captured automatically by Central. The primary Central log path
 (`CI_LOG`), `RUNNER_TEMP`, credential files, runner labels, secrets and Drive paths are internal
