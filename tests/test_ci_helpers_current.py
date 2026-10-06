@@ -242,9 +242,12 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertIn("needs.request.result != 'success'", settlement["if"])
         for name in (*validation_jobs, *serialized_release_jobs, "branch_delete", "source_checkpoint_publish", "source_snapshot"):
             self.assertIn(f"needs.{name}.result == 'cancelled'", settlement["if"])
+            self.assertIn(f"needs.{name}.result == 'failure'", settlement["if"])
+            self.assertNotIn(f"needs.{name}.result != 'success'", settlement["if"])
+            self.assertNotIn(f"needs.{name}.result == 'skipped'", settlement["if"])
         cancel = settlement["steps"][-1]
         self.assertEqual(cancel["with"]["phase"], "cancel-if-active")
-        self.assertIn("cancelled or superseded", cancel["with"]["error_summary"])
+        self.assertIn("failed, was cancelled, or was superseded", cancel["with"]["error_summary"])
         self.assertIn("dispatch request failed", cancel["with"]["error_summary"])
 
     def test_retired_legacy_profile_pairs_fail_closed_with_repository_replacements(self) -> None:

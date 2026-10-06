@@ -1446,21 +1446,37 @@ jobs:
         (
           needs.request.result != 'success' ||
           needs.repository.result == 'cancelled' ||
+          needs.repository.result == 'failure' ||
           needs.repository_release.result == 'cancelled' ||
+          needs.repository_release.result == 'failure' ||
           needs.apple.result == 'cancelled' ||
+          needs.apple.result == 'failure' ||
           needs.apple_release.result == 'cancelled' ||
+          needs.apple_release.result == 'failure' ||
           needs.android.result == 'cancelled' ||
+          needs.android.result == 'failure' ||
           needs.android_release.result == 'cancelled' ||
+          needs.android_release.result == 'failure' ||
           needs.python.result == 'cancelled' ||
+          needs.python.result == 'failure' ||
           needs.maven.result == 'cancelled' ||
+          needs.maven.result == 'failure' ||
           needs.apple_binary.result == 'cancelled' ||
+          needs.apple_binary.result == 'failure' ||
           needs.apple_swiftpm.result == 'cancelled' ||
+          needs.apple_swiftpm.result == 'failure' ||
           needs.library_package_release.result == 'cancelled' ||
+          needs.library_package_release.result == 'failure' ||
           needs.public_native_image_chart.result == 'cancelled' ||
+          needs.public_native_image_chart.result == 'failure' ||
           needs.oci_reproducibility.result == 'cancelled' ||
+          needs.oci_reproducibility.result == 'failure' ||
           needs.branch_delete.result == 'cancelled' ||
+          needs.branch_delete.result == 'failure' ||
           needs.source_checkpoint_publish.result == 'cancelled' ||
-          needs.source_snapshot.result == 'cancelled'
+          needs.source_checkpoint_publish.result == 'failure' ||
+          needs.source_snapshot.result == 'cancelled' ||
+          needs.source_snapshot.result == 'failure'
         )
       }}
     runs-on: ubuntu-24.04
@@ -1480,5 +1496,5 @@ jobs:
           ci_run_id: ${{ inputs.ci_run_id }}
           error_summary: >-
             ${{ needs.request.result == 'success'
-                && 'Central hosted execution was cancelled or superseded before completion.'
+                && 'Central hosted execution failed, was cancelled, or was superseded before terminal settlement.'
                 || 'Central dispatch request failed before hosted execution completed.' }}
