@@ -543,6 +543,12 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertNotEqual(denied.returncode, 0)
         self.assertIn("separately authorized Central caller", denied.stderr)
 
+        docs = (ROOT / "docs/repository-ci.md").read_text(encoding="utf-8")
+        self.assertIn("Credential presence during macOS validation", docs)
+        self.assertIn("does not grant release or publication authority", docs)
+        self.assertIn("Linux executions receive none of that secret material", docs)
+        self.assertNotIn("Validation and non-macOS release operations receive none", docs)
+
         allowed, output = self.run_repository_request(
             operation="release",
             host_os="macos",

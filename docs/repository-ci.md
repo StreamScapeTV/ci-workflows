@@ -326,13 +326,14 @@ The reset descriptor is lifecycle-only: it cannot change conformance expectation
 authorized by Central and requires an admitted immutable tag. The repository owns release commands,
 targets, package coordinates, store metadata and product semantics.
 
-Provider publication/signing credentials are not caller-selected capability names. For an authorized
-macOS `release.repository` operation, Central supplies the existing Apple signing/App Store Connect
-material only through the four fixed `CI_APPLE_*` variables documented above and includes those same
-values in its redaction surface. Validation and non-macOS release operations receive none of that
-secret material. The repository-owned `.ci/release.sh` owns signing, archive/export, validation, upload,
-and product release semantics; Central accepts no caller-selected secret names, arbitrary environment
-maps, or product release commands. The direct immutable-tag `release.repository` semantic is
+Provider publication/signing credentials are not caller-selected capability names. Central supplies the
+existing Apple signing/App Store Connect material only through the four fixed `CI_APPLE_*` variables
+documented above for macOS Repository CI and includes those same values in its redaction surface.
+Linux executions receive none of that secret material. Credential presence during macOS validation
+does not grant release or publication authority: `.ci/release.sh` remains separately authorized by
+Central and requires an admitted immutable tag. The repository-owned `.ci/release.sh` owns signing,
+archive/export, validation, upload, and product release semantics; Central accepts no caller-selected
+secret names, arbitrary environment maps, or product release commands. The direct immutable-tag `release.repository` semantic is
 `release_kind=publish`; `release_kind=prepare` remains only for the existing aggregate library-package
 preparation path while that compatibility flow is live.
 
