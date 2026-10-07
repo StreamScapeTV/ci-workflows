@@ -51,6 +51,9 @@ class PythonWorkflowTests(unittest.TestCase):
         self.assertNotIn("release-gates)", source)
         self.assertNotIn("bash scripts/run_release_gates.sh", source)
         self.assertNotIn("agent-state-issue-reconcile)", source)
+        for retired in ("compile)", "unit)", "valkey)", "backend-full)", "release-gates)"):
+            self.assertNotIn(retired, source)
+        self.assertIn('test "$TEST_PROFILE" = backend-postgres', source)
 
 
     def _run_backend_postgres_fixture(
