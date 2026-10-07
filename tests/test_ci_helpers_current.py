@@ -573,3 +573,71 @@ resolve_existing_file
         )
         self.assertNotEqual(ambiguous.returncode, 0)
         self.assertIn("refusing ambiguous migration", ambiguous.stderr)
+
+    def test_python_records_source_sha_and_uploads_readable_log_before_finish(self) -> None:
+        workflow = yaml.safe_load((_prior.ROOT / ".github/workflows/python.yml").read_text())
+        steps = workflow["jobs"]["ci"]["steps"]
+        names = [step.get("name") for step in steps]
+        by_name = {step.get("name"): step for step in steps if step.get("name")}
+        commands = by_name["Run fixed Python profile"]["run"]
+        self.assertIn('test "$TEST_PROFILE" = backend-postgres', commands)
+        for retired in ("compile)", "unit)", "valkey)", "backend-full)", "release-gates)"):
+            self.assertNotIn(retired, commands)
+        self.assertIn("run_backend_postgres", commands)
+        self.assertLess(names.index("Record observed source SHA"), names.index("Run fixed Python profile"))
+        self.assertLess(names.index("Run fixed Python profile"), names.index("Scrub configured CI secrets from private log"))
+        self.assertLess(names.index("Upload CI log to Google Drive"), names.index("Finish Agent State run"))
+
+    def test_android_dependency_cache_uses_github_default_branch_writer_policy(self) -> None:
+        workflow = yaml.safe_load((_prior.ROOT / ".github/workflows/android.yml").read_text())
+        steps = workflow["jobs"]["ci"]["steps"]
+        by_name = {step.get("name"): step for step in steps if step.get("name")}
+        scope = by_name["Resolve IPTV Android default-branch cache scope"]
+        restore = by_name["Restore IPTV Android default-branch dependency cache"]
+        self.assertIn("SOURCE_REPOSITORY", scope["env"])
+        self.assertIn('test "${SOURCE_REPOSITORY}" = ', scope["run"])
+        self.assertEqual(restore["uses"], "actions/cache/restore@v4")
+        self.assertNotIn("Save IPTV Android default-branch dependency cache", by_name)
+        self.assertNotIn("actions/cache/save@v4", (_prior.ROOT / ".github/workflows/android.yml").read_text())
+
+    def test_android_owner_profiles_and_gitops_retirement_are_explicit(self) -> None:
+        android = (_prior.ROOT / ".github/workflows/android.yml").read_text()
+        for kept in ("screenshot-review", "physical-performance", "run-android-play-release.sh"):
+            self.assertIn(kept, android)
+        for retired in (
+            "targeted-tests", "targeted-unit", "search-performance", "test_filter",
+            "test_platform", "room_schema",
+        ):
+            self.assertNotIn(retired, android)
+        self.assertFalse((_prior.ROOT / ".github/workflows/gitops.yml").exists())
+
+    def test_retired_legacy_profile_pairs_fail_closed_with_repository_replacements(self) -> None:
+        workflow = yaml.safe_load((_prior.ROOT / ".github/workflows/central-ci-dispatch.yml").read_text())
+        step = next(
+            step for step in workflow["jobs"]["request"]["steps"]
+            if step.get("name") == "Validate retained legacy validation profile"
+        )
+        script = step["run"]
+        for kept in (
+            "validation.android/screenshot-review", "validation.android/physical-performance",
+            "validation.apple/candidate", "validation.apple/screenshot-review",
+            "validation.python/backend-postgres",
+        ):
+            self.assertIn(kept, script)
+        for message in (
+            "retired Android validation profile",
+            "retired Apple validation profile",
+            "retired Python validation profile",
+        ):
+            self.assertIn(message, script)
+
+    def test_persistent_dependency_cache_is_limited_to_remaining_legacy_native_lanes(self) -> None:
+        apple = (_prior.ROOT / ".github/workflows/apple.yml").read_text()
+        android = (_prior.ROOT / ".github/workflows/android.yml").read_text()
+        python = (_prior.ROOT / ".github/workflows/python.yml").read_text()
+        self.assertIn("actions/cache/restore@v4", apple)
+        self.assertIn("actions/cache/save@v4", apple)
+        self.assertIn("actions/cache/restore@v4", android)
+        self.assertNotIn("actions/cache/save@v4", android)
+        self.assertNotIn("actions/cache/restore@v4", python)
+        self.assertNotIn("actions/cache/save@v4", python)

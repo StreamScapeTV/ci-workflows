@@ -75,8 +75,9 @@ Keep self-validation proportional to the changed behavior:
    consumer before treating the candidate as final.
 
 During iterative Android/Apple real-consumer proof of a Central change, prefer
-the deployed `targeted-tests` profile with only the relevant safe selectors and
-fixed platform when that evidence covers the changed behavior. For ordinary
+generic `validation.repository/test` with the repository-owned fixed `.ci/test.sh`
+entrypoint, bounded safe selectors, and only the reviewed semantic inputs needed
+by that repository. For ordinary
 Agent State validation of a moving branch, pass its stable human branch name
 (for example `develop` or the issue branch) as `ref`; do not substitute the
 current commit SHA. A newer ordinary request supersedes an older active request

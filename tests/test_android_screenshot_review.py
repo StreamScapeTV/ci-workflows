@@ -98,21 +98,21 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
             return result, files
 
     def test_dispatch_accepts_only_fixed_android_screenshot_request(self) -> None:
-        step = next(step for step in self.dispatch["jobs"]["request"]["steps"] if step.get("name") == "Validate native targeted test request")
+        step = next(step for step in self.dispatch["jobs"]["request"]["steps"] if step.get("name") == "Validate retained specialist validation request")
         script = step["run"]
-        self.assertIn('"validation.android": "StreamScapeTV/iptv-android"', script)
-        self.assertIn('"validation.apple": "StreamScapeTV/iptv-apple"', script)
-        self.assertIn("Apple screenshot-review accepts no semantic inputs", script)
+        self.assertIn('Android screenshot-review is fixed to iptv-android', script)
+        self.assertIn('Apple screenshot-review is fixed to iptv-apple', script)
+        self.assertIn("Apple screenshot-review is fixed to iptv-apple and accepts no semantic inputs", script)
         self.assertIn("Android screenshot-review accepts only test_selectors", script)
         self.assertIn("Android screenshot-review accepts zero through 20 canonical screen ids", script)
-        self.assertIn("mobile.* or tv.* canonical ids", script)
+        self.assertIn("mobile.* or tv.* ids", script)
         self.assertNotIn("screenshot-review is supported only by validation.apple\n", script)
 
     def test_android_profile_keeps_fixed_screenshot_lanes_and_trusted_physical_runner(self) -> None:
         jobs = self.workflow["jobs"]
         self.assertEqual(
             jobs["ci"]["if"],
-            "${{ inputs.test_profile != 'screenshot-review' && inputs.test_profile != 'physical-performance' }}",
+            "${{ inputs.test_profile == 'play' }}",
         )
         physical = jobs["physical_performance"]
         self.assertEqual(physical["runs-on"], "macos-latest-xl")

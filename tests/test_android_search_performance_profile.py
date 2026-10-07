@@ -1,511 +1,80 @@
-# LEGACY_MIGRATION_RESIDUE: This file verifies still-live compatibility whose source currently contains concrete consumer identity; do not extend that identity coupling.
 from pathlib import Path
-import os
-import subprocess
-import tempfile
 import unittest
-
 import yaml
 
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "android.yml"
-PERFORMANCE_TEST_CLASS = (
-    "com.streamscapetv.app.foundation.performance.testing.PerformanceBudgetTest"
-)
+ROOT = Path(__file__).resolve().parents[1]
+WORKFLOW = ROOT / ".github/workflows/android.yml"
+DISPATCH = ROOT / ".github/workflows/central-ci-dispatch.yml"
 
 
-class AndroidSearchPerformanceProfileContractTest(unittest.TestCase):
+class AndroidRetainedReleaseContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
-        cls.workflow = yaml.safe_load(cls.workflow_text)
-        steps = cls.workflow["jobs"]["ci"]["steps"]
-        cls.profile_step = next(
-            step for step in steps if step.get("name") == "Run fixed Android profile"
-        )
-        cls.profile_script = cls.profile_step["run"]
+        cls.workflow = yaml.safe_load(WORKFLOW.read_text())
+        cls.dispatch = yaml.safe_load(DISPATCH.read_text())
+        cls.source = WORKFLOW.read_text()
+        cls.steps = cls.workflow["jobs"]["ci"]["steps"]
+        cls.by_name = {s.get("name"): s for s in cls.steps if s.get("name")}
 
-    def profile_body(self, profile: str) -> str:
-        start = self.profile_script.index(f"{profile})")
-        end = self.profile_script.index(";;", start)
-        return self.profile_script[start:end]
-
-    def test_search_performance_profile_uses_only_fixed_product_class(self) -> None:
-        self.assertIn(
-            f"performance_test_class='{PERFORMANCE_TEST_CLASS}'",
-            self.profile_script,
-        )
-        body = self.profile_body("search-performance")
-        self.assertIn(
-            'run_gradle testDebugUnitTest --tests "${performance_test_class}"',
-            body,
-        )
-        self.assertNotIn("TEST_FILTER", body)
-        self.assertNotIn("inputs.", body)
-
-    def test_profile_does_not_broaden_default_branch_dependency_cache(self) -> None:
-        steps = self.workflow["jobs"]["ci"]["steps"]
-        save_step = next(
-            step
-            for step in steps
-            if step.get("name") == "Save IPTV Android default-branch dependency cache"
-        )
-        self.assertNotIn("search-performance", save_step["if"])
-        self.assertIn("inputs.test_profile == 'release'", save_step["if"])
-
-
-class AndroidSharedCacheContractTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
-        cls.workflow = yaml.safe_load(cls.workflow_text)
-        steps = cls.workflow["jobs"]["ci"]["steps"]
-        cls.by_name = {step.get("name"): step for step in steps if step.get("name")}
-
-    def test_feature_and_pr_reader_scope_excludes_actual_default_branch_and_detached_tags(self) -> None:
-        scope = self.by_name["Resolve IPTV Android non-default cache reader scope"]
-        script = scope["run"]
-        self.assertIn("StreamScapeTV/iptv-android", script)
-        self.assertIn("git symbolic-ref --quiet --short HEAD", script)
-        self.assertIn('[[ "${source_ref}" == refs/pull/* ]]', script)
-        self.assertIn('test "${checkout_branch}" != "${DEFAULT_BRANCH}"', script)
-        self.assertIn('test "${normalized_ref}" != "${DEFAULT_BRANCH}"', script)
-        self.assertNotIn('test "${checkout_branch}" != develop', script)
-        self.assertNotIn('test "${checkout_branch}" != main', script)
-        self.assertNotIn("refs/tags/*", script)
-
-    def test_default_writer_follows_github_repository_metadata(self) -> None:
-        scope = self.by_name["Resolve IPTV Android default-branch cache scope"]
-        script = scope["run"]
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            subprocess.run(["git", "init", "-b", "develop"], cwd=root, check=True, capture_output=True)
-            subprocess.run(["git", "config", "user.email", "ci@example.invalid"], cwd=root, check=True)
-            subprocess.run(["git", "config", "user.name", "CI"], cwd=root, check=True)
-            (root / "README.md").write_text("fixture\n", encoding="utf-8")
-            (root / "gradle" / "wrapper").mkdir(parents=True)
-            (root / "gradle" / "wrapper" / "gradle-wrapper.properties").write_text(
-                "distributionUrl=https://services.gradle.org/distributions/gradle-9.7.1-bin.zip\n",
-                encoding="utf-8",
-            )
-            subprocess.run(["git", "add", "."], cwd=root, check=True)
-            subprocess.run(["git", "commit", "-m", "fixture"], cwd=root, check=True, capture_output=True)
-            fake_bin = root / "bin"
-            fake_bin.mkdir()
-            fake_curl = fake_bin / "curl"
-            fake_curl.write_text(
-                "#!/bin/sh\nprintf '{\"default_branch\":\"%s\"}\\n' \"${FAKE_DEFAULT_BRANCH:-develop}\"\n",
-                encoding="utf-8",
-            )
-            fake_curl.chmod(0o755)
-
-            def writer_enabled(ref: str, default_branch: str) -> str:
-                output = root / "github-output"
-                output.write_text("", encoding="utf-8")
-                env = os.environ.copy()
-                env.update(
-                    {
-                        "SOURCE_REPOSITORY": "StreamScapeTV/iptv-android",
-                        "REQUESTED_REF": ref,
-                        "CURRENT_REF_NAME": "",
-                        "CURRENT_REF_TYPE": "branch",
-                        "SOURCE_TOKEN": "token",
-                        "FAKE_DEFAULT_BRANCH": default_branch,
-                        "GITHUB_OUTPUT": str(output),
-                        "PATH": f"{fake_bin}:{env['PATH']}",
-                    }
-                )
-                result = subprocess.run(
-                    ["bash"], cwd=root, env=env, input=script, text=True, capture_output=True, check=False
-                )
-                self.assertEqual(result.returncode, 0, result.stderr)
-                values = dict(line.split("=", 1) for line in output.read_text().splitlines())
-                return values["enabled"]
-
-            self.assertEqual(writer_enabled("develop", "develop"), "true")
-            self.assertEqual(writer_enabled("develop", "main"), "false")
-            subprocess.run(["git", "switch", "-c", "main"], cwd=root, check=True, capture_output=True)
-            self.assertEqual(writer_enabled("main", "main"), "true")
-
-    def test_dependency_fingerprint_tracks_dependencies_not_release_metadata(self) -> None:
-        script = self.by_name["Resolve IPTV Android default-branch cache scope"]["run"]
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            subprocess.run(["git", "init", "-b", "develop"], cwd=root, check=True, capture_output=True)
-            subprocess.run(["git", "config", "user.email", "ci@example.invalid"], cwd=root, check=True)
-            subprocess.run(["git", "config", "user.name", "CI"], cwd=root, check=True)
-            (root / "gradle" / "wrapper").mkdir(parents=True)
-            (root / "gradle" / "wrapper" / "gradle-wrapper.properties").write_text(
-                "distributionUrl=https://services.gradle.org/distributions/gradle-9.7.1-bin.zip\n",
-                encoding="utf-8",
-            )
-            (root / "gradle" / "libs.versions.toml").write_text(
-                "[versions]\nalpha = \"1.0\"\nbeta = \"1.0\"\n"
-                "[libraries]\nalpha = { module = \"example:alpha\", version.ref = \"alpha\" }\n"
-                "beta = { module = \"example:beta\", version.ref = \"beta\" }\n"
-                "[plugins]\nandroid-application = { id = \"com.android.application\", version = \"9.4.0\" }\n",
-                encoding="utf-8",
-            )
-            (root / "settings.gradle.kts").write_text(
-                'rootProject.name = "Fixture"\ndependencyResolutionManagement { repositories { mavenCentral() } }\n',
-                encoding="utf-8",
-            )
-            app = root / "app"
-            app.mkdir()
-            build = app / "build.gradle.kts"
-            build.write_text(
-                "plugins {\n    alias(libs.plugins.android.application)\n}\n"
-                "android { defaultConfig { versionCode = 1 } }\n"
-                "dependencies {\n    implementation(libs.alpha)\n}\n",
-                encoding="utf-8",
-            )
-            subprocess.run(["git", "add", "."], cwd=root, check=True)
-            subprocess.run(["git", "commit", "-m", "fixture"], cwd=root, check=True, capture_output=True)
-            fake_bin = root / "bin"
-            fake_bin.mkdir()
-            fake_curl = fake_bin / "curl"
-            fake_curl.write_text("#!/bin/sh\nprintf '%s\\n' '{\"default_branch\":\"develop\"}'\n", encoding="utf-8")
-            fake_curl.chmod(0o755)
-
-            def fingerprint() -> str:
-                output = root / "github-output"
-                output.write_text("", encoding="utf-8")
-                env = os.environ.copy()
-                env.update(
-                    {
-                        "SOURCE_REPOSITORY": "StreamScapeTV/iptv-android",
-                        "REQUESTED_REF": "develop",
-                        "CURRENT_REF_NAME": "",
-                        "CURRENT_REF_TYPE": "branch",
-                        "SOURCE_TOKEN": "token",
-                        "GITHUB_OUTPUT": str(output),
-                        "PATH": f"{fake_bin}:{env['PATH']}",
-                    }
-                )
-                result = subprocess.run(
-                    ["bash"], cwd=root, env=env, input=script, text=True, capture_output=True, check=False
-                )
-                self.assertEqual(result.returncode, 0, result.stderr)
-                values = dict(line.split("=", 1) for line in output.read_text().splitlines())
-                return values["dependency_fingerprint"]
-
-            baseline = fingerprint()
-            build.write_text(build.read_text().replace("versionCode = 1", "versionCode = 2"), encoding="utf-8")
-            self.assertEqual(fingerprint(), baseline)
-
-            build.write_text(build.read_text().replace("implementation(libs.alpha)", "implementation(libs.beta)"), encoding="utf-8")
-            dependency_changed = fingerprint()
-            self.assertNotEqual(dependency_changed, baseline)
-
-            wrapper = root / "gradle" / "wrapper" / "gradle-wrapper.properties"
-            wrapper.write_text(wrapper.read_text().replace("9.7.1", "9.8.0"), encoding="utf-8")
-            self.assertNotEqual(fingerprint(), dependency_changed)
-
-    def test_branch_dependency_restore_is_read_only_and_uses_trusted_default_family(self) -> None:
-        restore = self.by_name["Restore IPTV Android non-default dependency cache"]
+    def test_only_specialists_and_play_release_remain(self) -> None:
+        jobs = self.workflow["jobs"]
         self.assertEqual(
-            restore["if"],
-            "${{ steps.android_branch_cache_scope.outputs.enabled == 'true' }}",
+            set(jobs),
+            {"screenshot_plan", "screenshot_cache", "screenshot", "screenshot_finish", "physical_performance", "ci"},
         )
-        self.assertEqual(restore["uses"], "actions/cache/restore@v4")
-        self.assertEqual(
-            restore["with"]["path"],
-            "~/.gradle/wrapper\n~/.gradle/caches/modules-2\n",
-        )
-        self.assertIn("iptv-android-default-gradle-deps-v2-", restore["with"]["key"])
-        self.assertIn(
-            "iptv-android-default-gradle-deps-v2-",
-            restore["with"]["restore-keys"],
-        )
-        self.assertNotIn("actions/cache/save", str(restore))
-
-    def test_gradle_task_output_cache_is_not_persisted(self) -> None:
-        self.assertNotIn("Restore IPTV Android Gradle build cache", self.by_name)
-        self.assertNotIn("Save IPTV Android Gradle build cache", self.by_name)
-        self.assertNotIn("~/.gradle/caches/build-cache-1", self.workflow_text)
-        self.assertNotIn("iptv-android-default-gradle-build-", self.workflow_text)
-
-    def test_only_default_branch_release_can_save_dependency_cache(self) -> None:
-        step = self.by_name["Save IPTV Android default-branch dependency cache"]
-        condition = step["if"]
-        self.assertIn(
-            "steps.android_default_cache_scope.outputs.enabled == 'true'",
-            condition,
-        )
-        self.assertIn("steps.commands.outcome == 'success'", condition)
-        self.assertIn("inputs.test_profile == 'release'", condition)
-        self.assertIn("cache-hit != 'true'", condition)
-
-    def test_cache_paths_exclude_task_outputs_source_credentials_and_full_gradle_home(self) -> None:
-        cache_steps = (
-            self.by_name["Restore IPTV Android default-branch dependency cache"],
-            self.by_name["Restore IPTV Android non-default dependency cache"],
-            self.by_name["Save IPTV Android default-branch dependency cache"],
-        )
-        cached_paths = "\n".join(str(step["with"]["path"]) for step in cache_steps)
-        self.assertIn("~/.gradle/wrapper", cached_paths)
-        self.assertIn("~/.gradle/caches/modules-2", cached_paths)
-        self.assertNotIn("~/.gradle/caches/build-cache-1", cached_paths)
-        for forbidden in (
-            "app/build",
-            "build/outputs",
-            "apk",
-            "aab",
-            "signing",
-            "credentials",
-            "${{ github.workspace }}",
-            "~/.gradle\n",
+        self.assertEqual(jobs["ci"]["if"], "${{ inputs.test_profile == 'play' }}")
+        for retired in (
+            "targeted-tests", "targeted-unit", "search-performance",
+            "test_filter", "test_platform", "room_schema", "native-component",
         ):
-            self.assertNotIn(forbidden, cached_paths)
+            self.assertNotIn(retired, self.source)
+        self.assertNotIn("inputs.test_profile == 'emulator'", self.source)
+        self.assertNotIn("  emulator)", self.source)
 
-    def test_cache_measurements_are_private_log_only_and_lifecycle_checked(self) -> None:
-        measurement = self.by_name["Record IPTV Android cache measurements"]
-        script = measurement["run"]
-        self.assertIn("===== android-cache =====", script)
-        self.assertIn("gradle_wrapper", script)
-        self.assertIn("gradle_modules", script)
-        self.assertNotIn("gradle_build_cache", script)
-        self.assertIn('>> "${CI_LOG}"', script)
-        diagnostic = self.by_name["Classify Android terminal diagnostic"]
-        self.assertEqual(diagnostic["env"]["CACHE_MEASUREMENTS_OUTCOME"], "${{ steps.android_cache_measurements.outcome }}")
-        self.assertEqual(diagnostic["env"]["CACHE_SAVE_OUTCOME"], "${{ steps.gradle_dependency_cache_save.outcome }}")
-        diagnostic_script = diagnostic["run"]
-        self.assertIn('test "${CACHE_MEASUREMENTS_OUTCOME}" = success || test "${CACHE_MEASUREMENTS_OUTCOME}" = skipped', diagnostic_script)
-        self.assertIn('test "${CACHE_SAVE_OUTCOME}" = success || test "${CACHE_SAVE_OUTCOME}" = skipped', diagnostic_script)
-        self.assertNotIn("gradle_build_cache_save", diagnostic_script)
-        finish = self.by_name["Finish Agent State run"]
-        self.assertEqual(finish["with"]["status"], "${{ steps.terminal_diagnostic.outputs.success == 'true' && 'succeeded' || 'failed' }}")
+    def test_play_release_uses_one_fixed_product_wrapper_and_internal_draft(self) -> None:
+        command = self.by_name["Run fixed Android profile"]
+        run = command["run"]
+        self.assertIn("run-android-play-release.sh", run)
+        self.assertIn("CI_ANDROID_PLAY_TRACK", run)
+        self.assertIn("CI_ANDROID_PLAY_RELEASE_STATUS", run)
+        self.assertIn("= internal", run)
+        self.assertIn("= draft", run)
+        self.assertNotIn("./gradlew", run)
+        self.assertNotIn("case \"${TEST_PROFILE}\"", run)
 
-
-class AndroidGenericHostedProfileContractTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
-        cls.workflow = yaml.safe_load(cls.workflow_text)
-        steps = cls.workflow["jobs"]["ci"]["steps"]
-        cls.by_name = {step.get("name"): step for step in steps if step.get("name")}
-
-    def test_generic_profiles_use_one_fixed_product_wrapper(self) -> None:
-        preflight = self.by_name["Validate generic Android hosted request"]
-        self.assertIn("inputs.test_profile == 'emulator'", preflight["if"])
-        self.assertNotIn("inputs.test_profile == 'build'", preflight["if"])
-        self.assertNotIn("inputs.test_profile == 'test'", preflight["if"])
-        preflight_script = preflight["run"]
-        self.assertIn('test "${PROJECT_DIRECTORY}" = "."', preflight_script)
-        self.assertIn('test -z "${TEST_FILTER}"', preflight_script)
-        self.assertIn('test "${TEST_SELECTORS}" = "[]"', preflight_script)
-        self.assertIn('test -z "${TEST_PLATFORM}"', preflight_script)
-        self.assertIn('test "${ROOM_SCHEMA}" = "false"', preflight_script)
-        self.assertIn("scripts/ci/run-android-hosted-validation.sh", preflight_script)
-
-        script = self.by_name["Run fixed Android profile"]["run"]
-        self.assertIn('emulator)', script)
-        self.assertNotIn('build|emulator)', script)
-        self.assertNotIn('build|test|emulator)', script)
-        self.assertIn(
-            'wrapper="${repository_root}/scripts/ci/run-android-hosted-validation.sh"',
-            script,
-        )
-        self.assertIn('export CI_ANDROID_HOSTED_PROFILE="${TEST_PROFILE}"', script)
-        self.assertIn('run_logged "android-${TEST_PROFILE}" bash "${wrapper}"', script)
-        self.assertLess(script.index('emulator)'), script.index('test -x gradlew'))
-        self.assertNotIn(".xcworkspace", script.lower())
-        self.assertNotIn(".xcodeproj", script.lower())
-
-    def test_generic_hosted_profiles_keep_cache_scope_bounded_and_emulator_gets_private_maven_network(self) -> None:
-        private_git = self.by_name["Connect to private Git service"]
-        private_git_condition = private_git["if"]
-        default_scope = self.by_name["Resolve IPTV Android default-branch cache scope"]["if"]
-        branch_scope = self.by_name["Resolve IPTV Android non-default cache reader scope"]["if"]
-
-        self.assertNotIn("inputs.test_profile != 'build'", private_git_condition)
-        self.assertNotIn("inputs.test_profile != 'test'", private_git_condition)
-        self.assertNotIn("&& }}", private_git_condition)
-
-        self.assertNotIn("inputs.test_profile != 'emulator'", private_git_condition)
-        self.assertEqual(
-            private_git["uses"],
-            "StreamScapeTV/ci-workflows/actions/private-git@main",
-        )
-        self.assertEqual(private_git["env"]["TS_OAUTH_CLIENT_ID"], "${{ secrets.TS_OAUTH_CLIENT_ID }}")
-        self.assertEqual(private_git["env"]["TS_OAUTH_SECRET"], "${{ secrets.TS_OAUTH_SECRET }}")
-
-        self.assertIn("inputs.test_profile != 'emulator'", default_scope)
-        self.assertIn("inputs.test_profile != 'emulator'", branch_scope)
-        self.assertNotIn("inputs.test_profile != 'build'", default_scope)
-        self.assertNotIn("inputs.test_profile != 'build'", branch_scope)
-        self.assertNotIn("inputs.test_profile != 'test'", default_scope)
-        self.assertNotIn("inputs.test_profile != 'test'", branch_scope)
-
-    def test_emulator_profile_uses_fixed_central_boot_and_cleanup(self) -> None:
-        prepare = self.by_name["Prepare generic Android emulator"]
-        cleanup = self.by_name["Stop generic Android emulator"]
-        self.assertIn("inputs.test_profile == 'emulator'", prepare["if"])
-        self.assertIn("inputs.test_profile == 'targeted-tests'", prepare["if"])
-        self.assertIn("inputs.test_platform == 'instrumentation'", prepare["if"])
-        script = prepare["run"]
-        self.assertIn("system-images;android-37.0;google_apis_ps16k;x86_64", script)
-        self.assertIn("central-android-api37", script)
-        self.assertIn("cmdline-tools;22.0", script)
-        self.assertIn("emulator-5554", script)
-        self.assertIn("seq 1 180", script)
-        self.assertIn("sys.boot_completed", script)
-        self.assertIn("ro.build.version.sdk", script)
-        self.assertIn('test "${device_api}" = 37', script)
-        self.assertIn("[android-emulator] serial=%s api=%s avd=%s", script)
-        self.assertIn("printf 'ANDROID_SERIAL=%s\\n'", script)
-        self.assertNotIn("inputs.", script)
-        self.assertIn("inputs.test_profile == 'emulator'", cleanup["if"])
-        self.assertIn("inputs.test_profile == 'targeted-tests'", cleanup["if"])
-        self.assertIn("inputs.test_platform == 'instrumentation'", cleanup["if"])
-        self.assertIn("emu kill", cleanup["run"])
-
-
-
-class AndroidPlayReleaseContractTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
-        cls.workflow = yaml.safe_load(cls.workflow_text)
-        steps = cls.workflow["jobs"]["ci"]["steps"]
-        cls.by_name = {step.get("name"): step for step in steps if step.get("name")}
-
-    def test_play_release_has_one_explicit_build_number_and_one_private_credential(self) -> None:
-        call = self.workflow["on"]["workflow_call"]
-        self.assertIn("source_is_tag", call["inputs"])
-        self.assertFalse(call["inputs"]["source_is_tag"]["default"])
-        self.assertIn("release_version", call["inputs"])
-        self.assertEqual(call["inputs"]["release_version"]["default"], "")
-        self.assertIn("build_number", call["inputs"])
-        self.assertEqual(call["inputs"]["build_number"]["default"], "")
-        self.assertIn("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64", call["secrets"])
-        for secret in (
-            "ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64",
-            "ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD",
-            "ANDROID_PLAY_UPLOAD_KEY_ALIAS",
-            "ANDROID_PLAY_UPLOAD_KEY_PASSWORD",
-        ):
-            self.assertIn(secret, call["secrets"])
+    def test_play_credentials_are_profile_scoped_and_cleaned(self) -> None:
         prepare = self.by_name["Prepare fixed Google Play draft release context"]
         self.assertEqual(prepare["if"], "${{ inputs.test_profile == 'play' }}")
-        self.assertEqual(prepare["env"]["SOURCE_IS_TAG"], "${{ inputs.source_is_tag }}")
-        self.assertEqual(prepare["env"]["RELEASE_VERSION"], "${{ inputs.release_version }}")
-        self.assertEqual(prepare["env"]["BUILD_NUMBER"], "${{ inputs.build_number }}")
-        self.assertEqual(
-            prepare["env"]["GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64"],
-            "${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}",
-        )
-        script = prepare["run"]
-        self.assertIn('[[ "${BUILD_NUMBER}" =~ ^[1-9][0-9]{0,9}$ ]]', script)
-        self.assertIn("BUILD_NUMBER <= 2100000000", script)
-        self.assertIn("Tag-driven Google Play release requires a bounded dotted release_version", script)
-        self.assertIn("Manual Google Play release does not accept release_version", script)
-        self.assertIn("CI_ANDROID_PLAY_SOURCE_IS_TAG", script)
-        self.assertIn("CI_ANDROID_PLAY_RELEASE_VERSION", script)
-        self.assertIn("base64 --decode", script)
-        self.assertIn('chmod 600 "${credential_path}" "${keystore_path}"', script)
-        self.assertIn("ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64", script)
-        self.assertIn('keytool -list -keystore "${keystore_path}"', script)
-        self.assertIn("CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PATH", script)
-        self.assertIn('value.get("type") != "service_account"', script)
-        self.assertIn("client_email", script)
-        self.assertIn("private_key", script)
-        self.assertIn("token_uri", script)
-
-    def test_play_destination_is_fixed_internal_draft_not_caller_selectable(self) -> None:
-        prepare = self.by_name["Prepare fixed Google Play draft release context"]["run"]
-        self.assertIn("CI_ANDROID_PLAY_TRACK=internal", prepare)
-        self.assertIn("CI_ANDROID_PLAY_RELEASE_STATUS=draft", prepare)
-        commands = self.by_name["Run fixed Android profile"]
-        script = commands["run"]
-        self.assertIn("play)", script)
-        self.assertIn('wrapper="${repository_root}/scripts/ci/run-android-play-release.sh"', script)
-        self.assertIn('case "${CI_ANDROID_PLAY_SOURCE_IS_TAG:-}" in true|false)', script)
-        self.assertIn('test "${CI_ANDROID_PLAY_TRACK:-}" = internal', script)
-        self.assertIn('test "${CI_ANDROID_PLAY_RELEASE_STATUS:-}" = draft', script)
-        self.assertIn('test -f "${CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PATH}"', script)
-        self.assertIn('test -n "${CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD:-}"', script)
-        self.assertIn("run_logged android-play-draft", script)
-        for forbidden in ("production", "open testing", "closed testing", "userFraction"):
-            self.assertNotIn(forbidden, script)
-        self.assertNotIn("inputs.", script)
-
-    def test_play_credential_is_cleaned_and_not_exposed_to_ordinary_profiles(self) -> None:
         cleanup = self.by_name["Clean Google Play credential and release state"]
-        self.assertEqual(cleanup["if"], "${{ always() && inputs.test_profile == 'play' }}")
-        self.assertIn('rm -rf -- "${release_root}"', cleanup["run"])
+        self.assertIn("always()", cleanup["if"])
+        self.assertIn("central-android-play", cleanup["run"])
         scrub = self.by_name["Scrub configured CI secrets from private log"]
-        self.assertEqual(
-            scrub["env"]["CI_SECRET_GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"],
-            "${{ inputs.test_profile == 'play' && secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 || '' }}",
-        )
-        for key in (
+        for name in (
+            "CI_SECRET_GOOGLE_PLAY_SERVICE_ACCOUNT_JSON",
             "CI_SECRET_ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64",
             "CI_SECRET_ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD",
             "CI_SECRET_ANDROID_PLAY_UPLOAD_KEY_ALIAS",
             "CI_SECRET_ANDROID_PLAY_UPLOAD_KEY_PASSWORD",
         ):
-            self.assertIn(key, scrub["env"])
-            self.assertIn("inputs.test_profile == 'play'", scrub["env"][key])
-        diagnostic = self.by_name["Classify Android terminal diagnostic"]
-        self.assertEqual(diagnostic["env"]["PLAY_CLEANUP_OUTCOME"], "${{ steps.play_cleanup.outcome }}")
-        self.assertIn('test "${PLAY_CLEANUP_OUTCOME}" = success || test "${PLAY_CLEANUP_OUTCOME}" = skipped', diagnostic["run"])
-        finish = self.by_name["Finish Agent State run"]
-        self.assertEqual(finish["with"]["status"], "${{ steps.terminal_diagnostic.outputs.success == 'true' && 'succeeded' || 'failed' }}")
+            self.assertIn(name, scrub["env"])
 
-    def test_tagged_play_release_uses_exact_tag_then_post_success_build_only_transport(self) -> None:
-        checkout = next(
-            step for step in self.workflow["jobs"]["ci"]["steps"]
-            if step.get("name") == "Check out source"
-        )
-        self.assertEqual(
-            checkout["with"]["ref"],
-            "${{ inputs.source_is_tag && format('refs/tags/{0}', inputs.ref) || inputs.ref || github.sha }}",
-        )
-        prepare_script = self.by_name["Prepare fixed Google Play draft release context"]["run"]
-        self.assertIn("BUILD_NUMBER < 2100000000", prepare_script)
+    def test_legacy_android_cache_is_read_only_for_remaining_play_lane(self) -> None:
+        self.assertIn("actions/cache/restore@v4", self.source)
+        self.assertNotIn("actions/cache/save@v4", self.source)
+        self.assertIn("Resolve IPTV Android default-branch cache scope", self.by_name)
+        self.assertIn("Resolve IPTV Android non-default cache reader scope", self.by_name)
 
-        preflight = self.by_name["Preflight tag-driven Android post-publication bump"]
-        self.assertEqual(preflight["if"], "${{ inputs.test_profile == 'play' && inputs.source_is_tag }}")
-        self.assertEqual(preflight["env"]["SOURCE_TOKEN"], "${{ steps.source.outputs.token || github.token }}")
-        self.assertIn('wrapper="scripts/ci/advance-mobile-build.sh"', preflight["run"])
-        self.assertIn('git ls-files --error-unmatch -- "${wrapper}"', preflight["run"])
-        self.assertIn('"https://api.github.com/repos/${SOURCE_REPOSITORY}"', preflight["run"])
-        self.assertIn("default_branch", preflight["run"])
-
-        token = self.by_name["Create post-publication Android build bump token"]
-        self.assertIn("steps.commands.outcome == 'success'", token["if"])
-        self.assertIn("steps.play_cleanup.outcome == 'success'", token["if"])
-        self.assertEqual(token["with"]["permission-contents"], "write")
-        self.assertEqual(token["with"]["repositories"], "${{ steps.mobile_bump_contract.outputs.repository_name }}")
-
-        bump_checkout = self.by_name["Check out current Android development branch for post-publication bump"]
-        self.assertEqual(bump_checkout["with"]["ref"], "${{ steps.mobile_bump_contract.outputs.default_branch }}")
-        self.assertFalse(bump_checkout["with"]["persist-credentials"])
-        bump = self.by_name["Advance and publish next Android build number"]["run"]
-        self.assertIn("CI_MOBILE_RELEASE_VERSION", bump)
-        self.assertIn("CI_MOBILE_RELEASE_BUILD_NUMBER", bump)
-        self.assertIn("CI_MOBILE_BUMP_WORKTREE", bump)
-        self.assertIn("already advanced after the accepted release", bump)
-        self.assertIn("changed more than one tracked product file", bump)
-        self.assertIn("diff --check", bump)
-        self.assertIn("development branch moved after Google Play accepted the release", bump)
-        self.assertIn("push --porcelain", bump)
-        self.assertNotIn("--force", bump)
-
-        scrub = self.by_name["Scrub configured CI secrets from private log"]
-        self.assertEqual(scrub["env"]["CI_SECRET_MOBILE_BUMP_TOKEN"], "${{ steps.mobile_bump_token.outputs.token }}")
-        diagnostic = self.by_name["Classify Android terminal diagnostic"]
-        for name in (
-            "MOBILE_BUMP_CONTRACT_OUTCOME",
-            "MOBILE_BUMP_TOKEN_OUTCOME",
-            "MOBILE_BUMP_CHECKOUT_OUTCOME",
-            "MOBILE_BUMP_OUTCOME",
-        ):
-            self.assertIn(name, diagnostic["env"])
-        self.assertIn("without republishing it", diagnostic["run"])
-
+    def test_dispatch_validation_android_is_specialist_only(self) -> None:
+        request = {s.get("name"): s for s in self.dispatch["jobs"]["request"]["steps"] if s.get("name")}
+        keep = request["Validate retained legacy validation profile"]["run"]
+        self.assertIn("validation.android/screenshot-review", keep)
+        self.assertIn("validation.android/physical-performance", keep)
+        self.assertIn("retired Android validation profile", keep)
+        validation_job = self.dispatch["jobs"]["android"]
+        self.assertEqual(set(validation_job["with"]), {"repository", "ref", "test_profile", "test_selectors", "ci_run_id"})
+        release_job = self.dispatch["jobs"]["android_release"]
+        self.assertEqual(release_job["with"]["test_profile"], "play")
+        self.assertFalse(release_job["concurrency"]["cancel-in-progress"])
 
 
 if __name__ == "__main__":
