@@ -594,7 +594,8 @@ resolve_existing_file
         by_name = {step.get("name"): step for step in steps if step.get("name")}
         scope = by_name["Resolve IPTV Android default-branch cache scope"]
         restore = by_name["Restore IPTV Android default-branch dependency cache"]
-        self.assertIn("StreamScapeTV/iptv-android", scope["run"])
+        self.assertIn("SOURCE_REPOSITORY", scope["env"])
+        self.assertIn('test "${SOURCE_REPOSITORY}" = ', scope["run"])
         self.assertEqual(restore["uses"], "actions/cache/restore@v4")
         self.assertNotIn("Save IPTV Android default-branch dependency cache", by_name)
         self.assertNotIn("actions/cache/save@v4", (_prior.ROOT / ".github/workflows/android.yml").read_text())
