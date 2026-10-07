@@ -361,7 +361,7 @@ jobs:
   execute:
     needs: plan
     name: ${{ matrix.lane }}
-    runs-on: ${{ fromJSON(((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && inputs.test_profile == 'native-component') && '["macOS","ARM64"]' || '["macos-latest"]') }}
+    runs-on: ${{ fromJSON(((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && inputs.test_profile == 'native-component') && '["macos-latest-xl"]' || '["macos-latest"]') }}
     timeout-minutes: 300
     strategy:
       fail-fast: false

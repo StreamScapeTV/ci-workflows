@@ -104,7 +104,7 @@ class AppleWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(
             execute["runs-on"],
-            "${{ fromJSON(((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && inputs.test_profile == 'native-component') && '[\"macOS\",\"ARM64\"]' || '[\"macos-latest\"]') }}",
+            "${{ fromJSON(((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && inputs.test_profile == 'native-component') && '[\"macos-latest-xl\"]' || '[\"macos-latest\"]') }}",
         )
 
     def test_native_component_uses_bounded_product_wrapper_and_native_runner(self) -> None:
@@ -129,7 +129,7 @@ class AppleWorkflowTests(unittest.TestCase):
 
         runner = jobs["execute"]["runs-on"]
         self.assertIn("inputs.test_profile == 'native-component'", runner)
-        self.assertIn('[\"macOS\",\"ARM64\"]', runner)
+        self.assertIn('[\"macos-latest-xl\"]', runner)
         self.assertNotIn("runner_label", runner)
 
         by_name = {

@@ -106,7 +106,7 @@ jobs:
             case "${host_class}" in
               linux-hosted) runs_on='["ubuntu-latest"]' ;;
               macos-hosted) runs_on='["macos-latest"]' ;;
-              macos-high-capacity) runs_on='["macOS","ARM64"]' ;;
+              macos-high-capacity) runs_on='["macos-latest-xl"]' ;;
               *) echo "Maven publication resolved an unsupported host class" >&2; exit 2 ;;
             esac
             {

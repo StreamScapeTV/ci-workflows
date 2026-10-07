@@ -1012,7 +1012,7 @@ jobs:
 
   physical_performance:
     if: ${{ inputs.test_profile == 'physical-performance' }}
-    runs-on: [macOS, ARM64]
+    runs-on: macos-latest-xl
     timeout-minutes: 300
     concurrency:
       group: central-android-physical-performance

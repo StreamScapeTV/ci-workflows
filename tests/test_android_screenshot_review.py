@@ -115,7 +115,7 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
             "${{ inputs.test_profile != 'screenshot-review' && inputs.test_profile != 'physical-performance' }}",
         )
         physical = jobs["physical_performance"]
-        self.assertEqual(physical["runs-on"], ["macOS", "ARM64"])
+        self.assertEqual(physical["runs-on"], "macos-latest-xl")
         self.assertNotIn("strategy", physical)
         for invented_runner in (
             "android-physical-phone",

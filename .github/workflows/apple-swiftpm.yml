@@ -74,7 +74,7 @@ permissions:
 
 jobs:
   publish:
-    runs-on: [macOS, ARM64]
+    runs-on: macos-latest-xl
     timeout-minutes: 300
     outputs:
       source_sha: ${{ steps.source_identity.outputs.source_sha }}

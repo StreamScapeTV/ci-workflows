@@ -164,7 +164,7 @@ class MavenWorkflowTests(unittest.TestCase):
         aggregate, aggregate_values = run(trusted=True)
         self.assertEqual(aggregate.returncode, 0, aggregate.stderr)
         self.assertEqual(aggregate_values["host_class"], "macos-high-capacity")
-        self.assertEqual(json.loads(aggregate_values["runs_on"]), ["macOS", "ARM64"])
+        self.assertEqual(json.loads(aggregate_values["runs_on"]), ["macos-latest-xl"])
 
         wrong_parent, _ = run(trusted=True, workflow="release.maven")
         self.assertNotEqual(wrong_parent.returncode, 0)

@@ -36,7 +36,7 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
             },
         )
         job = workflow["jobs"]["publish"]
-        self.assertEqual(job["runs-on"], ["macOS", "ARM64"])
+        self.assertEqual(job["runs-on"], "macos-latest-xl")
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("VERSION, Package.swift and fixed product wrapper", text)
         self.assertIn("scripts/ci/run-swiftpm-binary.sh", text)
