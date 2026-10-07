@@ -23,14 +23,6 @@ name: Apple CI
         type: string
         required: false
         default: "[]"
-      test_platform:
-        type: string
-        required: false
-        default: ""
-      native_component:
-        type: string
-        required: false
-        default: ""
       release_version:
         type: string
         required: false
@@ -126,8 +118,6 @@ jobs:
         env:
           TEST_PROFILE: ${{ inputs.test_profile }}
           TEST_SELECTORS: ${{ inputs.test_selectors }}
-          TEST_PLATFORM: ${{ inputs.test_platform }}
-          NATIVE_COMPONENT: ${{ inputs.native_component }}
           SOURCE_IS_TAG: ${{ inputs.source_is_tag }}
           RELEASE_VERSION: ${{ inputs.release_version }}
           BUILD_NUMBER: ${{ inputs.build_number }}
@@ -136,163 +126,41 @@ jobs:
           set -Eeuo pipefail
           if test "${TEST_PROFILE}" = testflight; then
             case "${SOURCE_IS_TAG:-false}" in
-              true)
-                [[ "${RELEASE_VERSION:-}" =~ ^[0-9]+(\.[0-9]+){1,3}$ ]] || {
-                  echo "Tag-driven TestFlight release requires a bounded dotted release_version" >&2
-                  exit 2
-                }
-                ;;
-              false)
-                test -z "${RELEASE_VERSION:-}" || {
-                  echo "Manual TestFlight release does not accept release_version" >&2
-                  exit 2
-                }
-                ;;
+              true) [[ "${RELEASE_VERSION:-}" =~ ^[0-9]+(\.[0-9]+){1,3}$ ]] || { echo "Tag-driven TestFlight release requires a bounded dotted release_version" >&2; exit 2; } ;;
+              false) test -z "${RELEASE_VERSION:-}" || { echo "Manual TestFlight release does not accept release_version" >&2; exit 2; } ;;
               *) echo "TestFlight source_is_tag must be true or false" >&2; exit 2 ;;
             esac
           else
-            test -z "${RELEASE_VERSION:-}" || {
-              echo "release_version is accepted only by testflight" >&2
-              exit 2
-            }
+            test -z "${RELEASE_VERSION:-}" || { echo "release_version is accepted only by testflight" >&2; exit 2; }
           fi
           case "${TEST_PROFILE}" in
             screenshot-review)
-              test "${SOURCE_REPOSITORY}" = "StreamScapeTV/iptv-apple" || {
-                echo "screenshot-review is currently bounded to StreamScapeTV/iptv-apple" >&2
-                exit 2
-              }
-              test "${TEST_SELECTORS}" = "[]" || {
-                echo "screenshot-review does not accept test_selectors" >&2
-                exit 2
-              }
-              test -z "${TEST_PLATFORM}" || {
-                echo "screenshot-review does not accept test_platform" >&2
-                exit 2
-              }
-              test -z "${NATIVE_COMPONENT:-}" || {
-                echo "screenshot-review does not accept native_component" >&2
-                exit 2
-              }
-              test -z "${BUILD_NUMBER:-}" || {
-                echo "screenshot-review does not accept build_number" >&2
-                exit 2
-              }
-              ;;
-            targeted-tests)
-              test -z "${NATIVE_COMPONENT:-}" || {
-                echo "native_component is accepted only by native-component" >&2
-                exit 2
-              }
-              ;;
-            candidate)
-              test -z "${TEST_PLATFORM}" || {
-                echo "candidate fixes macOS test execution and does not accept test_platform" >&2
-                exit 2
-              }
-              test -z "${NATIVE_COMPONENT:-}" || {
-                echo "native_component is accepted only by native-component" >&2
-                exit 2
-              }
-              ;;
-            native-component)
-              test "${TEST_SELECTORS}" = "[]" || {
-                echo "native-component does not accept test_selectors" >&2
-                exit 2
-              }
-              test -z "${TEST_PLATFORM}" || {
-                echo "native-component does not accept test_platform" >&2
-                exit 2
-              }
-              [[ "${NATIVE_COMPONENT:-}" =~ ^[a-z][a-z0-9-]{0,63}$ ]] || {
-                echo "native-component requires one bounded semantic native_component selector" >&2
-                exit 2
-              }
-              ;;
-            *)
-              test "${TEST_SELECTORS}" = "[]" || {
-                echo "test_selectors is accepted only by targeted-tests or candidate" >&2
-                exit 2
-              }
-              test -z "${TEST_PLATFORM}" || {
-                echo "test_platform is accepted only by targeted-tests" >&2
-                exit 2
-              }
-              test -z "${NATIVE_COMPONENT:-}" || {
-                echo "native_component is accepted only by native-component" >&2
-                exit 2
-              }
-              ;;
-          esac
-          case "${TEST_PROFILE}" in
-            screenshot-review)
+              test "${SOURCE_REPOSITORY}" = StreamScapeTV/iptv-apple || { echo "screenshot-review is bounded to StreamScapeTV/iptv-apple" >&2; exit 2; }
+              test "${TEST_SELECTORS}" = '[]' || { echo "screenshot-review does not accept test_selectors" >&2; exit 2; }
+              test -z "${BUILD_NUMBER:-}" || { echo "screenshot-review does not accept build_number" >&2; exit 2; }
               matrix='{"include":[{"lane":"screenshot-ios","cache_save":false},{"lane":"screenshot-tvos","cache_save":false}]}'
               ;;
-            native-component)
-              matrix='{"include":[{"lane":"native-component","cache_save":false}]}'
-              ;;
-            simulator)
-              matrix='{"include":[{"lane":"hosted-simulator","cache_save":false}]}'
-              ;;
-            targeted-tests)
-              case "${TEST_PLATFORM}" in
-                macos) matrix='{"include":[{"lane":"macos-targeted-tests","cache_save":false}]}' ;;
-                ios) matrix='{"include":[{"lane":"ios-targeted-tests","cache_save":false}]}' ;;
-                tvos) matrix='{"include":[{"lane":"tvos-targeted-tests","cache_save":false}]}' ;;
-                *) echo "targeted-tests requires test_platform=macos, ios, or tvos" >&2; exit 2 ;;
-              esac
-              ;;
             candidate)
-              matrix='{"include":[{"lane":"ios-build","cache_save":false},{"lane":"tvos-build","cache_save":false},{"lane":"macos-targeted-tests","cache_save":true}]}'
-              ;;
-            full)
-              matrix='{"include":[{"lane":"ios-build","cache_save":false},{"lane":"tvos-build","cache_save":false},{"lane":"macos-test","cache_save":true}]}'
-              ;;
-            release-build)
-              matrix='{"include":[{"lane":"release-build","cache_save":true}]}'
+              TEST_SELECTORS_JSON="${TEST_SELECTORS}" python3 - <<'PY_CANDIDATE_SELECTORS'
+          import json, os, re
+          raw=os.environ.get("TEST_SELECTORS_JSON","")
+          if len(raw)>2048: raise SystemExit("candidate test_selectors payload is too large")
+          try: values=json.loads(raw)
+          except json.JSONDecodeError as exc: raise SystemExit("candidate test_selectors must be valid JSON") from exc
+          if not isinstance(values,list) or not 1<=len(values)<=20 or any(not isinstance(v,str) for v in values) or len(values)!=len(set(values)):
+              raise SystemExit("candidate requires 1 through 20 unique string selectors")
+          pat=re.compile(r"[A-Za-z0-9_.$/-]{1,240}")
+          if any(not pat.fullmatch(v) or v.startswith("-") or "/" not in v for v in values): raise SystemExit("candidate contains an invalid Apple test selector")
+          PY_CANDIDATE_SELECTORS
+              matrix='{"include":[{"lane":"ios-build","cache_save":false},{"lane":"tvos-build","cache_save":false},{"lane":"macos-candidate-tests","cache_save":true}]}'
               ;;
             testflight)
               matrix='{"include":[{"lane":"testflight","cache_save":false}]}'
               ;;
-            swift-package)
-              matrix='{"include":[{"lane":"swift-package","cache_save":false}]}'
-              ;;
-            *)
-              printf 'Unsupported Apple test_profile: %s\n' "${TEST_PROFILE}" >&2
-              exit 2
-              ;;
+            *) echo "Unsupported retained Apple test_profile: ${TEST_PROFILE}" >&2; exit 2 ;;
           esac
-          if test "${TEST_PROFILE}" = targeted-tests || test "${TEST_PROFILE}" = candidate; then
-            TEST_SELECTORS_JSON="${TEST_SELECTORS}" TEST_PROFILE_NAME="${TEST_PROFILE}" python3 - <<'PY_TEST_SELECTORS'
-          import json
-          import os
-          import re
-
-          profile = os.environ.get("TEST_PROFILE_NAME", "targeted-tests")
-          raw = os.environ.get("TEST_SELECTORS_JSON", "")
-          if len(raw) > 2048:
-              raise SystemExit(f"{profile} test_selectors payload is too large")
-          try:
-              values = json.loads(raw)
-          except json.JSONDecodeError as exc:
-              raise SystemExit(f"{profile} test_selectors must be valid JSON") from exc
-          if not isinstance(values, list) or not 1 <= len(values) <= 20:
-              raise SystemExit(f"{profile} requires 1 through 20 test selectors")
-          if any(not isinstance(value, str) for value in values):
-              raise SystemExit(f"{profile} selectors must be strings")
-          if len(values) != len(set(values)):
-              raise SystemExit(f"{profile} test selectors must be unique")
-          pattern = re.compile(r"[A-Za-z0-9_.$/-]{1,240}")
-          for value in values:
-              if (
-                  not pattern.fullmatch(value)
-                  or value.startswith("-")
-                  or "/" not in value
-              ):
-                  raise SystemExit(f"{profile} contains an invalid Apple test selector")
-          PY_TEST_SELECTORS
-          fi
-          printf 'matrix=%s\n' "${matrix}" >> "${GITHUB_OUTPUT}"
+          printf 'matrix=%s
+          ' "${matrix}" >> "${GITHUB_OUTPUT}"
 
       - name: Prepare screenshot-review source token
         id: screenshot_source_token
@@ -361,7 +229,7 @@ jobs:
   execute:
     needs: plan
     name: ${{ matrix.lane }}
-    runs-on: ${{ fromJSON(((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && inputs.test_profile == 'native-component') && '["macos-latest-xl"]' || '["macos-latest"]') }}
+    runs-on: macos-latest
     timeout-minutes: 300
     strategy:
       fail-fast: false
@@ -432,10 +300,7 @@ jobs:
       - name: Resolve Apple default-branch dependency cache scope
         id: apple_default_cache
         if: >-
-          ${{ inputs.test_profile != 'native-component'
-              && inputs.test_profile != 'screenshot-review'
-              && inputs.test_profile != 'simulator'
-              && inputs.test_profile != 'testflight' }}
+          ${{ inputs.test_profile == 'candidate' }}
         shell: bash
         env:
           REQUEST_REPOSITORY: ${{ inputs.repository }}
@@ -629,10 +494,7 @@ jobs:
 
       - name: Connect to private Git service for Apple dependency materialization
         if: >-
-          ${{ (inputs.repository || github.repository) == 'StreamScapeTV/iptv-apple'
-              && inputs.test_profile != 'native-component'
-              && inputs.test_profile != 'simulator'
-              && inputs.test_profile != 'swift-package' }}
+          ${{ (inputs.repository || github.repository) == 'StreamScapeTV/iptv-apple' }}
         uses: StreamScapeTV/ci-workflows/actions/private-git@main
         env:
           TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
@@ -640,13 +502,7 @@ jobs:
 
       - name: Materialize fixed Streamscape Media Apple dependency
         if: >-
-          ${{ (inputs.repository || github.repository) == 'StreamScapeTV/iptv-apple'
-              && inputs.test_profile != 'build'
-              && inputs.test_profile != 'native-component'
-              && inputs.test_profile != 'simulator'
-              && inputs.test_profile != 'swift-package'
-              && ((inputs.test_profile != 'candidate' && inputs.test_profile != 'screenshot-review')
-                  || hashFiles('scripts/bootstrap-streamscape-media-binary.sh') != '') }}
+          ${{ (inputs.repository || github.repository) == 'StreamScapeTV/iptv-apple' && (inputs.test_profile == 'testflight' || hashFiles('scripts/bootstrap-streamscape-media-binary.sh') != '') }}
         shell: bash
         env:
           CI_APPLE_BINARY_PACKAGE_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
@@ -800,7 +656,6 @@ jobs:
           EXECUTION_LANE: ${{ matrix.lane }}
           TEST_PROFILE: ${{ inputs.test_profile }}
           TEST_SELECTORS: ${{ inputs.test_selectors }}
-          NATIVE_COMPONENT: ${{ inputs.native_component }}
           SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
           OBSERVED_SOURCE_SHA: ${{ steps.source_identity.outputs.source_sha }}
           GH_TOKEN: ${{ steps.source.outputs.token || github.token }}
@@ -973,276 +828,38 @@ jobs:
               run_logged apple-testflight bash "${wrapper}"
               exit 0
               ;;
-            native-component)
-              wrapper="scripts/ci/run-apple-native-component-validation.sh"
-              test -f "${wrapper}" || {
-                printf 'Missing fixed Apple native-component wrapper: %s\n' "${wrapper}" >&2
-                exit 2
-              }
-              test ! -L "${wrapper}" || {
-                printf 'Apple native-component wrapper must not be a symlink: %s\n' "${wrapper}" >&2
-                exit 2
-              }
-              git ls-files --error-unmatch -- "${wrapper}" >/dev/null 2>&1 || {
-                printf 'Apple native-component wrapper must be tracked source: %s\n' "${wrapper}" >&2
-                exit 2
-              }
-              export CI_APPLE_NATIVE_COMPONENT="${NATIVE_COMPONENT}"
-              run_logged "apple-native-component" bash "${wrapper}"
-              exit 0
-              ;;
-            simulator)
-              wrapper="scripts/ci/run-apple-hosted-validation.sh"
-              test -f "${wrapper}" || {
-                printf 'Missing fixed Apple hosted validation wrapper: %s\n' "${wrapper}" >&2
-                exit 2
-              }
-              export CI_APPLE_HOSTED_PROFILE="${TEST_PROFILE}"
-              run_logged "apple-${TEST_PROFILE}" bash "${wrapper}"
-              exit 0
-              ;;
           esac
 
           swiftpm_xcode_args=()
-          if test "${APPLE_DEFAULT_CACHE_ENABLED:-false}" = "true"; then
+          if test "${APPLE_DEFAULT_CACHE_ENABLED:-false}" = true; then
             swiftpm_xcode_args=(-clonedSourcePackagesDirPath "${SWIFTPM_CLONES_DIR}")
           fi
 
-          resolve_ios_targeted_simulator_profile() {
-            local runtime_json device_type_json
-            runtime_json="$(xcrun simctl list runtimes --json)"
-            device_type_json="$(xcrun simctl list devicetypes --json)"
-            IOS_TARGETED_RUNTIME_ID="$(SIMCTL_RUNTIMES_JSON="${runtime_json}" python3 - <<'PY_IOS_RUNTIME'
-          import json
-          import os
-          import re
-
-          data = json.loads(os.environ["SIMCTL_RUNTIMES_JSON"])
-          candidates = []
-          for runtime in data.get("runtimes", []):
-              identifier = runtime.get("identifier")
-              version = runtime.get("version", "")
-              if (
-                  isinstance(identifier, str)
-                  and ".iOS-" in identifier
-                  and runtime.get("isAvailable", True) is not False
-              ):
-                  parts = tuple(int(part) for part in re.findall(r"\d+", version))
-                  candidates.append((parts, identifier))
-          if not candidates:
-              raise SystemExit("No available iOS Simulator runtime found")
-          print(max(candidates)[1])
-          PY_IOS_RUNTIME
-            )"
-            IOS_TARGETED_DEVICE_TYPE_ID="$(SIMCTL_DEVICE_TYPES_JSON="${device_type_json}" python3 - <<'PY_IOS_DEVICE'
-          import json
-          import os
-
-          data = json.loads(os.environ["SIMCTL_DEVICE_TYPES_JSON"])
-          devices = [
-              item
-              for item in data.get("devicetypes", [])
-              if isinstance(item.get("name"), str)
-              and item["name"].startswith("iPhone ")
-              and isinstance(item.get("identifier"), str)
-          ]
-          preferred = next((item for item in devices if item["name"] == "iPhone 17"), None)
-          selected = preferred or (max(devices, key=lambda item: (item["name"], item["identifier"])) if devices else None)
-          if selected is None:
-              raise SystemExit("No available iPhone Simulator device type found")
-          print(selected["identifier"])
-          PY_IOS_DEVICE
-            )"
-            export IOS_TARGETED_RUNTIME_ID IOS_TARGETED_DEVICE_TYPE_ID
-            printf '\n===== ios-targeted-simulator-profile =====\n' >> "${CI_LOG}"
-            printf 'runtime_id=%s\n' "${IOS_TARGETED_RUNTIME_ID}" >> "${CI_LOG}"
-            printf 'device_type_id=%s\n' "${IOS_TARGETED_DEVICE_TYPE_ID}" >> "${CI_LOG}"
-          }
-
-          create_ios_targeted_simulator() {
-            local attempt="$1"
-            local name="central-ios-targeted-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-${attempt}"
-            local udid
-            udid="$(xcrun simctl create "${name}" "${IOS_TARGETED_DEVICE_TYPE_ID}" "${IOS_TARGETED_RUNTIME_ID}")"
-            [[ "${udid}" =~ ^[0-9A-Fa-f-]{36}$ ]] || {
-              printf 'simctl create returned an invalid simulator UDID\n' >&2
-              return 1
-            }
-            xcrun simctl boot "${udid}" >/dev/null 2>&1 || true
-            if ! xcrun simctl bootstatus "${udid}" -b >> "${CI_LOG}" 2>&1; then
-              printf 'Fresh iOS targeted-test simulator failed boot readiness: %s\n' "${udid}" >> "${CI_LOG}"
-              xcrun simctl shutdown "${udid}" >/dev/null 2>&1 || true
-              xcrun simctl delete "${udid}" >/dev/null 2>&1 || true
-              return 1
-            fi
-            printf '%s\n' "${udid}"
-          }
-
-          destroy_ios_targeted_simulator() {
-            local udid="$1"
-            test -n "${udid}" || return 0
-            xcrun simctl shutdown "${udid}" >/dev/null 2>&1 || true
-            xcrun simctl delete "${udid}" >/dev/null 2>&1 || true
-          }
-
-          append_ios_targeted_simulator_diagnostics() {
-            local attempt="$1"
-            local udid="$2"
-            {
-              printf '\n===== ios-targeted-simulator-diagnostics attempt=%s =====\n' "${attempt}"
-              xcodebuild -version || true
-              printf 'runtime_id=%s\n' "${IOS_TARGETED_RUNTIME_ID:-unknown}"
-              printf 'device_type_id=%s\n' "${IOS_TARGETED_DEVICE_TYPE_ID:-unknown}"
-              printf 'simulator_udid=%s\n' "${udid:-unknown}"
-              xcrun simctl list devices 2>&1 | tail -n 200 || true
-              if test -n "${udid}"; then
-                xcrun simctl spawn "${udid}" log show \
-                  --style compact \
-                  --last 2m \
-                  --predicate 'process == "SpringBoard" OR process == "launchd_sim" OR process CONTAINS[c] "xctrunner"' \
-                  2>&1 | tail -n 300 || true
-              fi
-            } >> "${CI_LOG}" 2>&1
-          }
-
-          is_ios_targeted_infrastructure_launch_failure() {
-            local attempt_log="$1"
-            if grep -Eq '(^|[[:space:]])dyld(\[[0-9]+\])?: Library not loaded:[[:space:]]+[^[:space:]]+' "${attempt_log}"; then
-              printf 'Deterministic product dependency loader failure evidence detected; simulator retry suppressed.\n' >> "${CI_LOG}"
-              return 1
-            fi
-            local pre_xctest_bootstrap=false
-            if grep -Eqi 'Early unexpected exit, operation never finished bootstrapping|before establishing connection' "${attempt_log}" &&
-              ! grep -Eq 'Test Case .+ (started|passed|failed|crashed)|XCTAssert[A-Za-z0-9_]* failed|(^|[[:space:]])(fatal error:|Fatal error:)|Terminating app due to uncaught exception|EXC_[A-Z0-9_]+' "${attempt_log}"; then
-              pre_xctest_bootstrap=true
-            fi
-            if test "${pre_xctest_bootstrap}" = true; then
-              printf 'Pre-XCTest test-host bootstrap infrastructure failure detected.\n' >> "${CI_LOG}"
-              return 0
-            fi
-            if grep -Eq 'XCTAssert[A-Za-z0-9_]* failed|(^|[[:space:]])(fatal error:|Fatal error:)|Terminating app due to uncaught exception|EXC_[A-Z0-9_]+|signal SIG[A-Z]+|Test Case .+ crashed' "${attempt_log}"; then
-              printf 'Product XCTest failure evidence detected; simulator retry suppressed.\n' >> "${CI_LOG}"
-              return 1
-            fi
-            grep -Eq 'Failed to launch app with identifier: .*\.xctrunner|NSMachErrorDomain Code=-308|\(ipc/mig\) server died|Failed to get background assertion for target app|DebuggerLLDB\.DebuggerVersionStore\.StoreError' "${attempt_log}"
-          }
-
-          run_ios_targeted_tests() {
-            resolve_ios_targeted_simulator_profile
-            local attempt=1
-            while test "${attempt}" -le 2; do
-              local ios_targeted_udid=""
-              local started_at="${SECONDS}"
-              local attempt_log="${RUNNER_TEMP}/ios-targeted-tests-attempt-${attempt}.log"
-              : > "${attempt_log}"
-              printf '\n===== ios-targeted-tests attempt=%s =====\n' "${attempt}" >> "${CI_LOG}"
-              ios_targeted_udid="$(create_ios_targeted_simulator "${attempt}")" || {
-                append_ios_targeted_simulator_diagnostics "${attempt}" "${ios_targeted_udid}"
-                printf 'ios-targeted-tests simulator provisioning failed; inspect the private Google Drive CI log.\n' >&2
-                return 1
-              }
-
-              set +e
-              xcodebuild test \
-                -workspace streamscapetv.xcworkspace \
-                -scheme streamscapetv \
-                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
-                -destination "platform=iOS Simulator,id=${ios_targeted_udid}" \
-                -parallel-testing-enabled NO \
-                -maximum-parallel-testing-workers 1 \
-                CODE_SIGNING_ALLOWED=NO \
-                "${targeted_test_args[@]+"${targeted_test_args[@]}"}" >> "${attempt_log}" 2>&1
-              local status=$?
-              set -e
-
-              cat "${attempt_log}" >> "${CI_LOG}"
-              printf 'duration_seconds=%s\n' "$((SECONDS - started_at))" >> "${CI_LOG}"
-              append_ios_targeted_simulator_diagnostics "${attempt}" "${ios_targeted_udid}"
-              destroy_ios_targeted_simulator "${ios_targeted_udid}"
-
-              if test "${status}" -eq 0; then
-                rm -f -- "${attempt_log}"
-                return 0
-              fi
-              if test "${attempt}" -eq 1 && is_ios_targeted_infrastructure_launch_failure "${attempt_log}"; then
-                printf 'Known hosted iOS xctrunner/CoreSimulator launch failure detected; retrying unchanged selectors once on a fresh simulator.\n' >> "${CI_LOG}"
-                rm -f -- "${attempt_log}"
-                attempt=$((attempt + 1))
-                continue
-              fi
-              rm -f -- "${attempt_log}"
-              printf 'ios-targeted-tests failed; inspect the private Google Drive CI log.\n' >&2
-              return "${status}"
-            done
-            return 1
-          }
-
-          targeted_test_args=()
-          if test "${TEST_PROFILE}" = targeted-tests || test "${TEST_PROFILE}" = candidate; then
-            test_selectors=()
+          candidate_test_args=()
+          if test "${TEST_PROFILE}" = candidate; then
             while IFS= read -r selector; do
-              test_selectors+=("${selector}")
-            done < <(
-              TEST_SELECTORS_JSON="${TEST_SELECTORS}" python3 - <<'PY_TEST_SELECTORS'
-          import json
-          import os
-          import re
-
-          values = json.loads(os.environ.get("TEST_SELECTORS_JSON", ""))
-          if not isinstance(values, list) or not 1 <= len(values) <= 20:
-              raise SystemExit("invalid targeted-tests selector list")
-          if any(not isinstance(value, str) for value in values):
-              raise SystemExit("invalid targeted-tests selector list")
-          if len(values) != len(set(values)):
-              raise SystemExit("invalid targeted-tests selector list")
-          pattern = re.compile(r"[A-Za-z0-9_.$/-]{1,240}")
+              candidate_test_args+=("-only-testing:${selector}")
+            done < <(TEST_SELECTORS_JSON="${TEST_SELECTORS}" python3 - <<'PY_CANDIDATE_ARGS'
+          import json, os, re
+          values=json.loads(os.environ.get("TEST_SELECTORS_JSON",""))
+          pat=re.compile(r"[A-Za-z0-9_.$/-]{1,240}")
           for value in values:
-              if (
-                  not pattern.fullmatch(value)
-                  or value.startswith("-")
-                  or "/" not in value
-              ):
-                  raise SystemExit("invalid Apple targeted-tests selector")
+              if not isinstance(value,str) or not pat.fullmatch(value) or value.startswith("-") or "/" not in value:
+                  raise SystemExit("invalid Apple candidate selector")
               print(value)
-          PY_TEST_SELECTORS
+          PY_CANDIDATE_ARGS
             )
-            test "${#test_selectors[@]}" -ge 1
-            for selector in "${test_selectors[@]+"${test_selectors[@]}"}"; do
-              targeted_test_args+=("-only-testing:${selector}")
-            done
           fi
 
           case "${EXECUTION_LANE}" in
-            macos-test)
-              run_logged macos-test xcodebuild test \
-                -workspace streamscapetv.xcworkspace \
-                -scheme streamscapetv \
-                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
-                -destination 'platform=macOS' \
-                -parallel-testing-enabled NO \
-                -skip-testing:streamscapetvUITests \
-                CODE_SIGNING_ALLOWED=NO
-              ;;
-            macos-targeted-tests)
-              run_logged macos-targeted-tests xcodebuild test \
+            macos-candidate-tests)
+              run_logged macos-candidate-tests xcodebuild test \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
                 "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
                 -destination 'platform=macOS' \
                 CODE_SIGNING_ALLOWED=NO \
-                "${targeted_test_args[@]+"${targeted_test_args[@]}"}"
-              ;;
-            ios-targeted-tests)
-              run_ios_targeted_tests
-              ;;
-            tvos-targeted-tests)
-              run_logged tvos-targeted-tests xcodebuild test \
-                -workspace streamscapetv.xcworkspace \
-                -scheme streamscapetv \
-                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
-                -destination 'platform=tvOS Simulator,name=Apple TV' \
-                CODE_SIGNING_ALLOWED=NO \
-                "${targeted_test_args[@]+"${targeted_test_args[@]}"}"
+                "${candidate_test_args[@]+"${candidate_test_args[@]}"}"
               ;;
             ios-build)
               run_logged ios-build xcodebuild build \
@@ -1260,36 +877,8 @@ jobs:
                 -destination 'generic/platform=tvOS Simulator' \
                 CODE_SIGNING_ALLOWED=NO
               ;;
-            release-build)
-              run_logged ios-release-build xcodebuild build \
-                -workspace streamscapetv.xcworkspace \
-                -scheme streamscapetv \
-                -configuration Release \
-                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
-                -destination 'generic/platform=iOS Simulator' \
-                CODE_SIGNING_ALLOWED=NO
-              run_logged tvos-release-build xcodebuild build \
-                -workspace streamscapetv.xcworkspace \
-                -scheme streamscapetv \
-                -configuration Release \
-                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
-                -destination 'generic/platform=tvOS Simulator' \
-                CODE_SIGNING_ALLOWED=NO
-              run_logged macos-release-build xcodebuild build \
-                -workspace streamscapetv.xcworkspace \
-                -scheme streamscapetv \
-                -configuration Release \
-                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
-                -destination 'platform=macOS' \
-                CODE_SIGNING_ALLOWED=NO
-              ;;
-            swift-package)
-              run_logged swift-package swift test
-              ;;
-            *)
-              printf 'Unsupported Apple execution lane: %s\n' "${EXECUTION_LANE}" >&2
-              exit 2
-              ;;
+            *) printf 'Unsupported retained Apple execution lane: %s
+          ' "${EXECUTION_LANE}" >&2; exit 2 ;;
           esac
 
       - name: Validate screenshot-review package identity
