@@ -44,6 +44,7 @@ Host selection is trusted Central infrastructure policy. Repository scripts and 
 The reviewed v1 catalog is:
 
 - `linux-hosted` — ordinary hosted Linux execution.
+- `linux-high-capacity` — reviewed higher-capacity self-hosted Linux execution for workloads whose current fleet evidence requires that class.
 - `macos-hosted` — ordinary hosted macOS execution.
 - `macos-high-capacity` — reviewed higher-capacity macOS execution for workloads whose current fleet evidence requires that class.
 
@@ -159,7 +160,7 @@ The supported repository-script interface is finite:
 | Variable | Availability | Repository use |
 | --- | --- | --- |
 | `CI_HOST_OS` | Always | Read-only resolved host OS: `linux` or `macos`. |
-| `CI_HOST_CLASS` | Always | Read-only reviewed generic class: `linux-hosted`, `macos-hosted`, or `macos-high-capacity`. |
+| `CI_HOST_CLASS` | Always | Read-only reviewed generic class: `linux-hosted`, `linux-high-capacity`, `macos-hosted`, or `macos-high-capacity`. |
 | `CI_OPERATION` | Always | Read-only fixed operation: `build`, `test`, `full`, `ui-test`, or authorized `release`. |
 | `CI_INPUTS_JSON` | Always | Read-only canonical versioned semantic-input document. |
 | `CI_LOG_DIR` | Always | Writable Central-owned directory for optional text diagnostics. |

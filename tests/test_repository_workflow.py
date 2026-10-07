@@ -298,7 +298,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(
             list(adoption["hostClasses"]),
-            ["linux-hosted", "macos-hosted", "macos-high-capacity"],
+            ["linux-hosted", "linux-high-capacity", "macos-hosted", "macos-high-capacity"],
         )
         self.assertIn("CI_HOST_OS", adoption["scriptEnvironment"])
         self.assertIn("CI_HOST_CLASS", adoption["scriptEnvironment"])
