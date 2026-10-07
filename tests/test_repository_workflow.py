@@ -543,6 +543,12 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertNotEqual(denied.returncode, 0)
         self.assertIn("separately authorized Central caller", denied.stderr)
 
+        docs = (ROOT / "docs/repository-ci.md").read_text(encoding="utf-8")
+        self.assertIn("Credential presence during macOS validation", docs)
+        self.assertIn("does not grant release or publication authority", docs)
+        self.assertIn("Linux executions receive none of that secret material", docs)
+        self.assertNotIn("Validation and non-macOS release operations receive none", docs)
+
         allowed, output = self.run_repository_request(
             operation="release",
             host_os="macos",
@@ -2860,7 +2866,7 @@ printf 'GIT_TERMINAL_PROMPT=%s\\n' "${GIT_TERMINAL_PROMPT:-}"
         self.assertIn("regular non-symlink file", symlinked.stderr)
         self.assertIn(secret, target_text)
 
-    def test_repository_release_forwards_existing_apple_signing_secrets_only_to_macos_release(self) -> None:
+    def test_repository_macos_operations_receive_fixed_apple_credentials_without_release_authority(self) -> None:
         secret_names = (
             "APPLE_TEAM_ID",
             "APP_STORE_CONNECT_KEY_ID",
@@ -2873,10 +2879,13 @@ printf 'GIT_TERMINAL_PROMPT=%s\\n' "${GIT_TERMINAL_PROMPT:-}"
             self.assertFalse(workflow_secrets[name]["required"])
 
         release_secrets = self.dispatch["jobs"]["repository_release"]["secrets"]
-        validation_secrets = self.dispatch["jobs"]["repository"]["secrets"]
+        validation_job = self.dispatch["jobs"]["repository"]
+        validation_secrets = validation_job["secrets"]
         for name in secret_names:
             self.assertEqual(release_secrets[name], f"${{{{ secrets.{name} }}}}")
-            self.assertNotIn(name, validation_secrets)
+            self.assertEqual(validation_secrets[name], f"${{{{ secrets.{name} }}}}")
+        self.assertNotIn("release_authorized", validation_job["with"])
+        self.assertTrue(self.dispatch["jobs"]["repository_release"]["with"]["release_authorized"])
 
         plan = yaml.safe_load(
             (ROOT / ".github/workflows/repository-plan.yml").read_text(encoding="utf-8")
@@ -2896,20 +2905,39 @@ printf 'GIT_TERMINAL_PROMPT=%s\\n' "${GIT_TERMINAL_PROMPT:-}"
         }
         for env_name, secret_name in expected_product_vars.items():
             expression = execute_env[env_name]
-            self.assertIn("inputs.operation == 'release'", expression)
+            self.assertNotIn("inputs.operation == 'release'", expression)
             self.assertIn("needs.resolve_host.outputs.host_os == 'macos'", expression)
             self.assertIn(f"secrets.{secret_name}", expression)
 
-        scrub_env = self.steps_by_name["Scrub configured CI secrets from private text evidence"]["env"]
-        for env_name in (
-            "CI_SECRET_APPLE_TEAM_ID",
-            "CI_SECRET_APP_STORE_CONNECT_KEY_ID",
-            "CI_SECRET_APP_STORE_CONNECT_ISSUER_ID",
-            "CI_SECRET_APP_STORE_CONNECT_API_KEY",
+        for scrub_step in (
+            "Execute fixed repository-owned entrypoint",
+            "Scrub configured CI secrets from private text evidence",
         ):
-            self.assertIn(env_name, scrub_env)
-            self.assertIn("inputs.operation == 'release'", scrub_env[env_name])
-            self.assertIn("needs.resolve_host.outputs.host_os == 'macos'", scrub_env[env_name])
+            scrub_env = self.steps_by_name[scrub_step]["env"]
+            expected_scrub = {
+                "CI_SECRET_APPLE_TEAM_ID": "APPLE_TEAM_ID",
+                "CI_SECRET_APP_STORE_CONNECT_KEY_ID": "APP_STORE_CONNECT_KEY_ID",
+                "CI_SECRET_APP_STORE_CONNECT_ISSUER_ID": "APP_STORE_CONNECT_ISSUER_ID",
+                "CI_SECRET_APP_STORE_CONNECT_API_KEY": "APP_STORE_CONNECT_API_KEY_P8_BASE64",
+            }
+            for env_name, secret_name in expected_scrub.items():
+                expression = scrub_env[env_name]
+                self.assertNotIn("inputs.operation == 'release'", expression)
+                self.assertIn("needs.resolve_host.outputs.host_os == 'macos'", expression)
+                self.assertIn(f"secrets.{secret_name}", expression)
+
+        execute_script = self.steps_by_name["Execute fixed repository-owned entrypoint"]["run"]
+        self.assertIn('if test "${HOST_OS}" = macos && test "${OPERATION}" = device-test; then', execute_script)
+        self.assertIn('export HOME="${runner_home}"', execute_script)
+
+        denied, _ = self.run_repository_request(
+            operation="release",
+            host_os="macos",
+            semantic={"release_kind": "publish", "build_identity": "20260919.1"},
+        )
+        self.assertNotEqual(denied.returncode, 0)
+        self.assertIn("separately authorized Central caller", denied.stderr)
+
 
     def test_non_migrated_product_workflows_remain_selected_by_existing_lanes(self) -> None:
         jobs = self.dispatch["jobs"]
