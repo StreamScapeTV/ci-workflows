@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   request:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     outputs:
       repository: ${{ steps.claim.outputs.repository }}
       ref: ${{ steps.claim.outputs.ref }}
@@ -1063,7 +1063,7 @@ jobs:
     concurrency:
       group: central-ci-snapshot-${{ inputs.active_key }}
       cancel-in-progress: true
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Check out Central helpers
@@ -1483,7 +1483,7 @@ jobs:
           needs.source_snapshot.result == 'failure'
         )
       }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - name: Check out Central helpers
         uses: actions/checkout@v4

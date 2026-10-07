@@ -116,7 +116,7 @@ permissions:
 
 jobs:
   resolve_host:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
       host_class: ${{ steps.host.outputs.host_class }}
@@ -159,11 +159,11 @@ jobs:
             case "${host_class}" in
               linux-hosted)
                 host_os=linux
-                runs_on='["ubuntu-24.04"]'
+                runs_on='["ubuntu-latest"]'
                 ;;
               linux-high-capacity)
                 host_os=linux
-                runs_on='["self-hosted","linux","x64","ubuntu-latest-xl"]'
+                runs_on='["ubuntu-latest-xl"]'
                 ;;
               macos-hosted)
                 host_os=macos
@@ -171,7 +171,7 @@ jobs:
                 ;;
               macos-high-capacity)
                 host_os=macos
-                runs_on='["macOS","ARM64"]'
+                runs_on='["macos-latest-xl"]'
                 ;;
               *)
                 echo "repository CI resolved an unsupported host class" >&2
@@ -343,7 +343,6 @@ jobs:
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
           RUNNER_OS: ${{ runner.os }}
-          RUNNER_ARCH: ${{ runner.arch }}
         run: |
           set -Eeuo pipefail
           test "${RUNNER_ENVIRONMENT}" = self-hosted || {
@@ -354,11 +353,25 @@ jobs:
             echo "linux-high-capacity must execute on Linux" >&2
             exit 1
           }
-          test "${RUNNER_ARCH}" = X64 || {
-            echo "linux-high-capacity must execute on X64" >&2
+          echo "repository CI linux-high-capacity matched the reviewed ubuntu-latest-xl selector"
+
+      - name: Assert reviewed macOS high-capacity runner
+        if: ${{ needs.resolve_host.outputs.host_class == 'macos-high-capacity' }}
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          RUNNER_OS: ${{ runner.os }}
+        run: |
+          set -Eeuo pipefail
+          test "${RUNNER_ENVIRONMENT}" = self-hosted || {
+            echo "macos-high-capacity must execute on a self-hosted runner" >&2
             exit 1
           }
-          echo "repository CI linux-high-capacity matched the reviewed self-hosted/linux/x64/ubuntu-latest-xl selector"
+          test "${RUNNER_OS}" = macOS || {
+            echo "macos-high-capacity must execute on macOS" >&2
+            exit 1
+          }
+          echo "repository CI macos-high-capacity matched the reviewed macos-latest-xl selector"
 
       - name: Initialize private execution paths
         shell: bash

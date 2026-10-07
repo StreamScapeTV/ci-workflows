@@ -104,7 +104,7 @@ permissions:
 
 jobs:
   plan:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
       matrix: ${{ steps.profile.outputs.matrix }}
@@ -361,7 +361,7 @@ jobs:
   execute:
     needs: plan
     name: ${{ matrix.lane }}
-    runs-on: ${{ fromJSON(((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && inputs.test_profile == 'native-component') && '["macOS","ARM64"]' || '["macos-latest"]') }}
+    runs-on: ${{ fromJSON(((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && inputs.test_profile == 'native-component') && '["macos-latest-xl"]' || '["macos-latest"]') }}
     timeout-minutes: 300
     strategy:
       fail-fast: false
@@ -1809,7 +1809,7 @@ jobs:
       - plan
       - execute
     if: ${{ always() && inputs.ci_run_id != '' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Finish Agent State run

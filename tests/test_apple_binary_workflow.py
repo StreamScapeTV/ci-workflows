@@ -39,11 +39,11 @@ class AppleBinaryWorkflowTests(unittest.TestCase):
         self.assertFalse(any(name.startswith("MAVEN_") for name in call["secrets"]))
         self.assertEqual(
             self.job["runs-on"],
-            "${{ fromJSON((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && '[\"macOS\",\"ARM64\"]' || '[\"macos-latest\"]') }}",
+            "${{ fromJSON((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && '[\"macos-latest-xl\"]' || '[\"macos-latest\"]') }}",
         )
         self.assertEqual(set(self.workflow["on"]), {"workflow_call"})
         self.assertIn("StreamScapeTV/streamscape-media", self.job["runs-on"])
-        self.assertIn("[\"macOS\",\"ARM64\"]", self.job["runs-on"])
+        self.assertIn("[\"macos-latest-xl\"]", self.job["runs-on"])
         self.assertIn("[\"macos-latest\"]", self.job["runs-on"])
         self.assertNotIn("self-hosted", self.job["runs-on"])
         self.assertNotIn("actions/cache", self.text)

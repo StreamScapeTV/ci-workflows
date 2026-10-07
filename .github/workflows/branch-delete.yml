@@ -48,7 +48,7 @@ jobs:
       repository: ${{ steps.request.outputs.repository }}
       branch: ${{ steps.request.outputs.branch }}
       branch_was_present: ${{ steps.delete_branch.outputs.branch_was_present }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Mark Agent State run as running
@@ -284,7 +284,7 @@ jobs:
       - delete
       - snapshot_cleanup
     if: ${{ always() }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - name: Finish Agent State run
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main

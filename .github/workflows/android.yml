@@ -109,7 +109,7 @@ permissions:
 jobs:
   screenshot_plan:
     if: ${{ inputs.test_profile == 'screenshot-review' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
       source_sha: ${{ steps.source_identity.outputs.source_sha }}
@@ -237,7 +237,7 @@ jobs:
   screenshot_cache:
     needs: screenshot_plan
     if: ${{ inputs.test_profile == 'screenshot-review' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 120
     outputs:
       cache_sha256: ${{ steps.cache_identity.outputs.cache_sha256 }}
@@ -515,7 +515,7 @@ jobs:
       - screenshot_cache
     if: ${{ inputs.test_profile == 'screenshot-review' }}
     name: screenshot-${{ matrix.capture_profile }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -997,7 +997,7 @@ jobs:
       - screenshot_cache
       - screenshot
     if: ${{ always() && inputs.test_profile == 'screenshot-review' && inputs.ci_run_id != '' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Finish Agent State run
@@ -1012,7 +1012,7 @@ jobs:
 
   physical_performance:
     if: ${{ inputs.test_profile == 'physical-performance' }}
-    runs-on: [macOS, ARM64]
+    runs-on: macos-latest-xl
     timeout-minutes: 300
     concurrency:
       group: central-android-physical-performance

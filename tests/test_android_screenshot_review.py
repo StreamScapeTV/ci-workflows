@@ -115,7 +115,7 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
             "${{ inputs.test_profile != 'screenshot-review' && inputs.test_profile != 'physical-performance' }}",
         )
         physical = jobs["physical_performance"]
-        self.assertEqual(physical["runs-on"], ["macOS", "ARM64"])
+        self.assertEqual(physical["runs-on"], "macos-latest-xl")
         self.assertNotIn("strategy", physical)
         for invented_runner in (
             "android-physical-phone",
@@ -124,7 +124,7 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
         ):
             self.assertNotIn(invented_runner, str(physical))
         screenshot = jobs["screenshot"]
-        self.assertEqual(screenshot["runs-on"], "ubuntu-24.04")
+        self.assertEqual(screenshot["runs-on"], "ubuntu-latest")
         include = screenshot["strategy"]["matrix"]["include"]
         profiles = [row["capture_profile"] for row in include]
         self.assertEqual(

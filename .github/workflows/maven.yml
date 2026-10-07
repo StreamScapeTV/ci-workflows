@@ -82,7 +82,7 @@ permissions:
 
 jobs:
   resolve_host:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
       host_class: ${{ steps.host.outputs.host_class }}
@@ -104,9 +104,9 @@ jobs:
             local host_class="$1"
             local runs_on
             case "${host_class}" in
-              linux-hosted) runs_on='["ubuntu-24.04"]' ;;
+              linux-hosted) runs_on='["ubuntu-latest"]' ;;
               macos-hosted) runs_on='["macos-latest"]' ;;
-              macos-high-capacity) runs_on='["macOS","ARM64"]' ;;
+              macos-high-capacity) runs_on='["macos-latest-xl"]' ;;
               *) echo "Maven publication resolved an unsupported host class" >&2; exit 2 ;;
             esac
             {

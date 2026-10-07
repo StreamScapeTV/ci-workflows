@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -163,10 +164,10 @@ class RepositoryHostClassTests(unittest.TestCase):
 
     def test_all_reviewed_host_classes_map_to_expected_host_os_and_central_runner(self) -> None:
         cases = {
-            "linux-hosted": ("linux", ["ubuntu-24.04"]),
-            "linux-high-capacity": ("linux", ["self-hosted", "linux", "x64", "ubuntu-latest-xl"]),
+            "linux-hosted": ("linux", ["ubuntu-latest"]),
+            "linux-high-capacity": ("linux", ["ubuntu-latest-xl"]),
             "macos-hosted": ("macos", ["macos-latest"]),
-            "macos-high-capacity": ("macos", ["macOS", "ARM64"]),
+            "macos-high-capacity": ("macos", ["macos-latest-xl"]),
         }
         for host_class, (expected_os, expected_runs_on) in cases.items():
             with self.subTest(host_class=host_class):
@@ -176,7 +177,7 @@ class RepositoryHostClassTests(unittest.TestCase):
                 self.assertEqual(values["host_os"], expected_os)
                 self.assertEqual(json.loads(values["runs_on"]), expected_runs_on)
 
-    def test_linux_high_capacity_runtime_assertion_is_self_hosted_linux_x64_only(self) -> None:
+    def test_linux_high_capacity_runtime_assertion_uses_custom_pool_without_arch_routing(self) -> None:
         execute = self.workflow["jobs"]["execute"]
         step = next(
             item for item in execute["steps"]
@@ -188,14 +189,36 @@ class RepositoryHostClassTests(unittest.TestCase):
         )
         self.assertEqual(step["env"]["RUNNER_ENVIRONMENT"], "${{ runner.environment }}")
         self.assertEqual(step["env"]["RUNNER_OS"], "${{ runner.os }}")
-        self.assertEqual(step["env"]["RUNNER_ARCH"], "${{ runner.arch }}")
         for token in (
             '"${RUNNER_ENVIRONMENT}" = self-hosted',
             '"${RUNNER_OS}" = Linux',
-            '"${RUNNER_ARCH}" = X64',
             "ubuntu-latest-xl selector",
         ):
             self.assertIn(token, step["run"])
+        self.assertNotIn("RUNNER_ARCH", step["env"])
+        self.assertNotIn("X64", step["run"])
+        self.assertNotIn("runner.name", json.dumps(step))
+
+    def test_macos_high_capacity_runtime_assertion_uses_custom_pool_without_arch_routing(self) -> None:
+        execute = self.workflow["jobs"]["execute"]
+        step = next(
+            item for item in execute["steps"]
+            if item.get("name") == "Assert reviewed macOS high-capacity runner"
+        )
+        self.assertEqual(
+            step["if"],
+            "${{ needs.resolve_host.outputs.host_class == 'macos-high-capacity' }}",
+        )
+        self.assertEqual(step["env"]["RUNNER_ENVIRONMENT"], "${{ runner.environment }}")
+        self.assertEqual(step["env"]["RUNNER_OS"], "${{ runner.os }}")
+        self.assertNotIn("RUNNER_ARCH", step["env"])
+        for token in (
+            '"${RUNNER_ENVIRONMENT}" = self-hosted',
+            '"${RUNNER_OS}" = macOS',
+            "macos-latest-xl selector",
+        ):
+            self.assertIn(token, step["run"])
+        self.assertNotIn("ARM64", step["run"])
         self.assertNotIn("runner.name", json.dumps(step))
 
     def test_persistent_workspace_cleanup_is_terminally_accounted(self) -> None:
@@ -242,7 +265,7 @@ class RepositoryHostClassTests(unittest.TestCase):
         )
         self.assertEqual(linux.returncode, 0, linux.stderr)
         self.assertEqual(linux_values["host_class"], "linux-hosted")
-        self.assertEqual(json.loads(linux_values["runs_on"]), ["ubuntu-24.04"])
+        self.assertEqual(json.loads(linux_values["runs_on"]), ["ubuntu-latest"])
 
         macos, macos_values = self.run_resolver(
             host_os="macos",
@@ -270,9 +293,9 @@ class RepositoryHostClassTests(unittest.TestCase):
     def test_library_package_parent_resolves_children_through_repository_host_policy(self) -> None:
         trusted_id = "22222222-2222-4222-8222-222222222222"
         cases = (
-            ("full", "macos", "macos-high-capacity", ["macOS", "ARM64"]),
-            ("release", "macos", "macos-high-capacity", ["macOS", "ARM64"]),
-            ("full", "linux", "linux-hosted", ["ubuntu-24.04"]),
+            ("full", "macos", "macos-high-capacity", ["macos-latest-xl"]),
+            ("release", "macos", "macos-high-capacity", ["macos-latest-xl"]),
+            ("full", "linux", "linux-hosted", ["ubuntu-latest"]),
         )
         for operation, host_os, host_class, expected_runs_on in cases:
             with self.subTest(operation=operation, host_os=host_os):
@@ -324,6 +347,33 @@ class RepositoryHostClassTests(unittest.TestCase):
         self.assertEqual(values["host_class"], "macos-high-capacity")
         self.assertEqual(values["host_os"], "macos")
         self.assertIn("resolve_repository_ci_host_class_for_os", self.script)
+
+    def test_hosted_runner_images_use_rolling_latest_aliases(self) -> None:
+        numeric_ubuntu = re.compile(r"\bubuntu-[0-9]+\.[0-9]+\b")
+        numeric_macos = re.compile(r"\bmacos-[0-9]+\b")
+        for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+            workflow_text = path.read_text(encoding="utf-8")
+            self.assertIsNone(
+                numeric_ubuntu.search(workflow_text),
+                f"{path.name} reintroduced a numerically pinned GitHub-hosted Ubuntu image",
+            )
+            self.assertIsNone(
+                numeric_macos.search(workflow_text),
+                f"{path.name} reintroduced a numerically pinned GitHub-hosted macOS image",
+            )
+
+        self.assertIn('runs_on=\'["ubuntu-latest"]\'', self.script)
+        self.assertIn('runs_on=\'["ubuntu-latest-xl"]\'', self.script)
+        self.assertIn('runs_on=\'["macos-latest"]\'', self.script)
+        self.assertIn('runs_on=\'["macos-latest-xl"]\'', self.script)
+
+        workflow_text = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted((ROOT / ".github/workflows").glob("*.yml"))
+        )
+        self.assertNotIn('["macOS","ARM64"]', workflow_text)
+        self.assertNotIn('[macOS, ARM64]', workflow_text)
+        self.assertNotIn('["self-hosted","linux","x64","ubuntu-latest-xl"]', workflow_text)
 
     def test_docs_use_generic_non_identifying_policy_examples(self) -> None:
         for value in (

@@ -104,7 +104,7 @@ permissions:
 
 jobs:
   plan:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
       source_sha: ${{ steps.source_identity.outputs.source_sha }}
@@ -271,7 +271,7 @@ jobs:
   settle:
     if: ${{ always() }}
     needs: [plan, execute]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Settle one parent Agent State operation after all children

@@ -183,7 +183,7 @@ def456 unauthorized usb:1-1 transport_id:2
         self.assertNotIn("BROWSERSTACK_ACCESS_KEY", secrets)
 
         job = self.android["jobs"]["physical_performance"]
-        self.assertEqual(["macOS", "ARM64"], job["runs-on"])
+        self.assertEqual("macos-latest-xl", job["runs-on"])
         serialized = json.dumps(job)
         self.assertNotIn("BrowserStack", serialized)
         self.assertNotIn("android_physical_browserstack.py", serialized)

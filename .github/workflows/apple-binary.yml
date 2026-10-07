@@ -68,7 +68,7 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ${{ fromJSON((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && '["macOS","ARM64"]' || '["macos-latest"]') }}
+    runs-on: ${{ fromJSON((inputs.repository || github.repository) == 'StreamScapeTV/streamscape-media' && '["macos-latest-xl"]' || '["macos-latest"]') }}
     timeout-minutes: 300
     outputs:
       source_sha: ${{ steps.source_identity.outputs.source_sha }}
