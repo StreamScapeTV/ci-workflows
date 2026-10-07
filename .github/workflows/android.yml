@@ -19,26 +19,10 @@ name: Android CI
       test_profile:
         type: string
         required: true
-      project_directory:
-        type: string
-        required: false
-        default: "."
-      test_filter:
-        type: string
-        required: false
-        default: ""
       test_selectors:
         type: string
         required: false
         default: "[]"
-      test_platform:
-        type: string
-        required: false
-        default: ""
-      room_schema:
-        type: boolean
-        required: false
-        default: false
       release_version:
         type: string
         required: false
@@ -131,20 +115,12 @@ jobs:
         env:
           SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
           SOURCE_REF: ${{ inputs.ref }}
-          PROJECT_DIRECTORY: ${{ inputs.project_directory }}
-          TEST_FILTER: ${{ inputs.test_filter }}
           TEST_SELECTORS: ${{ inputs.test_selectors }}
-          TEST_PLATFORM: ${{ inputs.test_platform }}
-          ROOM_SCHEMA: ${{ inputs.room_schema }}
           BUILD_NUMBER: ${{ inputs.build_number }}
         run: |
           set -Eeuo pipefail
           test "${SOURCE_REPOSITORY}" = StreamScapeTV/iptv-android || { echo "Android screenshot-review is bounded to StreamScapeTV/iptv-android" >&2; exit 2; }
           test -n "${SOURCE_REF}" || { echo "Android screenshot-review requires an explicit product branch ref" >&2; exit 2; }
-          test "${PROJECT_DIRECTORY}" = . || { echo "Android screenshot-review does not accept project_directory" >&2; exit 2; }
-          test -z "${TEST_FILTER}" || { echo "Android screenshot-review does not accept test_filter" >&2; exit 2; }
-          test -z "${TEST_PLATFORM}" || { echo "Android screenshot-review does not accept test_platform" >&2; exit 2; }
-          test "${ROOM_SCHEMA}" = false || { echo "Android screenshot-review does not accept room_schema" >&2; exit 2; }
           test -z "${BUILD_NUMBER}" || { echo "Android screenshot-review does not accept build_number" >&2; exit 2; }
 
       - name: Normalize bounded Android screenshot selectors
@@ -1057,22 +1033,14 @@ jobs:
         env:
           SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
           SOURCE_REF: ${{ inputs.ref }}
-          PROJECT_DIRECTORY: ${{ inputs.project_directory }}
-          TEST_FILTER: ${{ inputs.test_filter }}
           TEST_SELECTORS: ${{ inputs.test_selectors }}
-          TEST_PLATFORM: ${{ inputs.test_platform }}
-          ROOM_SCHEMA: ${{ inputs.room_schema }}
           RELEASE_VERSION: ${{ inputs.release_version }}
           BUILD_NUMBER: ${{ inputs.build_number }}
         run: |
           set -Eeuo pipefail
           test "$SOURCE_REPOSITORY" = StreamScapeTV/iptv-android || { echo "Android physical-performance is bounded to StreamScapeTV/iptv-android" >&2; exit 2; }
           test -n "$SOURCE_REF" || { echo "Android physical-performance requires an explicit product ref" >&2; exit 2; }
-          test "$PROJECT_DIRECTORY" = . || { echo "Android physical-performance does not accept project_directory" >&2; exit 2; }
-          test -z "$TEST_FILTER" || { echo "Android physical-performance does not accept test_filter" >&2; exit 2; }
           test "$TEST_SELECTORS" = '[]' || { echo "Android physical-performance does not accept test_selectors" >&2; exit 2; }
-          test -z "$TEST_PLATFORM" || { echo "Android physical-performance does not accept test_platform" >&2; exit 2; }
-          test "$ROOM_SCHEMA" = false || { echo "Android physical-performance does not accept room_schema" >&2; exit 2; }
           test -z "$RELEASE_VERSION" || { echo "Android physical-performance does not accept release_version" >&2; exit 2; }
           test -z "$BUILD_NUMBER" || { echo "Android physical-performance does not accept build_number" >&2; exit 2; }
 
@@ -1319,7 +1287,7 @@ jobs:
           }
 
   ci:
-    if: ${{ inputs.test_profile != 'screenshot-review' && inputs.test_profile != 'physical-performance' }}
+    if: ${{ inputs.test_profile == 'play' }}
     runs-on: ubuntu-latest
     timeout-minutes: 300
     steps:
@@ -1341,7 +1309,6 @@ jobs:
           ci_run_id: ${{ inputs.ci_run_id }}
 
       - name: Connect to private Git service
-        if: ${{ inputs.test_profile != 'smoke' }}
         uses: StreamScapeTV/ci-workflows/actions/private-git@main
         env:
           TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
@@ -1400,7 +1367,6 @@ jobs:
 
       - name: Resolve IPTV Android default-branch cache scope
         id: android_default_cache_scope
-        if: ${{ inputs.test_profile != 'emulator' }}
         shell: bash
         env:
           SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
@@ -1512,7 +1478,6 @@ jobs:
 
       - name: Resolve IPTV Android non-default cache reader scope
         id: android_branch_cache_scope
-        if: ${{ inputs.test_profile != 'emulator' }}
         shell: bash
         env:
           SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
@@ -1550,42 +1515,6 @@ jobs:
             iptv-android-default-gradle-deps-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.android_default_cache_scope.outputs.dependency_fingerprint }}
           restore-keys: |
             iptv-android-default-gradle-deps-v2-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Validate generic Android hosted request
-        if: ${{ inputs.test_profile == 'emulator' }}
-        shell: bash
-        env:
-          PROJECT_DIRECTORY: ${{ inputs.project_directory }}
-          TEST_FILTER: ${{ inputs.test_filter }}
-          TEST_SELECTORS: ${{ inputs.test_selectors }}
-          TEST_PLATFORM: ${{ inputs.test_platform }}
-          ROOM_SCHEMA: ${{ inputs.room_schema }}
-        run: |
-          set -Eeuo pipefail
-          test "${PROJECT_DIRECTORY}" = "." || {
-            echo "Generic Android hosted profiles require project_directory=." >&2
-            exit 2
-          }
-          test -z "${TEST_FILTER}" || {
-            echo "Generic Android hosted profiles do not accept test_filter" >&2
-            exit 2
-          }
-          test "${TEST_SELECTORS}" = "[]" || {
-            echo "Generic Android hosted profiles do not accept test_selectors" >&2
-            exit 2
-          }
-          test -z "${TEST_PLATFORM}" || {
-            echo "Generic Android hosted profiles do not accept test_platform" >&2
-            exit 2
-          }
-          test "${ROOM_SCHEMA}" = "false" || {
-            echo "Generic Android hosted profiles do not accept room_schema" >&2
-            exit 2
-          }
-          test -f scripts/ci/run-android-hosted-validation.sh || {
-            echo "Missing fixed Android hosted validation wrapper: scripts/ci/run-android-hosted-validation.sh" >&2
-            exit 2
-          }
 
       - name: Prepare fixed Google Play draft release context
         id: play_prepare
@@ -1675,112 +1604,6 @@ jobs:
             printf 'CI_ANDROID_PLAY_RELEASE_STATUS=draft\n'
           } >> "${GITHUB_ENV}"
 
-      - name: Prepare generic Android emulator
-        id: android_emulator
-        if: ${{ inputs.test_profile == 'emulator' || (inputs.test_profile == 'targeted-tests' && inputs.test_platform == 'instrumentation') }}
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
-          test -n "${sdk_root}" || {
-            echo "Android SDK root is unavailable on the hosted runner" >&2
-            exit 1
-          }
-          sdkmanager="$(command -v sdkmanager || true)"
-          avdmanager="$(command -v avdmanager || true)"
-          test -n "${sdkmanager}" || sdkmanager="${sdk_root}/cmdline-tools/latest/bin/sdkmanager"
-          test -n "${avdmanager}" || avdmanager="${sdk_root}/cmdline-tools/latest/bin/avdmanager"
-          for tool in "${sdkmanager}" "${avdmanager}"; do
-            test -x "${tool}" || {
-              printf 'Required Android emulator install tool is unavailable: %s\n' "${tool}" >&2
-              exit 1
-            }
-          done
-
-          if test ! -x "${sdk_root}/cmdline-tools/22.0/bin/sdkmanager" ||
-            test ! -x "${sdk_root}/cmdline-tools/22.0/bin/avdmanager"; then
-            "${sdkmanager}" --install "cmdline-tools;22.0" >> "${CI_LOG}" 2>&1
-          fi
-          sdkmanager="${sdk_root}/cmdline-tools/22.0/bin/sdkmanager"
-          avdmanager="${sdk_root}/cmdline-tools/22.0/bin/avdmanager"
-          for tool in "${sdkmanager}" "${avdmanager}"; do
-            test -x "${tool}" || {
-              printf 'Required Android API-37 command-line tool is unavailable: %s\n' "${tool}" >&2
-              exit 1
-            }
-          done
-
-          image='system-images;android-37.0;google_apis_ps16k;x86_64'
-          avd_name='central-android-api37'
-          serial='emulator-5554'
-          "${sdkmanager}" --install platform-tools emulator "${image}" >> "${CI_LOG}" 2>&1
-
-          adb="$(command -v adb || true)"
-          emulator="$(command -v emulator || true)"
-          test -n "${adb}" || adb="${sdk_root}/platform-tools/adb"
-          test -n "${emulator}" || emulator="${sdk_root}/emulator/emulator"
-          for tool in "${adb}" "${emulator}"; do
-            test -x "${tool}" || {
-              printf 'Required Android emulator runtime tool is unavailable after install: %s\n' "${tool}" >&2
-              exit 1
-            }
-          done
-          avd_home="${RUNNER_TEMP}/central-android-avd"
-          avd_path="${avd_home}/${avd_name}.avd"
-          rm -rf -- "${avd_home}"
-          mkdir -p "${avd_home}"
-          export ANDROID_AVD_HOME="${avd_home}"
-          printf 'ANDROID_AVD_HOME=%s\n' "${ANDROID_AVD_HOME}" >> "${GITHUB_ENV}"
-          printf 'no\n' | "${avdmanager}" create avd --force \
-            --name "${avd_name}" --package "${image}" --device pixel \
-            -p "${avd_path}" >> "${CI_LOG}" 2>&1
-          test -f "${ANDROID_AVD_HOME}/${avd_name}.ini" || {
-            printf 'Android AVD descriptor was not created in the fixed AVD home: %s\n' "${ANDROID_AVD_HOME}" >&2
-            exit 1
-          }
-          test -d "${avd_path}" || {
-            printf 'Android AVD data directory was not created: %s\n' "${avd_path}" >&2
-            exit 1
-          }
-          if ! "${emulator}" -list-avds 2>> "${CI_LOG}" | grep -Fx "${avd_name}" >> "${CI_LOG}"; then
-            printf 'Android emulator cannot resolve fixed AVD %s from %s\n' "${avd_name}" "${ANDROID_AVD_HOME}" >&2
-            exit 1
-          fi
-          if test -e /dev/kvm && test ! -w /dev/kvm; then
-            sudo chmod 666 /dev/kvm
-          fi
-          "${adb}" start-server >> "${CI_LOG}" 2>&1
-          "${emulator}" -avd "${avd_name}" -port 5554 \
-            -no-window -no-audio -no-boot-anim -no-snapshot-save -wipe-data \
-            -gpu swiftshader_indirect >> "${CI_LOG}" 2>&1 &
-          emulator_pid=$!
-          printf 'pid=%s\n' "${emulator_pid}" >> "${GITHUB_OUTPUT}"
-          printf 'ANDROID_SERIAL=%s\n' "${serial}" >> "${GITHUB_ENV}"
-
-          booted=false
-          for _ in $(seq 1 180); do
-            if "${adb}" -s "${serial}" shell getprop sys.boot_completed 2>/dev/null | grep -qx '1'; then
-              booted=true
-              break
-            fi
-            if ! kill -0 "${emulator_pid}" 2>/dev/null; then
-              echo "Android emulator exited before boot completed" >&2
-              exit 1
-            fi
-            sleep 2
-          done
-          test "${booted}" = true || {
-            echo "Android emulator did not boot within the bounded timeout" >&2
-            exit 1
-          }
-          device_api="$("${adb}" -s "${serial}" shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r')"
-          test "${device_api}" = 37 || {
-            printf 'Android emulator API mismatch: expected 37, observed %s\n' "${device_api:-unavailable}" >&2
-            exit 1
-          }
-          printf '[android-emulator] serial=%s api=%s avd=%s\n' "${serial}" "${device_api}" "${avd_name}" >> "${CI_LOG}"
-          "${adb}" -s "${serial}" shell input keyevent 82 >/dev/null 2>&1 || true
-
       - name: Preflight tag-driven Android post-publication bump
         id: mobile_bump_contract
         if: ${{ inputs.test_profile == 'play' && inputs.source_is_tag }}
@@ -1825,11 +1648,6 @@ jobs:
         shell: bash
         env:
           TEST_PROFILE: ${{ inputs.test_profile }}
-          PROJECT_DIRECTORY: ${{ inputs.project_directory }}
-          TEST_FILTER: ${{ inputs.test_filter }}
-          TEST_SELECTORS: ${{ inputs.test_selectors }}
-          TEST_PLATFORM: ${{ inputs.test_platform }}
-          ROOM_SCHEMA: ${{ inputs.room_schema }}
           CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
           CI_ANDROID_PLAY_SOURCE_IS_TAG: ${{ env.CI_ANDROID_PLAY_SOURCE_IS_TAG }}
           CI_ANDROID_PLAY_RELEASE_VERSION: ${{ env.CI_ANDROID_PLAY_RELEASE_VERSION }}
@@ -1843,8 +1661,6 @@ jobs:
           CI_ANDROID_PLAY_RELEASE_STATUS: ${{ env.CI_ANDROID_PLAY_RELEASE_STATUS }}
         run: |
           set -Eeuo pipefail
-          repository_root="${PWD}"
-
           run_logged() {
             local label="$1"
             shift
@@ -1855,343 +1671,21 @@ jobs:
             fi
           }
 
-          case "${TEST_PROFILE}" in
-            targeted-tests)
-              test -z "${TEST_FILTER}" || {
-                echo "targeted-tests does not accept legacy test_filter" >&2
-                exit 2
-              }
-              case "${TEST_PLATFORM}" in
-                jvm|instrumentation) ;;
-                *) echo "targeted-tests requires test_platform=jvm or instrumentation" >&2; exit 2 ;;
-              esac
-              ;;
-            targeted-unit)
-              test "${TEST_SELECTORS}" = "[]" || {
-                echo "legacy targeted-unit does not accept test_selectors" >&2
-                exit 2
-              }
-              test -z "${TEST_PLATFORM}" || {
-                echo "legacy targeted-unit does not accept test_platform" >&2
-                exit 2
-              }
-              ;;
-            *)
-              test -z "${TEST_FILTER}" || {
-                echo "test_filter is accepted only by the legacy targeted-unit profile" >&2
-                exit 2
-              }
-              test "${TEST_SELECTORS}" = "[]" || {
-                echo "test_selectors is accepted only by the targeted-tests profile" >&2
-                exit 2
-              }
-              test -z "${TEST_PLATFORM}" || {
-                echo "test_platform is accepted only by the targeted-tests profile" >&2
-                exit 2
-              }
-              ;;
-          esac
-
-          case "${TEST_PROFILE}" in
-            emulator)
-              wrapper="${repository_root}/scripts/ci/run-android-hosted-validation.sh"
-              export CI_ANDROID_HOSTED_PROFILE="${TEST_PROFILE}"
-              run_logged "android-${TEST_PROFILE}" bash "${wrapper}"
-              exit 0
-              ;;
-            play)
-              wrapper="${repository_root}/scripts/ci/run-android-play-release.sh"
-              test -f "${wrapper}" || {
-                printf 'Missing fixed Android Play release wrapper: %s\n' "${wrapper}" >&2
-                exit 2
-              }
-              git ls-files --error-unmatch -- "${wrapper#${repository_root}/}" >/dev/null 2>&1 || {
-                printf 'Android Play release wrapper must be tracked source: %s\n' "${wrapper}" >&2
-                exit 2
-              }
-              case "${CI_ANDROID_PLAY_SOURCE_IS_TAG:-}" in true|false) ;; *) echo "Android Play source identity mode is unavailable" >&2; exit 2 ;; esac
-              if test "${CI_ANDROID_PLAY_SOURCE_IS_TAG}" = true; then
-                test -n "${CI_ANDROID_PLAY_RELEASE_VERSION:-}"
-              else
-                test -z "${CI_ANDROID_PLAY_RELEASE_VERSION:-}"
-              fi
-              test -n "${CI_ANDROID_PLAY_BUILD_NUMBER:-}"
-              test -n "${CI_ANDROID_PLAY_SERVICE_ACCOUNT_PATH:-}"
-              test -f "${CI_ANDROID_PLAY_SERVICE_ACCOUNT_PATH}"
-              test -f "${CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PATH}"
-              test -n "${CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD:-}"
-              test -n "${CI_ANDROID_PLAY_UPLOAD_KEY_ALIAS:-}"
-              test -n "${CI_ANDROID_PLAY_UPLOAD_KEY_PASSWORD:-}"
-              test "${CI_ANDROID_PLAY_TRACK:-}" = internal
-              test "${CI_ANDROID_PLAY_RELEASE_STATUS:-}" = draft
-              run_logged android-play-draft bash "${wrapper}"
-              exit 0
-              ;;
-          esac
-
-          case "${PROJECT_DIRECTORY}" in
-            .|android) ;;
-            *) echo "Unsupported Android project_directory" >&2; exit 2 ;;
-          esac
-          cd "${PROJECT_DIRECTORY}"
-          test -x gradlew
-
-          append_instrumentation_failure_evidence() {
-            python3 - "${CI_LOG}" <<'PY_ANDROID_INSTRUMENTATION_RESULTS'
-          from pathlib import Path
-          import sys
-
-          log_path = Path(sys.argv[1])
-          root = Path.cwd()
-          connected_result_marker = "/build/outputs/androidTest-results/connected/"
-          max_files = 20
-          max_result_bytes = 262144
-
-          candidates = []
-          connected_roots = sorted(
-              path
-              for path in root.glob("**/build/outputs/androidTest-results/connected")
-              if path.is_dir() and not path.is_symlink()
-          )
-          for connected_root in connected_roots:
-              for path in connected_root.rglob("*.xml"):
-                  if path.is_symlink() or not path.is_file():
-                      continue
-                  relative = path.relative_to(root).as_posix()
-                  if connected_result_marker not in f"/{relative}":
-                      continue
-                  candidates.append((relative, path))
-          candidates.sort(key=lambda item: item[0])
-
-          captured_files = 0
-          captured_result_bytes = 0
-          truncated = False
-          with log_path.open("ab") as log:
-              log.write(b"\n===== android-instrumentation-failure-evidence =====\n")
-              log.write(f"max_files={max_files}\n".encode())
-              log.write(f"max_result_bytes={max_result_bytes}\n".encode())
-              if not candidates:
-                  log.write(b"result_files=0\n")
-                  log.write(b"no connected-test XML result files found\n")
-                  raise SystemExit(0)
-
-              for relative, result_path in candidates:
-                  if captured_files >= max_files or captured_result_bytes >= max_result_bytes:
-                      truncated = True
-                      break
-                  data = result_path.read_bytes()
-                  remaining = max_result_bytes - captured_result_bytes
-                  chunk = data[:remaining]
-                  log.write(
-                      f"\n--- android-instrumentation-result path={relative} size={len(data)} ---\n".encode()
-                  )
-                  log.write(chunk)
-                  if not chunk.endswith(b"\n"):
-                      log.write(b"\n")
-                  captured_files += 1
-                  captured_result_bytes += len(chunk)
-                  if len(chunk) < len(data):
-                      truncated = True
-                      break
-
-              if captured_files < len(candidates):
-                  truncated = True
-              log.write(f"captured_files={captured_files}\n".encode())
-              log.write(f"result_files={len(candidates)}\n".encode())
-              log.write(f"captured_result_bytes={captured_result_bytes}\n".encode())
-              if truncated:
-                  log.write(
-                      b"[TRUNCATED android instrumentation failure evidence at reviewed file/byte cap]\n"
-                  )
-          PY_ANDROID_INSTRUMENTATION_RESULTS
-          }
-
-          run_gradle() {
-            local started="${SECONDS}"
-            if ! run_logged "gradle-${TEST_PROFILE}" ./gradlew --no-daemon "$@"; then
-              return 1
-            fi
-            local elapsed=$((SECONDS - started))
-            {
-              printf '\n===== gradle-wall-time =====\n'
-              printf 'profile=%s\n' "${TEST_PROFILE}"
-              printf 'seconds=%s\n' "${elapsed}"
-            } >> "${CI_LOG}"
-            printf 'Android %s Gradle wall time: %ss\n' "${TEST_PROFILE}" "${elapsed}"
-          }
-
-          policy_root="${repository_root}/scripts/ci"
-          performance_test_class='com.streamscapetv.app.foundation.performance.testing.PerformanceBudgetTest'
-
-          load_test_selectors() {
-            test_selectors=()
-            while IFS= read -r selector; do
-              test_selectors+=("${selector}")
-            done < <(
-              TEST_SELECTORS_JSON="${TEST_SELECTORS}" TEST_PLATFORM_VALUE="${TEST_PLATFORM}" python3 - <<'PY_TEST_SELECTORS'
-          import json
-          import os
-          import re
-
-          raw = os.environ.get("TEST_SELECTORS_JSON", "")
-          platform = os.environ.get("TEST_PLATFORM_VALUE", "")
-          if len(raw) > 2048:
-              raise SystemExit("targeted-tests test_selectors payload is too large")
-          try:
-              values = json.loads(raw)
-          except json.JSONDecodeError as exc:
-              raise SystemExit("targeted-tests test_selectors must be valid JSON") from exc
-          if not isinstance(values, list) or not 1 <= len(values) <= 20:
-              raise SystemExit("targeted-tests requires 1 through 20 test selectors")
-          if any(not isinstance(value, str) for value in values):
-              raise SystemExit("targeted-tests selectors must be strings")
-          if len(values) != len(set(values)):
-              raise SystemExit("targeted-tests test selectors must be unique")
-          if platform == "jvm":
-              pattern = re.compile(r"[A-Za-z0-9_.$*?-]{1,240}")
-          elif platform == "instrumentation":
-              pattern = re.compile(r"(?:[A-Za-z_][A-Za-z0-9_$]*\.)+[A-Za-z_][A-Za-z0-9_$]*(?:#[A-Za-z_][A-Za-z0-9_$]*)?")
-          else:
-              raise SystemExit("targeted-tests has an unsupported Android test_platform")
-          for value in values:
-              if not pattern.fullmatch(value) or value.startswith("-"):
-                  raise SystemExit("targeted-tests contains an invalid Android test selector")
-              print(value)
-          PY_TEST_SELECTORS
-            )
-            test "${#test_selectors[@]}" -ge 1
-          }
-
-          case "${TEST_PROFILE}" in
-            smoke)
-              run_gradle help
-              ;;
-            compile)
-              run_gradle compileDebugKotlin compileDebugUnitTestKotlin
-              ;;
-            unit)
-              run_gradle testDebugUnitTest
-              ;;
-            targeted-unit)
-              # Transitional compatibility for active Agent State callers. New requests should use targeted-tests.
-              [[ "${TEST_FILTER}" =~ ^[A-Za-z0-9_.$*?-]{1,240}$ ]] || {
-                echo "targeted-unit requires a bounded test_filter" >&2
-                exit 2
-              }
-              run_gradle testDebugUnitTest --tests "${TEST_FILTER}"
-              ;;
-            targeted-tests)
-              test "${ROOM_SCHEMA}" = false || {
-                echo "targeted-tests does not accept room_schema" >&2
-                exit 2
-              }
-              load_test_selectors
-              case "${TEST_PLATFORM}" in
-                jvm)
-                  targeted_args=(testDebugUnitTest)
-                  for selector in "${test_selectors[@]+"${test_selectors[@]}"}"; do
-                    targeted_args+=(--tests "${selector}")
-                  done
-                  run_gradle "${targeted_args[@]}"
-                  ;;
-                instrumentation)
-                  instrumentation_selector="$(IFS=,; printf '%s' "${test_selectors[*]}")"
-                  if ! run_gradle connectedDebugAndroidTest \
-                    "-Pandroid.testInstrumentationRunnerArguments.class=${instrumentation_selector}"; then
-                    append_instrumentation_failure_evidence
-                    exit 1
-                  fi
-                  ;;
-              esac
-              ;;
-            lint)
-              run_gradle lintDebug
-              ;;
-            assemble)
-              run_gradle assembleDebug
-              ;;
-            search-performance)
-              run_gradle testDebugUnitTest --tests "${performance_test_class}"
-              ;;
-            release)
-              run_release_policy=false
-              if [[ -e "${policy_root}/verify-lint-policy.sh" ||
-                    -e "${policy_root}/verify-gradle-property-policy.sh" ||
-                    -e "${policy_root}/verify-release-policy.sh" ||
-                    -e "${policy_root}/verify-release-size.py" ]]; then
-                test "${PROJECT_DIRECTORY}" = "." || {
-                  echo "Release policy convention is supported only at the repository root" >&2
-                  exit 2
-                }
-                test -x "${policy_root}/verify-lint-policy.sh"
-                test -x "${policy_root}/verify-gradle-property-policy.sh"
-                test -x "${policy_root}/verify-release-policy.sh"
-                test -f "${policy_root}/verify-release-size.py"
-                test -f "${policy_root}/release-size-budgets.json"
-                test -f "${policy_root}/release-size-baseline.json"
-                run_release_policy=true
-              fi
-
-              if [[ "${run_release_policy}" == true ]]; then
-                run_logged release-lint-policy bash "${policy_root}/verify-lint-policy.sh"
-                run_logged release-gradle-property-policy bash "${policy_root}/verify-gradle-property-policy.sh"
-              fi
-
-              run_gradle testDebugUnitTest lintDebug assembleRelease bundleRelease lintRelease
-
-              if [[ "${run_release_policy}" == true ]]; then
-                run_logged release-policy bash "${policy_root}/verify-release-policy.sh"
-
-                apk_files=()
-                while IFS= read -r apk_file; do
-                  apk_files+=("${apk_file}")
-                done < <(
-                  find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print | LC_ALL=C sort
-                )
-                aab_files=()
-                while IFS= read -r aab_file; do
-                  aab_files+=("${aab_file}")
-                done < <(
-                  find app/build/outputs/bundle/release -maxdepth 1 -type f -name '*.aab' -print | LC_ALL=C sort
-                )
-                test "${#apk_files[@]}" -eq 1 || {
-                  echo "Expected exactly one release APK for size validation" >&2
-                  exit 1
-                }
-                test "${#aab_files[@]}" -eq 1 || {
-                  echo "Expected exactly one release AAB for size validation" >&2
-                  exit 1
-                }
-
-                run_logged release-size python3 "${policy_root}/verify-release-size.py" \
-                  --apk "${apk_files[0]}" \
-                  --aab "${aab_files[0]}" \
-                  --budget "${policy_root}/release-size-budgets.json" \
-                  --baseline "${policy_root}/release-size-baseline.json" \
-                  --output app/build/reports/release-size-metrics.json
-              fi
-              ;;
-            *)
-              echo "Unsupported Android test_profile: ${TEST_PROFILE}" >&2
-              exit 2
-              ;;
-          esac
-
-          if [[ "${ROOM_SCHEMA}" == true ]]; then
-            cd "${repository_root}"
-            test "${PROJECT_DIRECTORY}" = "." || {
-              echo "room_schema is supported only at the repository root" >&2
-              exit 2
-            }
-            printf '\n===== room-schema =====\n' >> "${CI_LOG}"
-            if ! python3 scripts/ci/validate-room-schemas.py \
-              --repo-root . \
-              --report build/reports/room-schema-json-integrity.json \
-              >> "${CI_LOG}" 2>&1; then
-              echo "Android room schema validation failed; inspect the private Google Drive CI log." >&2
-              exit 1
-            fi
-          fi
+          test "${TEST_PROFILE}" = play || { echo "Android release workflow supports only play" >&2; exit 2; }
+          wrapper="${PWD}/scripts/ci/run-android-play-release.sh"
+          test -f "${wrapper}" || { printf 'Missing fixed Android Play release wrapper: %s\n' "${wrapper}" >&2; exit 2; }
+          git ls-files --error-unmatch -- "${wrapper#${PWD}/}" >/dev/null 2>&1 || { printf 'Android Play release wrapper must be tracked source: %s\n' "${wrapper}" >&2; exit 2; }
+          case "${CI_ANDROID_PLAY_SOURCE_IS_TAG:-}" in true|false) ;; *) echo "Android Play source identity mode is unavailable" >&2; exit 2 ;; esac
+          if test "${CI_ANDROID_PLAY_SOURCE_IS_TAG}" = true; then test -n "${CI_ANDROID_PLAY_RELEASE_VERSION:-}"; else test -z "${CI_ANDROID_PLAY_RELEASE_VERSION:-}"; fi
+          test -n "${CI_ANDROID_PLAY_BUILD_NUMBER:-}"
+          test -n "${CI_ANDROID_PLAY_SERVICE_ACCOUNT_PATH:-}" && test -f "${CI_ANDROID_PLAY_SERVICE_ACCOUNT_PATH}"
+          test -f "${CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PATH}"
+          test -n "${CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD:-}"
+          test -n "${CI_ANDROID_PLAY_UPLOAD_KEY_ALIAS:-}"
+          test -n "${CI_ANDROID_PLAY_UPLOAD_KEY_PASSWORD:-}"
+          test "${CI_ANDROID_PLAY_TRACK:-}" = internal
+          test "${CI_ANDROID_PLAY_RELEASE_STATUS:-}" = draft
+          run_logged android-play-draft bash "${wrapper}"
 
       - name: Clean Google Play credential and release state
         id: play_cleanup
@@ -2455,32 +1949,6 @@ jobs:
             "${RUNNER_TEMP}/central-mobile-build-bump-baseline"
           rm -f -- "${RUNNER_TEMP}/central-mobile-build-bump.diff"
 
-      - name: Stop generic Android emulator
-        if: ${{ always() && (inputs.test_profile == 'emulator' || (inputs.test_profile == 'targeted-tests' && inputs.test_platform == 'instrumentation')) }}
-        shell: bash
-        env:
-          EMULATOR_PID: ${{ steps.android_emulator.outputs.pid }}
-        run: |
-          set -Eeuo pipefail
-          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
-          adb="$(command -v adb || true)"
-          test -n "${adb}" || adb="${sdk_root}/platform-tools/adb"
-          serial="${ANDROID_SERIAL:-emulator-5554}"
-          if test -x "${adb}"; then
-            "${adb}" -s "${serial}" emu kill >/dev/null 2>&1 || true
-          fi
-          if test -n "${EMULATOR_PID}" && kill -0 "${EMULATOR_PID}" 2>/dev/null; then
-            kill "${EMULATOR_PID}" 2>/dev/null || true
-          fi
-          if test -n "${ANDROID_AVD_HOME:-}"; then
-            test "${ANDROID_AVD_HOME}" = "${RUNNER_TEMP}/central-android-avd" || {
-              printf 'Refusing to clean unexpected Android AVD home: %s\n' "${ANDROID_AVD_HOME}" >&2
-              exit 1
-            }
-            rm -rf -- "${ANDROID_AVD_HOME}"
-            test ! -e "${ANDROID_AVD_HOME}"
-          fi
-
       - name: Record IPTV Android cache measurements
         id: android_cache_measurements
         if: >-
@@ -2514,22 +1982,6 @@ jobs:
           } >> "${CI_LOG}"
           measure_bytes gradle_wrapper "${HOME}/.gradle/wrapper"
           measure_bytes gradle_modules "${HOME}/.gradle/caches/modules-2"
-
-      - name: Save IPTV Android default-branch dependency cache
-        id: gradle_dependency_cache_save
-        if: >-
-          ${{
-            steps.android_default_cache_scope.outputs.enabled == 'true'
-            && steps.commands.outcome == 'success'
-            && inputs.test_profile == 'release'
-            && steps.gradle_dependency_cache.outputs.cache-hit != 'true'
-          }}
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/.gradle/wrapper
-            ~/.gradle/caches/modules-2
-          key: ${{ steps.gradle_dependency_cache.outputs.cache-primary-key }}
 
       - name: Scrub configured CI secrets from private log
         id: scrub
@@ -2579,171 +2031,21 @@ jobs:
         shell: bash
         env:
           TEST_PROFILE: ${{ inputs.test_profile }}
-          TEST_PLATFORM: ${{ inputs.test_platform }}
-          ROOM_SCHEMA: ${{ inputs.room_schema }}
           COMMANDS_OUTCOME: ${{ steps.commands.outcome }}
-          ANDROID_EMULATOR_OUTCOME: ${{ steps.android_emulator.outcome }}
         run: |
           set -Eeuo pipefail
-          python3 - <<'PY_ANDROID_FAILURE_SUMMARY'
-          from pathlib import Path
-          import os
-          import re
-
-          log_path = Path(os.environ["CI_LOG"])
-          if log_path.is_symlink() or not log_path.is_file():
-              raise SystemExit("Android sanitized private log is unavailable for bounded failure classification")
-
-          max_scan_bytes = 8 * 1024 * 1024
-          size = log_path.stat().st_size
-          with log_path.open("rb") as stream:
-              if size > max_scan_bytes:
-                  stream.seek(size - max_scan_bytes)
-              data = stream.read(max_scan_bytes)
-          text = data.decode("utf-8", errors="replace")
-          lower = text.lower()
-
-          profile = os.environ.get("TEST_PROFILE", "").strip()
-          platform = os.environ.get("TEST_PLATFORM", "").strip()
-          room_schema = os.environ.get("ROOM_SCHEMA", "false").strip().lower() == "true"
-          commands_outcome = os.environ.get("COMMANDS_OUTCOME", "").strip()
-          android_emulator_outcome = os.environ.get("ANDROID_EMULATOR_OUTCOME", "").strip()
-
-          def contains_any(values: tuple[str, ...]) -> bool:
-              return any(value in lower for value in values)
-
-          def regex_any(values: tuple[str, ...]) -> bool:
-              return any(re.search(value, lower, flags=re.MULTILINE) for value in values)
-
-          classification = "product_validation_failure"
-          remediation = "product validation failed; route the exact observed source to the product owner and use the private diagnostic only for bounded detail."
-
-          instrumentation_bootstrap = contains_any((
-              "android emulator exited before boot completed",
-              "android emulator did not boot within the bounded timeout",
-              "install_failed",
-              "unable to find instrumentation info",
-              "no instrumentation registered",
-              "device offline",
-              "no connected devices",
-              "failed to install",
-              "adb: error",
-          ))
-          dependency_resolution = contains_any((
-              "could not resolve all files for configuration",
-              "could not resolve all dependencies for configuration",
-              "could not determine the dependencies of task",
-              "could not get resource",
-              "could not find ",
-              "failed to transform ",
-          )) or regex_any((r"could not resolve [^\\n]+",))
-          selector_failure = contains_any((
-              "no tests found for given includes",
-              "no tests found for given filters",
-              "no tests found for given",
-              "no matching tests found",
-              "no tests were found for",
-          ))
-          timeout_failure = contains_any((
-              "test timed out",
-              "timeout has been exceeded",
-              "timeoutexception",
-              "timed out after",
-              "did not complete within",
-          ))
-          infrastructure_failure = contains_any((
-              "no space left on device",
-              "network is unreachable",
-              "temporary failure in name resolution",
-              "connection reset by peer",
-              "runner was unable",
-              "failed to create process",
-              "cannot allocate memory",
-          ))
-          compile_failure = contains_any((
-              "compilation error",
-              "unresolved reference",
-              "cannot find symbol",
-              "kotlin compilation",
-              "java compilation",
-          )) or regex_any((
-              r"task [^\\n]*compile[^\\n]* failed",
-              r"execution failed for task '[^']*compile[^']*'",
-          ))
-          assertion_failure = contains_any((
-              "there were failing tests",
-              "assertionerror",
-              "comparisonfailure",
-              "<failure",
-              "<error",
-              "tests completed with",
-              "test failed",
-          ))
-          room_failure = room_schema and (
-              "===== room-schema =====" in lower
-              or "room schema validation failed" in lower
-              or "room-schema-json-integrity" in lower
-          )
-
-          if commands_outcome == "skipped":
-              if android_emulator_outcome in {"failure", "cancelled"} and (
-                  profile == "emulator"
-                  or (profile == "targeted-tests" and platform == "instrumentation")
-              ):
-                  classification = "instrumentation_bootstrap_failure"
-                  remediation = "Android instrumentation/emulator bootstrap failed before product test execution; repair device/test bootstrap and rerun."
-              else:
-                  classification = "infrastructure_failure"
-                  remediation = "a mandatory Central pre-command step prevented Android product execution after exact source observation; repair the CI prerequisite and retry."
-          elif dependency_resolution:
-              classification = "dependency_resolution_failure"
-              remediation = "Gradle could not resolve required dependencies; verify declared dependency/version availability and retry."
-          elif selector_failure:
-              classification = "test_selector_failure"
-              remediation = "the requested test selector matched no tests; correct the bounded class/method selector and rerun."
-          elif instrumentation_bootstrap:
-              classification = "instrumentation_bootstrap_failure"
-              remediation = "Android instrumentation/emulator bootstrap failed before a trustworthy assertion result; repair device/test bootstrap and rerun."
-          elif timeout_failure:
-              classification = "timeout"
-              remediation = "product validation emitted a timeout signature; correct the owning task/test timeout or long-running behavior before rerun."
-          elif infrastructure_failure:
-              classification = "infrastructure_failure"
-              remediation = "product execution hit a runner/network/resource infrastructure signature; retry after infrastructure recovery."
-          elif compile_failure:
-              classification = "compile_failure"
-              remediation = "Kotlin/Java compilation failed at the exact observed source; fix compiler errors before rerunning validation."
-          elif room_failure:
-              classification = "assertion_test_failure"
-              remediation = "Room schema correctness validation failed; repair the schema/export integrity regression and rerun."
-          elif assertion_failure:
-              classification = "assertion_test_failure"
-              remediation = "a product test/assertion failed at the exact observed source; fix the failing correctness behavior and rerun."
-          elif profile == "compile":
-              classification = "compile_failure"
-              remediation = "the Android compile profile failed at the exact observed source; fix compile errors before rerunning validation."
-          elif profile in {"unit", "targeted-unit", "search-performance"} or (
-              profile == "targeted-tests" and platform == "jvm"
-          ):
-              classification = "assertion_test_failure"
-              remediation = "the JVM correctness validation failed at the exact observed source; fix the selected product test/assertion and rerun."
-          elif profile == "targeted-tests" and platform == "instrumentation":
-              classification = "assertion_test_failure"
-              remediation = "the connected instrumentation validation failed after bootstrap; fix the selected device test/assertion and rerun."
-          elif commands_outcome == "cancelled":
-              classification = "infrastructure_failure"
-              remediation = "product execution was cancelled without a reviewed timeout signature; retry unless the Agent State request was intentionally superseded."
-
-          label = classification.removesuffix("_failure")
-          summary = f"Android {profile} failure [{label}]: {remediation}"
-          if len(summary) > 480 or "\n" in summary or "\r" in summary:
-              raise SystemExit("Android public-safe failure summary exceeded its fixed bound")
-
-          output = Path(os.environ["GITHUB_OUTPUT"])
-          with output.open("a", encoding="utf-8") as stream:
-              stream.write(f"failure_class={classification}\n")
-              stream.write(f"error_summary={summary}\n")
-          PY_ANDROID_FAILURE_SUMMARY
+          classification=product_validation_failure
+          remediation="Google Play product-owned release validation failed; inspect the bounded private diagnostic and repair the release wrapper/input contract before retry."
+          if test "${COMMANDS_OUTCOME}" = cancelled || test "${COMMANDS_OUTCOME}" = skipped; then
+            classification=infrastructure_failure
+            remediation="Google Play product execution did not complete; retry after the Central prerequisite or cancellation cause is resolved."
+          fi
+          summary="Android ${TEST_PROFILE} failure [${classification%_failure}]: ${remediation}"
+          test "${#summary}" -le 480
+          {
+            printf 'failure_class=%s\n' "${classification}"
+            printf 'error_summary=%s\n' "${summary}"
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Upload CI log to Google Drive
         id: drive
@@ -2788,7 +2090,6 @@ jobs:
           SCRUB_OUTCOME: ${{ steps.scrub.outcome }}
           DRIVE_OUTCOME: ${{ steps.drive.outcome }}
           CACHE_MEASUREMENTS_OUTCOME: ${{ steps.android_cache_measurements.outcome }}
-          CACHE_SAVE_OUTCOME: ${{ steps.gradle_dependency_cache_save.outcome }}
         run: |
           set -Eeuo pipefail
           success=false
@@ -2813,8 +2114,7 @@ jobs:
             && { test "${PLAY_CLEANUP_OUTCOME}" = success || test "${PLAY_CLEANUP_OUTCOME}" = skipped; } \
             && test "${SCRUB_OUTCOME}" = success \
             && test "${DRIVE_OUTCOME}" = success \
-            && { test "${CACHE_MEASUREMENTS_OUTCOME}" = success || test "${CACHE_MEASUREMENTS_OUTCOME}" = skipped; } \
-            && { test "${CACHE_SAVE_OUTCOME}" = success || test "${CACHE_SAVE_OUTCOME}" = skipped; }; then
+            && { test "${CACHE_MEASUREMENTS_OUTCOME}" = success || test "${CACHE_MEASUREMENTS_OUTCOME}" = skipped; }; then
             success=true
           fi
 
