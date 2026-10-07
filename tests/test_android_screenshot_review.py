@@ -124,7 +124,7 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
         ):
             self.assertNotIn(invented_runner, str(physical))
         screenshot = jobs["screenshot"]
-        self.assertEqual(screenshot["runs-on"], "ubuntu-24.04")
+        self.assertEqual(screenshot["runs-on"], "ubuntu-latest")
         include = screenshot["strategy"]["matrix"]["include"]
         profiles = [row["capture_profile"] for row in include]
         self.assertEqual(

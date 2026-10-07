@@ -125,7 +125,7 @@ class OciReproducibilityTests(unittest.TestCase):
         )
         for forbidden in ("command", "platform", "runner", "registry", "credential", "secret_name"):
             self.assertNotIn(forbidden, inputs)
-        self.assertEqual(workflow["jobs"]["prove"]["runs-on"], "ubuntu-24.04")
+        self.assertEqual(workflow["jobs"]["prove"]["runs-on"], "ubuntu-latest")
         steps = workflow["jobs"]["prove"]["steps"]
         by_name = {step.get("name"): step for step in steps if step.get("name")}
         names = [step.get("name") for step in steps]

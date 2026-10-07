@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -163,7 +164,7 @@ class RepositoryHostClassTests(unittest.TestCase):
 
     def test_all_reviewed_host_classes_map_to_expected_host_os_and_central_runner(self) -> None:
         cases = {
-            "linux-hosted": ("linux", ["ubuntu-24.04"]),
+            "linux-hosted": ("linux", ["ubuntu-latest"]),
             "linux-high-capacity": ("linux", ["self-hosted", "linux", "x64", "ubuntu-latest-xl"]),
             "macos-hosted": ("macos", ["macos-latest"]),
             "macos-high-capacity": ("macos", ["macOS", "ARM64"]),
@@ -242,7 +243,7 @@ class RepositoryHostClassTests(unittest.TestCase):
         )
         self.assertEqual(linux.returncode, 0, linux.stderr)
         self.assertEqual(linux_values["host_class"], "linux-hosted")
-        self.assertEqual(json.loads(linux_values["runs_on"]), ["ubuntu-24.04"])
+        self.assertEqual(json.loads(linux_values["runs_on"]), ["ubuntu-latest"])
 
         macos, macos_values = self.run_resolver(
             host_os="macos",
@@ -272,7 +273,7 @@ class RepositoryHostClassTests(unittest.TestCase):
         cases = (
             ("full", "macos", "macos-high-capacity", ["macOS", "ARM64"]),
             ("release", "macos", "macos-high-capacity", ["macOS", "ARM64"]),
-            ("full", "linux", "linux-hosted", ["ubuntu-24.04"]),
+            ("full", "linux", "linux-hosted", ["ubuntu-latest"]),
         )
         for operation, host_os, host_class, expected_runs_on in cases:
             with self.subTest(operation=operation, host_os=host_os):
@@ -324,6 +325,25 @@ class RepositoryHostClassTests(unittest.TestCase):
         self.assertEqual(values["host_class"], "macos-high-capacity")
         self.assertEqual(values["host_os"], "macos")
         self.assertIn("resolve_repository_ci_host_class_for_os", self.script)
+
+    def test_hosted_runner_images_use_rolling_latest_aliases(self) -> None:
+        numeric_ubuntu = re.compile(r"\bubuntu-[0-9]+\.[0-9]+\b")
+        numeric_macos = re.compile(r"\bmacos-[0-9]+\b")
+        for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+            workflow_text = path.read_text(encoding="utf-8")
+            self.assertIsNone(
+                numeric_ubuntu.search(workflow_text),
+                f"{path.name} reintroduced a numerically pinned GitHub-hosted Ubuntu image",
+            )
+            self.assertIsNone(
+                numeric_macos.search(workflow_text),
+                f"{path.name} reintroduced a numerically pinned GitHub-hosted macOS image",
+            )
+
+        self.assertIn('runs_on=\'["ubuntu-latest"]\'', self.script)
+        self.assertIn('runs_on=\'["self-hosted","linux","x64","ubuntu-latest-xl"]\'', self.script)
+        self.assertIn('runs_on=\'["macos-latest"]\'', self.script)
+        self.assertIn('runs_on=\'["macOS","ARM64"]\'', self.script)
 
     def test_docs_use_generic_non_identifying_policy_examples(self) -> None:
         for value in (

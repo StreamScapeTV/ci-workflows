@@ -53,7 +53,7 @@ class MavenWorkflowTests(unittest.TestCase):
             },
         )
         self.assertTrue(all(not value["required"] for value in call["secrets"].values()))
-        self.assertEqual(self.resolve["runs-on"], "ubuntu-24.04")
+        self.assertEqual(self.resolve["runs-on"], "ubuntu-latest")
         self.assertEqual(self.job["needs"], "resolve_host")
         self.assertEqual(
             self.job["runs-on"],
@@ -159,7 +159,7 @@ class MavenWorkflowTests(unittest.TestCase):
         standalone, standalone_values = run(trusted=False)
         self.assertEqual(standalone.returncode, 0, standalone.stderr)
         self.assertEqual(standalone_values["host_class"], "linux-hosted")
-        self.assertEqual(json.loads(standalone_values["runs_on"]), ["ubuntu-24.04"])
+        self.assertEqual(json.loads(standalone_values["runs_on"]), ["ubuntu-latest"])
 
         aggregate, aggregate_values = run(trusted=True)
         self.assertEqual(aggregate.returncode, 0, aggregate.stderr)

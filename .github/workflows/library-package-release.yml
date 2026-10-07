@@ -60,7 +60,7 @@ permissions:
 
 jobs:
   plan:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
       source_sha: ${{ steps.source_identity.outputs.source_sha }}
@@ -290,7 +290,7 @@ jobs:
   finish:
     needs: [plan, readiness, release_prepare, apple_swiftpm, maven]
     if: ${{ always() }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Finish Agent State run

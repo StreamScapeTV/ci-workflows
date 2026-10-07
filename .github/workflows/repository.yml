@@ -116,7 +116,7 @@ permissions:
 
 jobs:
   resolve_host:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
       host_class: ${{ steps.host.outputs.host_class }}
@@ -159,7 +159,7 @@ jobs:
             case "${host_class}" in
               linux-hosted)
                 host_os=linux
-                runs_on='["ubuntu-24.04"]'
+                runs_on='["ubuntu-latest"]'
                 ;;
               linux-high-capacity)
                 host_os=linux

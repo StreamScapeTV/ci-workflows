@@ -15,7 +15,7 @@ permissions:
 jobs:
   plan:
     if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     outputs:
       images: ${{ steps.matrix.outputs.images }}
       has_images: ${{ steps.matrix.outputs.has_images }}
@@ -67,7 +67,7 @@ jobs:
   validate:
     if: ${{ needs.plan.outputs.has_images == 'true' }}
     needs: plan
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -100,7 +100,7 @@ jobs:
 
   build:
     if: ${{ github.event_name == 'push' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
