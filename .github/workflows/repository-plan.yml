@@ -78,6 +78,10 @@ name: Repository-owned CI execution plan
         required: false
       APP_STORE_CONNECT_API_KEY_P8_BASE64:
         required: false
+      APPLE_DEVELOPMENT_P12_BASE64:
+        required: false
+      APPLE_DEVELOPMENT_P12_PASSWORD:
+        required: false
       PROTECTED_DEPLOYED_HTTPS_TARGET:
         required: false
       PROTECTED_DEPLOYED_WSS_TARGET:
@@ -262,6 +266,8 @@ jobs:
       APP_STORE_CONNECT_KEY_ID: ${{ matrix.host_os == 'macos' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
       APP_STORE_CONNECT_ISSUER_ID: ${{ matrix.host_os == 'macos' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
       APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ matrix.host_os == 'macos' && secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 || '' }}
+      APPLE_DEVELOPMENT_P12_BASE64: ${{ inputs.operation == 'device-test' && matrix.host_os == 'macos' && secrets.APPLE_DEVELOPMENT_P12_BASE64 || '' }}
+      APPLE_DEVELOPMENT_P12_PASSWORD: ${{ inputs.operation == 'device-test' && matrix.host_os == 'macos' && secrets.APPLE_DEVELOPMENT_P12_PASSWORD || '' }}
       PROTECTED_DEPLOYED_HTTPS_TARGET: ${{ matrix.host_os == 'linux' && secrets.PROTECTED_DEPLOYED_HTTPS_TARGET || '' }}
       PROTECTED_DEPLOYED_WSS_TARGET: ${{ matrix.host_os == 'linux' && secrets.PROTECTED_DEPLOYED_WSS_TARGET || '' }}
       PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64: ${{ matrix.host_os == 'linux' && secrets.PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64 || '' }}

@@ -90,6 +90,10 @@ name: Repository-owned CI
         required: false
       APP_STORE_CONNECT_API_KEY_P8_BASE64:
         required: false
+      APPLE_DEVELOPMENT_P12_BASE64:
+        required: false
+      APPLE_DEVELOPMENT_P12_PASSWORD:
+        required: false
       PROTECTED_DEPLOYED_HTTPS_TARGET:
         required: false
       PROTECTED_DEPLOYED_WSS_TARGET:
@@ -2037,6 +2041,8 @@ jobs:
           CI_SECRET_APP_STORE_CONNECT_KEY_ID: ${{ needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
           CI_SECRET_APP_STORE_CONNECT_ISSUER_ID: ${{ needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
           CI_SECRET_APP_STORE_CONNECT_API_KEY: ${{ needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 || '' }}
+          CI_SECRET_APPLE_DEVELOPMENT_P12_BASE64: ${{ inputs.operation == 'device-test' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APPLE_DEVELOPMENT_P12_BASE64 || '' }}
+          CI_SECRET_APPLE_DEVELOPMENT_P12_PASSWORD: ${{ inputs.operation == 'device-test' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APPLE_DEVELOPMENT_P12_PASSWORD || '' }}
           CI_DYNAMIC_SECRET_FILE: ${{ runner.temp }}/central-apple-physical-device-secrets.txt
         run: |
           set -Eeuo pipefail
