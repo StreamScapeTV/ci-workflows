@@ -1983,6 +1983,38 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertIn("steps.apple_signing_cleanup.outcome == 'success'", finish["with"]["status"])
         self.assertIn("steps.apple_signing_cleanup.outcome == 'skipped'", finish["with"]["status"])
 
+    def test_physical_device_p12_secrets_cross_all_reusable_workflow_hops(self) -> None:
+        # Secrets are fixed Central bindings: never caller semantic inputs or release credentials.
+        plan = yaml.safe_load((ROOT / ".github/workflows/repository-plan.yml").read_text(encoding="utf-8"))
+        dispatcher = self.dispatch["jobs"]["repository"]["secrets"]
+        plan_secrets = plan["on"]["workflow_call"]["secrets"]
+        execute = plan["jobs"]["execute"]["secrets"]
+        child_secrets = self.workflow["on"]["workflow_call"]["secrets"]
+        child_env = self.steps_by_name["Execute fixed repository-owned entrypoint"]["env"]
+        scrub_env = self.steps_by_name["Scrub configured CI secrets from private text evidence"]["env"]
+
+        for name in ("APPLE_DEVELOPMENT_P12_BASE64", "APPLE_DEVELOPMENT_P12_PASSWORD"):
+            with self.subTest(secret_name=name):
+                self.assertEqual(plan_secrets[name]["required"], False)
+                self.assertEqual(child_secrets[name]["required"], False)
+                self.assertEqual(
+                    dispatcher[name],
+                    "${{ needs.request.outputs.test_profile == 'device-test' && secrets." + name + " || '' }}",
+                )
+                self.assertEqual(
+                    execute[name],
+                    "${{ inputs.operation == 'device-test' && matrix.host_os == 'macos' && secrets." + name + " || '' }}",
+                )
+                self.assertEqual(
+                    child_env["CI_" + name],
+                    "${{ inputs.operation == 'device-test' && needs.resolve_host.outputs.host_os == 'macos' && secrets." + name + " || '' }}",
+                )
+                self.assertEqual(scrub_env["CI_SECRET_" + name], child_env["CI_" + name])
+                self.assertNotIn(name, plan["on"]["workflow_call"]["inputs"])
+                self.assertNotIn(name, self.workflow["on"]["workflow_call"]["inputs"])
+                self.assertNotIn(name, self.dispatch["jobs"]["repository_release"]["secrets"])
+                self.assertNotIn(name, plan["jobs"]["plan"].get("env", {}))
+
     def test_macos_device_test_preserves_runner_home_with_isolated_git_auth(self) -> None:
         execute = self.steps_by_name["Execute fixed repository-owned entrypoint"]
         script = execute["run"]
