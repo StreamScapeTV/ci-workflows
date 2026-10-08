@@ -1964,20 +1964,21 @@ class RepositoryWorkflowTests(unittest.TestCase):
         for name in (
             "central-apple-development-signing-state.json",
             "central-apple-development-signing.keychain-db",
-            "central-apple-app-store-connect-key.p8",
+            "central-apple-development-identity.p12",
         ):
             self.assertIn(name, cleanup)
 
+        execute = self.steps_by_name["Execute fixed repository-owned entrypoint"]
+        self.assertIn("secrets.APPLE_DEVELOPMENT_P12_BASE64", execute["env"]["CI_APPLE_DEVELOPMENT_P12_BASE64"])
+        self.assertIn("secrets.APPLE_DEVELOPMENT_P12_PASSWORD", execute["env"]["CI_APPLE_DEVELOPMENT_P12_PASSWORD"])
+        self.assertIn("inputs.operation == 'device-test'", execute["env"]["CI_APPLE_DEVELOPMENT_P12_BASE64"])
         signing_cleanup = self.steps_by_name["Restore Central Apple Development signing context"]
         self.assertEqual(
             signing_cleanup["if"],
             "${{ always() && inputs.operation == 'device-test' && needs.resolve_host.outputs.host_os == 'macos' }}",
         )
         self.assertIn("repository_apple_physical_device.py cleanup", signing_cleanup["run"])
-        self.assertEqual(signing_cleanup["env"]["CI_APPLE_TEAM_ID"], "${{ secrets.APPLE_TEAM_ID }}")
-        self.assertEqual(signing_cleanup["env"]["CI_APP_STORE_CONNECT_KEY_ID"], "${{ secrets.APP_STORE_CONNECT_KEY_ID }}")
-        self.assertEqual(signing_cleanup["env"]["CI_APP_STORE_CONNECT_ISSUER_ID"], "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}")
-        self.assertEqual(signing_cleanup["env"]["CI_APP_STORE_CONNECT_API_KEY_P8_BASE64"], "${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}")
+        self.assertNotIn("env", signing_cleanup)
         finish = self.steps_by_name["Finish Agent State run"]
         self.assertIn("steps.apple_signing_cleanup.outcome == 'success'", finish["with"]["status"])
         self.assertIn("steps.apple_signing_cleanup.outcome == 'skipped'", finish["with"]["status"])

@@ -1509,6 +1509,8 @@ jobs:
           CI_APP_STORE_CONNECT_KEY_ID: ${{ needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
           CI_APP_STORE_CONNECT_ISSUER_ID: ${{ needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
           CI_APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 || '' }}
+          CI_APPLE_DEVELOPMENT_P12_BASE64: ${{ inputs.operation == 'device-test' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APPLE_DEVELOPMENT_P12_BASE64 || '' }}
+          CI_APPLE_DEVELOPMENT_P12_PASSWORD: ${{ inputs.operation == 'device-test' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APPLE_DEVELOPMENT_P12_PASSWORD || '' }}
           CI_SECRET_REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           CI_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
           CI_SECRET_REGISTRY_WRITE_TOKEN: ${{ secrets.REGISTRY_WRITE_TOKEN }}
@@ -1832,11 +1834,6 @@ jobs:
         id: apple_signing_cleanup
         if: ${{ always() && inputs.operation == 'device-test' && needs.resolve_host.outputs.host_os == 'macos' }}
         shell: bash
-        env:
-          CI_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          CI_APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          CI_APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          CI_APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
         run: |
           set -Eeuo pipefail
           python3 central-ci/scripts/ci/repository_apple_physical_device.py cleanup
@@ -2420,7 +2417,7 @@ jobs:
             "${RUNNER_TEMP}/central-apple-physical-device-inventory.json" \
             "${RUNNER_TEMP}/central-apple-development-signing-state.json" \
             "${RUNNER_TEMP}/central-apple-development-signing.keychain-db" \
-            "${RUNNER_TEMP}/central-apple-app-store-connect-key.p8"; do
+            "${RUNNER_TEMP}/central-apple-development-identity.p12"; do
             if test -e "${private_device_path}" || test -L "${private_device_path}"; then
               echo "repository CI physical-device private residue cleanup failed" >&2
               exit 1

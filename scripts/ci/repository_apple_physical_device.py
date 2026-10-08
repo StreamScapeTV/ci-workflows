@@ -4,7 +4,6 @@ from __future__ import annotations
 import base64
 import binascii
 import fcntl
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -16,12 +15,8 @@ import stat
 import subprocess
 import sys
 import tempfile
-import time
 from datetime import datetime, timezone
-from typing import Any, BinaryIO, NoReturn
-import urllib.error
-import urllib.parse
-import urllib.request
+from typing import BinaryIO, NoReturn
 
 LOCK_PATH = Path('/tmp/streamscapetv-central-apple-physical-device-v1.lock')
 ENTRYPOINT = Path('.ci/device-test.sh')
@@ -30,35 +25,18 @@ SECRET_NAME = 'central-apple-physical-device-secrets.txt'
 INVENTORY_NAME = 'central-apple-physical-device-inventory.json'
 SIGNING_STATE_NAME = 'central-apple-development-signing-state.json'
 SIGNING_KEYCHAIN_NAME = 'central-apple-development-signing.keychain-db'
-SIGNING_API_KEY_NAME = 'central-apple-app-store-connect-key.p8'
-SIGNING_STATE_SCHEMA = 'streamscape-central-apple-development-signing-v1'
-API_BASE = 'https://api.appstoreconnect.apple.com'
+SIGNING_BUNDLE_NAME = 'central-apple-development-identity.p12'
+SIGNING_STATE_SCHEMA = 'streamscape-central-apple-development-signing-v2'
 IDENTIFIER_RE = re.compile(r'[A-Za-z0-9-]{16,128}')
 IPHONE_MODEL_RE = re.compile(r'iPhone[0-9]+,[0-9]+')
 TEAM_RE = re.compile(r'[A-Z0-9]{10}')
-KEY_ID_RE = re.compile(r'[A-Za-z0-9]{10}')
-ISSUER_RE = re.compile(r'[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}')
-CERT_ID_RE = re.compile(r'[A-Za-z0-9_-]{1,128}')
-IDENTITY_SHA1_RE = re.compile(r'[0-9A-Fa-f]{40}')
-MAX_API_RESPONSE_BYTES = 8 * 1024 * 1024
-MAX_CERTIFICATE_BYTES = 65536
 MAX_STATE_BYTES = 16384
-AMBIGUOUS_RECONCILIATION_ATTEMPTS = 6
-AMBIGUOUS_RECONCILIATION_DELAY_SECONDS = 5
+MAX_P12_BYTES = 128 * 1024
+MAX_P12_PASSWORD_BYTES = 1024
 
 
 class DeviceError(RuntimeError):
-    def __init__(
-        self,
-        message: str,
-        *,
-        ambiguous_outcome: bool = False,
-        http_status: int | None = None,
-    ) -> None:
-        super().__init__(message)
-        self.ambiguous_outcome = ambiguous_outcome
-        self.http_status = http_status
-
+    pass
 
 def fail(message: str) -> NoReturn:
     raise DeviceError(message)
@@ -357,7 +335,7 @@ def _signing_paths(runner_temp: Path) -> tuple[Path, Path, Path]:
     return (
         runner_temp / SIGNING_STATE_NAME,
         runner_temp / SIGNING_KEYCHAIN_NAME,
-        runner_temp / SIGNING_API_KEY_NAME,
+        runner_temp / SIGNING_BUNDLE_NAME,
     )
 
 
@@ -392,14 +370,13 @@ def _read_signing_state(path: Path) -> dict[str, object]:
         value = json.loads(path.read_text(encoding='utf-8'))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise DeviceError('Central Apple Development signing state is invalid') from exc
-    expected = {'schema', 'teamId', 'originalDefaultKeychain', 'originalSearchKeychains', 'managedKeychain', 'certificateId'}
+    expected = {'schema', 'teamId', 'originalDefaultKeychain', 'originalSearchKeychains', 'managedKeychain'}
     if not isinstance(value, dict) or set(value) != expected or value.get('schema') != SIGNING_STATE_SCHEMA:
         fail('Central Apple Development signing state is invalid')
     team_id = value.get('teamId')
     default = value.get('originalDefaultKeychain')
     search = value.get('originalSearchKeychains')
     managed = value.get('managedKeychain')
-    certificate_id = value.get('certificateId')
     if not isinstance(team_id, str) or TEAM_RE.fullmatch(team_id) is None:
         fail('Central Apple Development signing state is invalid')
     if not isinstance(default, str) or not default.startswith('/'):
@@ -410,304 +387,86 @@ def _read_signing_state(path: Path) -> dict[str, object]:
         fail('Central Apple Development signing state is invalid')
     if managed != str(runner_temp / SIGNING_KEYCHAIN_NAME):
         fail('Central Apple Development signing state is invalid')
-    if certificate_id is not None and (not isinstance(certificate_id, str) or CERT_ID_RE.fullmatch(certificate_id) is None):
-        fail('Central Apple Development signing state is invalid')
     return value
 
 
-def _apple_credentials() -> tuple[str, str, str, bytes]:
+def _p12_credentials() -> tuple[str, bytes, str]:
+    """Read owner-provisioned Central secrets, never returning them to product code."""
     team_id = os.environ.get('CI_APPLE_TEAM_ID', '')
-    key_id = os.environ.get('CI_APP_STORE_CONNECT_KEY_ID', '')
-    issuer_id = os.environ.get('CI_APP_STORE_CONNECT_ISSUER_ID', '')
-    encoded = os.environ.get('CI_APP_STORE_CONNECT_API_KEY_P8_BASE64', '')
-    if TEAM_RE.fullmatch(team_id) is None or KEY_ID_RE.fullmatch(key_id) is None or ISSUER_RE.fullmatch(issuer_id) is None:
-        fail('Central Apple Development signing credentials are unavailable')
-    if not encoded or len(encoded) > 131072 or any(character in encoded for character in '\r\n'):
-        fail('Central Apple Development signing credentials are unavailable')
+    encoded = os.environ.get('CI_APPLE_DEVELOPMENT_P12_BASE64', '')
+    password = os.environ.get('CI_APPLE_DEVELOPMENT_P12_PASSWORD', '')
+    if TEAM_RE.fullmatch(team_id) is None:
+        fail('Central Apple Development signing team is unavailable')
+    if (not password or any(character in password for character in '\r\n\0')
+            or len(password.encode('utf-8')) > MAX_P12_PASSWORD_BYTES):
+        fail('Central Apple Development PKCS12 credentials are unavailable')
+    if (not encoded or not encoded.isascii() or len(encoded) > ((MAX_P12_BYTES + 2) // 3) * 4
+            or any(character in encoded for character in '\r\n\0')):
+        fail('Central Apple Development PKCS12 credentials are unavailable')
     try:
         raw = base64.b64decode(encoded, validate=True)
     except (ValueError, binascii.Error) as exc:
-        raise DeviceError('Central Apple Development signing credentials are unavailable') from exc
-    if not raw or len(raw) > 65536 or b'PRIVATE KEY' not in raw:
-        fail('Central Apple Development signing credentials are unavailable')
-    return team_id, key_id, issuer_id, raw
+        raise DeviceError('Central Apple Development PKCS12 credentials are invalid') from exc
+    if len(raw) < 32 or len(raw) > MAX_P12_BYTES or raw[0] != 0x30:
+        fail('Central Apple Development PKCS12 credentials are invalid')
+    return team_id, raw, password
 
 
-def _materialize_api_key(runner_temp: Path, raw: bytes) -> Path:
-    path = runner_temp / SIGNING_API_KEY_NAME
+def _materialize_p12(runner_temp: Path, raw: bytes) -> Path:
+    path = runner_temp / SIGNING_BUNDLE_NAME
     if path.exists() or path.is_symlink():
-        fail('Central Apple Development authentication key residue is present')
-    write_private(path, raw, max_bytes=65536)
+        fail('Central Apple Development PKCS12 residue is present')
+    write_private(path, raw, max_bytes=MAX_P12_BYTES)
     return path
 
 
-def _b64url(value: bytes) -> str:
-    return base64.urlsafe_b64encode(value).rstrip(b'=').decode('ascii')
-
-
-def _der_ecdsa_to_raw(signature: bytes) -> bytes:
-    if len(signature) < 8 or signature[0] != 0x30:
-        fail('Central Apple Development authentication signature is invalid')
-    index = 1
-    length = signature[index]
-    index += 1
-    if length & 0x80:
-        count = length & 0x7F
-        if count == 0 or count > 2 or index + count > len(signature):
-            fail('Central Apple Development authentication signature is invalid')
-        length = int.from_bytes(signature[index:index + count], 'big')
-        index += count
-    if index + length != len(signature):
-        fail('Central Apple Development authentication signature is invalid')
-    values: list[int] = []
-    for _ in range(2):
-        if index + 2 > len(signature) or signature[index] != 0x02:
-            fail('Central Apple Development authentication signature is invalid')
-        index += 1
-        size = signature[index]
-        index += 1
-        if size & 0x80:
-            count = size & 0x7F
-            if count == 0 or count > 2 or index + count > len(signature):
-                fail('Central Apple Development authentication signature is invalid')
-            size = int.from_bytes(signature[index:index + count], 'big')
-            index += count
-        if size == 0 or index + size > len(signature):
-            fail('Central Apple Development authentication signature is invalid')
-        value = int.from_bytes(signature[index:index + size], 'big', signed=False)
-        index += size
-        if value.bit_length() > 256:
-            fail('Central Apple Development authentication signature is invalid')
-        values.append(value)
-    if index != len(signature):
-        fail('Central Apple Development authentication signature is invalid')
-    return b''.join(value.to_bytes(32, 'big') for value in values)
-
-
-def _make_token(key_path: Path, key_id: str, issuer_id: str) -> str:
-    issued = int(time.time())
-    header = {'alg': 'ES256', 'kid': key_id, 'typ': 'JWT'}
-    payload = {'iss': issuer_id, 'iat': issued - 5, 'exp': issued + 600, 'aud': 'appstoreconnect-v1'}
-    signing_input = (
-        _b64url(json.dumps(header, sort_keys=True, separators=(',', ':')).encode()) + '.' +
-        _b64url(json.dumps(payload, sort_keys=True, separators=(',', ':')).encode())
-    ).encode('ascii')
-    signature = _run_private(['openssl', 'dgst', '-sha256', '-sign', str(key_path)], input_bytes=signing_input, timeout=30)
-    return signing_input.decode('ascii') + '.' + _b64url(_der_ecdsa_to_raw(signature))
-
-
-def _request_json(method: str, url: str, token: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-    encoded_payload = None
-    if payload is not None:
-        encoded_payload = json.dumps(payload, sort_keys=True, separators=(',', ':')).encode('utf-8')
-        if len(encoded_payload) > 131072:
-            fail('Central Apple Development certificate request is oversized')
-    headers = {'Authorization': f'Bearer {token}', 'Accept': 'application/json'}
-    if encoded_payload is not None:
-        headers['Content-Type'] = 'application/json'
-    request = urllib.request.Request(url, data=encoded_payload, method=method, headers=headers)
+def _selected_signing_identity(keychain: Path, team_id: str) -> str:
+    """Allow precisely one currently valid private-key-backed Apple Development identity."""
+    raw = _run_private(['security', 'find-identity', '-v', '-p', 'codesigning', str(keychain)])
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            body = response.read(MAX_API_RESPONSE_BYTES + 1)
-            if len(body) > MAX_API_RESPONSE_BYTES:
-                raise DeviceError('Central Apple Development certificate response is oversized', ambiguous_outcome=(method == 'POST'))
-    except urllib.error.HTTPError as exc:
-        raise DeviceError(
-            f'Central Apple Development certificate request failed with HTTP {exc.code}',
-            ambiguous_outcome=(method == 'POST' and exc.code >= 500),
-            http_status=exc.code,
-        ) from exc
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise DeviceError('Central Apple Development certificate request failed', ambiguous_outcome=(method == 'POST')) from exc
-    try:
-        document = json.loads(body)
-    except (UnicodeError, json.JSONDecodeError) as exc:
-        raise DeviceError('Central Apple Development certificate response is invalid', ambiguous_outcome=(method == 'POST')) from exc
-    if not isinstance(document, dict):
-        raise DeviceError('Central Apple Development certificate response is invalid', ambiguous_outcome=(method == 'POST'))
-    return document
+        inventory = raw.decode('utf-8', errors='strict')
+    except UnicodeError as exc:
+        raise DeviceError('Central Apple Development signing identity is invalid') from exc
+    identities = [
+        (match.group(1).upper(), match.group(2))
+        for line in inventory.splitlines()
+        if (match := re.fullmatch(r'\s*\d+\)\s+([0-9A-Fa-f]{40})\s+"([^"\r\n]{1,256})"\s*', line))
+    ]
+    if (len(identities) != 1
+            or not identities[0][1].startswith(('Apple Development:', 'iOS Development:'))
+            or not identities[0][1].endswith(f'({team_id})')):
+        fail('Central Apple Development signing identity validation failed')
+    return identities[0][0]
 
 
-def _request_empty(method: str, url: str, token: str) -> None:
-    request = urllib.request.Request(url, method=method, headers={'Authorization': f'Bearer {token}', 'Accept': 'application/json'})
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            if response.status != 204:
-                fail('Central Apple Development certificate revocation returned an unexpected status')
-            response.read()
-    except urllib.error.HTTPError as exc:
-        raise DeviceError(f'Central Apple Development certificate revocation failed with HTTP {exc.code}') from exc
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise DeviceError('Central Apple Development certificate revocation failed') from exc
-
-
-def _certificate_der(row: dict[str, Any]) -> bytes:
-    attributes = row.get('attributes')
-    raw = attributes.get('certificateContent') if isinstance(attributes, dict) else None
-    if not isinstance(raw, str) or not raw or len(raw) > MAX_CERTIFICATE_BYTES * 2:
-        fail('Central Apple Development certificate response is invalid')
-    try:
-        value = base64.b64decode(raw, validate=True)
-    except (ValueError, binascii.Error) as exc:
-        raise DeviceError('Central Apple Development certificate response is invalid') from exc
-    if not value or len(value) > MAX_CERTIFICATE_BYTES:
-        fail('Central Apple Development certificate response is invalid')
-    return value
-
-
-def _csr_public_key_der(csr_path: Path) -> bytes:
-    pem = _run_private(['openssl', 'req', '-in', str(csr_path), '-pubkey', '-noout'])
-    return _run_private(['openssl', 'pkey', '-pubin', '-outform', 'DER'], input_bytes=pem)
-
-
-def _certificate_public_key_der(certificate_der: bytes) -> bytes:
-    pem = _run_private(['openssl', 'x509', '-inform', 'DER', '-pubkey', '-noout'], input_bytes=certificate_der)
-    return _run_private(['openssl', 'pkey', '-pubin', '-outform', 'DER'], input_bytes=pem)
-
-
-def _update_certificate_id(state_path: Path, certificate_id: str) -> None:
-    state = _read_signing_state(state_path)
-    if state['certificateId'] is not None or CERT_ID_RE.fullmatch(certificate_id) is None:
-        fail('Central Apple Development certificate cleanup identity is invalid')
-    state['certificateId'] = certificate_id
-    _write_signing_state(state_path, state)
-
-
-def _recover_ambiguous_certificate(token: str, public_key_der: bytes, state_path: Path) -> bool:
-    query = urllib.parse.urlencode({
-        'filter[certificateType]': 'DEVELOPMENT,IOS_DEVELOPMENT',
-        'fields[certificates]': 'certificateType,certificateContent',
-        'limit': '200',
-    })
-    for attempt in range(AMBIGUOUS_RECONCILIATION_ATTEMPTS):
-        try:
-            inventory = _request_json('GET', f'{API_BASE}/v1/certificates?{query}', token)
-        except DeviceError as exc:
-            if (exc.http_status is not None and exc.http_status < 500) or attempt + 1 >= AMBIGUOUS_RECONCILIATION_ATTEMPTS:
-                raise DeviceError('Central Apple Development certificate reconciliation failed') from exc
-            time.sleep(AMBIGUOUS_RECONCILIATION_DELAY_SECONDS)
-            continue
-        rows = inventory.get('data')
-        if not isinstance(rows, list) or len(rows) > 200:
-            fail('Central Apple Development certificate reconciliation response is invalid')
-        matches: list[str] = []
-        for row in rows:
-            if not isinstance(row, dict) or row.get('type') != 'certificates':
-                fail('Central Apple Development certificate reconciliation response is invalid')
-            certificate_id = row.get('id')
-            attributes = row.get('attributes')
-            if not isinstance(certificate_id, str) or CERT_ID_RE.fullmatch(certificate_id) is None or not isinstance(attributes, dict):
-                fail('Central Apple Development certificate reconciliation response is invalid')
-            if attributes.get('certificateType') not in {'DEVELOPMENT', 'IOS_DEVELOPMENT'}:
-                continue
-            if _certificate_public_key_der(_certificate_der(row)) == public_key_der:
-                matches.append(certificate_id)
-        if len(matches) == 1:
-            _update_certificate_id(state_path, matches[0])
-            return True
-        if len(matches) > 1:
-            fail('Central Apple Development certificate creation outcome is ambiguous')
-        if attempt + 1 < AMBIGUOUS_RECONCILIATION_ATTEMPTS:
-            time.sleep(AMBIGUOUS_RECONCILIATION_DELAY_SECONDS)
-    return False
-
-
-def _create_request_owned_identity(runner_temp: Path, state_path: Path, keychain: Path, keychain_password: str, key_path: Path, key_id: str, issuer_id: str) -> str:
-    token = _make_token(key_path, key_id, issuer_id)
-    with tempfile.TemporaryDirectory(prefix='central-apple-devsign-', dir=runner_temp) as temporary:
-        private_dir = Path(temporary)
-        private_dir.chmod(0o700)
-        private_key = private_dir / 'request-private-key.pem'
-        csr_path = private_dir / 'request.csr'
-        certificate_path = private_dir / 'request-certificate.der'
-        certificate_pem_path = private_dir / 'request-certificate.pem'
-        bundle_path = private_dir / 'request-identity.p12'
-        _run_private(['openssl', 'genrsa', '-out', str(private_key), '2048'])
-        private_key.chmod(0o600)
-        _run_private(['openssl', 'req', '-new', '-key', str(private_key), '-out', str(csr_path), '-subj', '/CN=StreamScapeTV Central Physical Signing'])
-        csr_path.chmod(0o600)
-        try:
-            csr_content = csr_path.read_text(encoding='ascii')
-        except (OSError, UnicodeError) as exc:
-            raise DeviceError('Central Apple Development certificate signing request is invalid') from exc
-        if len(csr_content) > 65536 or not csr_content.startswith('-----BEGIN CERTIFICATE REQUEST-----') or '-----END CERTIFICATE REQUEST-----' not in csr_content:
-            fail('Central Apple Development certificate signing request is invalid')
-        public_key_der = _csr_public_key_der(csr_path)
-        if not public_key_der:
-            fail('Central Apple Development certificate signing request is invalid')
-        payload = {'data': {'type': 'certificates', 'attributes': {'certificateType': 'DEVELOPMENT', 'csrContent': csr_content}}}
-        try:
-            created = _request_json('POST', f'{API_BASE}/v1/certificates', token, payload)
-        except DeviceError as exc:
-            if not exc.ambiguous_outcome:
-                raise
-            recovered = _recover_ambiguous_certificate(token, public_key_der, state_path)
-            if recovered:
-                fail('Central Apple Development certificate creation outcome was ambiguous; exact cleanup target was retained')
-            raise DeviceError('Central Apple Development certificate creation outcome was ambiguous; no exact cleanup target was found') from exc
-        row = created.get('data')
-        if not isinstance(row, dict) or row.get('type') != 'certificates' or not isinstance(row.get('id'), str) or CERT_ID_RE.fullmatch(row['id']) is None:
-            recovered = _recover_ambiguous_certificate(token, public_key_der, state_path)
-            if recovered:
-                fail('Central Apple Development certificate response was invalid; exact cleanup target was retained')
-            fail('Central Apple Development certificate response is invalid')
-        certificate_id = row['id']
-        _update_certificate_id(state_path, certificate_id)
-        attributes = row.get('attributes')
-        if not isinstance(attributes, dict) or attributes.get('certificateType') != 'DEVELOPMENT':
-            fail('Central Apple Development certificate response type is invalid')
-        try:
-            certificate_der = _certificate_der(row)
-        except DeviceError:
-            detail = urllib.parse.urlencode({'fields[certificates]': 'certificateType,certificateContent'})
-            fetched = _request_json('GET', f'{API_BASE}/v1/certificates/{certificate_id}?{detail}', token)
-            fetched_row = fetched.get('data')
-            if not isinstance(fetched_row, dict) or fetched_row.get('type') != 'certificates' or fetched_row.get('id') != certificate_id:
-                fail('Central Apple Development certificate response is invalid')
-            certificate_der = _certificate_der(fetched_row)
-        if _certificate_public_key_der(certificate_der) != public_key_der:
-            fail('Central Apple Development certificate does not match its request-owned private key')
-        certificate_path.write_bytes(certificate_der)
-        certificate_path.chmod(0o600)
-        _run_private(['openssl', 'x509', '-inform', 'DER', '-in', str(certificate_path), '-out', str(certificate_pem_path)])
-        certificate_pem_path.chmod(0o600)
-        bundle_password = secrets.token_urlsafe(32)
-        _run_private(['openssl', 'pkcs12', '-export', '-inkey', str(private_key), '-in', str(certificate_pem_path), '-out', str(bundle_path), '-passout', f'pass:{bundle_password}'])
-        bundle_path.chmod(0o600)
-        _run_private(['security', 'import', str(bundle_path), '-k', str(keychain), '-P', bundle_password, '-T', '/usr/bin/codesign', '-T', '/usr/bin/security'])
-        _run_private(['security', 'set-key-partition-list', '-S', 'apple-tool:,apple:', '-s', '-k', keychain_password, str(keychain)])
-        fingerprint = hashlib.sha1(certificate_der).hexdigest().upper()
-        inventory_raw = _run_private(['security', 'find-identity', '-v', '-p', 'codesigning', str(keychain)])
-        try:
-            inventory = inventory_raw.decode('utf-8', errors='strict')
-        except UnicodeError as exc:
-            raise DeviceError('Central Apple Development signing identity validation failed') from exc
-        rows = [
-            (match.group(1).upper(), match.group(2))
-            for line in inventory.splitlines()
-            if (match := re.fullmatch(r'\s*\d+\)\s+([0-9A-Fa-f]{40})\s+"([^"]+)"\s*', line))
-        ]
-        team_id = str(_read_signing_state(state_path)['teamId'])
-        exact = [(sha1, name) for sha1, name in rows if sha1 == fingerprint]
-        if len(exact) != 1 or not exact[0][1].startswith(('Apple Development:', 'iOS Development:')) or not exact[0][1].endswith(f'({team_id})'):
-            fail('Central Apple Development signing identity validation failed')
-        probe_dir = private_dir / 'codesign-probe'
-        probe_dir.mkdir(mode=0o700)
-        source = probe_dir / 'main.c'
-        binary = probe_dir / 'probe'
+def _probe_signing_identity(runner_temp: Path, keychain: Path, team_id: str) -> str:
+    fingerprint = _selected_signing_identity(keychain, team_id)
+    with tempfile.TemporaryDirectory(prefix='central-apple-signing-probe-', dir=runner_temp) as temporary:
+        probe = Path(temporary)
+        probe.chmod(0o700)
+        source = probe / 'main.c'
+        binary = probe / 'probe'
         source.write_text('int main(void) { return 0; }\n', encoding='ascii')
         _run_private(['xcrun', 'clang', str(source), '-o', str(binary)])
+        # Deliberately omit --keychain: prove codesign sees the same isolated default
+        # search context inherited by the repository-owned Xcode build.
         _run_private(['codesign', '--force', '--sign', fingerprint, '--timestamp=none', str(binary)])
         _run_private(['codesign', '--verify', '--strict', str(binary)])
-        return fingerprint
+    return fingerprint
+
 
 
 def setup_signing(runner_temp: Path, secret_path: Path) -> tuple[bytes, ...]:
-    state_path, keychain, api_key_path = _signing_paths(runner_temp)
-    for path in (state_path, keychain, api_key_path):
+    state_path, keychain, bundle_path = _signing_paths(runner_temp)
+    for path in (state_path, keychain, bundle_path):
         if path.exists() or path.is_symlink():
             fail('Central Apple Development signing residue is present before setup')
-    team_id, key_id, issuer_id, api_key = _apple_credentials()
+    encoded = os.environ.get('CI_APPLE_DEVELOPMENT_P12_BASE64', '')
+    team_id, bundle, p12_password = _p12_credentials()
+    # A trusted Central wrapper may read the secrets, but its subprocesses and
+    # the repository-owned entrypoint must never inherit the P12/password env.
+    os.environ.pop('CI_APPLE_DEVELOPMENT_P12_BASE64', None)
+    os.environ.pop('CI_APPLE_DEVELOPMENT_P12_PASSWORD', None)
     original_search = _keychains(_run_private(['security', 'list-keychains', '-d', 'user']), 'Central Apple keychain search list')
     original_default_rows = _keychains(_run_private(['security', 'default-keychain', '-d', 'user']), 'Central Apple default keychain')
     if not original_search or len(original_default_rows) != 1:
@@ -718,65 +477,50 @@ def setup_signing(runner_temp: Path, secret_path: Path) -> tuple[bytes, ...]:
         'originalDefaultKeychain': original_default_rows[0],
         'originalSearchKeychains': original_search,
         'managedKeychain': str(keychain),
-        'certificateId': None,
     }
+    # Durable private cleanup state precedes every potentially failing import step.
     _write_signing_state(state_path, state, exclusive=True)
-    _materialize_api_key(runner_temp, api_key)
+    _materialize_p12(runner_temp, bundle)
     keychain_password = secrets.token_urlsafe(36)
     _run_private(['security', 'create-keychain', '-p', keychain_password, str(keychain)])
     _run_private(['security', 'unlock-keychain', '-p', keychain_password, str(keychain)])
     _run_private(['security', 'set-keychain-settings', '-lut', '21600', str(keychain)])
+    _run_private(['security', 'import', str(bundle_path), '-k', str(keychain), '-P', p12_password,
+                  '-T', '/usr/bin/codesign', '-T', '/usr/bin/security'])
+    _run_private(['security', 'set-key-partition-list', '-S', 'apple-tool:,apple:', '-s', '-k',
+                  keychain_password, str(keychain)])
     _run_private(['security', 'list-keychains', '-d', 'user', '-s', str(keychain)])
     _run_private(['security', 'default-keychain', '-d', 'user', '-s', str(keychain)])
     if _keychains(_run_private(['security', 'list-keychains', '-d', 'user']), 'Central Apple managed keychain search list') != [str(keychain)]:
         fail('Central Apple Development signing keychain isolation failed')
     if _keychains(_run_private(['security', 'default-keychain', '-d', 'user']), 'Central Apple managed default keychain') != [str(keychain)]:
         fail('Central Apple Development signing keychain isolation failed')
-    fingerprint = _create_request_owned_identity(runner_temp, state_path, keychain, keychain_password, api_key_path, key_id, issuer_id)
-    append_dynamic_secrets(secret_path, (str(keychain), str(api_key_path), fingerprint))
+    fingerprint = _probe_signing_identity(runner_temp, keychain, team_id)
+    append_dynamic_secrets(secret_path, (str(keychain), str(bundle_path), fingerprint))
     print('Central Apple Development signing probe succeeded')
-    return tuple(
-        value.encode('utf-8')
-        for value in (
-            str(keychain), str(api_key_path), fingerprint,
-            os.environ.get('CI_APPLE_TEAM_ID', ''),
-            os.environ.get('CI_APP_STORE_CONNECT_KEY_ID', ''),
-            os.environ.get('CI_APP_STORE_CONNECT_ISSUER_ID', ''),
-            os.environ.get('CI_APP_STORE_CONNECT_API_KEY_P8_BASE64', ''),
-        )
-        if value
-    )
+    return tuple(value.encode('utf-8') for value in (
+        str(keychain), str(bundle_path), fingerprint,
+        encoded, p12_password,
+    ) if value)
 
 
 def cleanup_signing(*, tolerate_absent: bool = True) -> None:
     runner_temp = _runner_temp()
-    state_path, keychain, api_key_path = _signing_paths(runner_temp)
+    state_path, keychain, bundle_path = _signing_paths(runner_temp)
     if not state_path.exists() and not state_path.is_symlink():
         if keychain.exists() or keychain.is_symlink():
             fail('Central Apple Development signing keychain exists without cleanup state')
-        if api_key_path.is_symlink():
-            fail('Central Apple Development authentication key residue is invalid')
-        if api_key_path.is_file():
-            api_key_path.unlink()
-        elif api_key_path.exists():
-            fail('Central Apple Development authentication key residue is invalid')
+        if bundle_path.is_symlink():
+            fail('Central Apple Development PKCS12 residue is invalid')
+        if bundle_path.is_file():
+            bundle_path.unlink()
+        elif bundle_path.exists():
+            fail('Central Apple Development PKCS12 residue is invalid')
         if tolerate_absent:
             return
         fail('Central Apple Development signing state is unavailable')
     state = _read_signing_state(state_path)
     errors: list[str] = []
-    certificate_id = state['certificateId']
-    if isinstance(certificate_id, str):
-        try:
-            _team_id, key_id, issuer_id, api_key = _apple_credentials()
-            if not api_key_path.exists():
-                _materialize_api_key(runner_temp, api_key)
-            token = _make_token(api_key_path, key_id, issuer_id)
-            _request_empty('DELETE', f'{API_BASE}/v1/certificates/{certificate_id}', token)
-            state['certificateId'] = None
-            _write_signing_state(state_path, state)
-        except DeviceError:
-            errors.append('certificate')
     try:
         _run_private(['security', 'list-keychains', '-d', 'user', '-s', *[str(item) for item in state['originalSearchKeychains']]])
         _run_private(['security', 'default-keychain', '-d', 'user', '-s', str(state['originalDefaultKeychain'])])
@@ -791,24 +535,28 @@ def cleanup_signing(*, tolerate_absent: bool = True) -> None:
             errors.append('keychain')
         if keychain.exists() or keychain.is_symlink():
             errors.append('keychain')
-    if api_key_path.is_symlink():
-        errors.append('api-key')
-    elif api_key_path.is_file():
-        api_key_path.unlink()
-        if api_key_path.exists() or api_key_path.is_symlink():
-            errors.append('api-key')
-    elif api_key_path.exists():
-        errors.append('api-key')
+    if bundle_path.is_symlink():
+        errors.append('pkcs12')
+    elif bundle_path.is_file():
+        bundle_path.unlink()
+        if bundle_path.exists() or bundle_path.is_symlink():
+            errors.append('pkcs12')
+    elif bundle_path.exists():
+        errors.append('pkcs12')
     if errors:
         fail('Central Apple Development signing cleanup failed')
     state_path.unlink()
-    for path in (state_path, keychain, api_key_path):
+    for path in (state_path, keychain, bundle_path):
         if path.exists() or path.is_symlink():
             fail('Central Apple Development signing cleanup left private residue')
 
 
+
 def run_entrypoint(entrypoint: Path, source_root: Path, context_path: Path, identifier: str, signing_redactions: tuple[bytes, ...] = ()) -> int:
     environment = dict(os.environ)
+    # Product scripts must never inherit the raw Central-owned signing bundle/password.
+    environment.pop('CI_APPLE_DEVELOPMENT_P12_BASE64', None)
+    environment.pop('CI_APPLE_DEVELOPMENT_P12_PASSWORD', None)
     environment['CI_DEVICE_CONTEXT_FILE'] = str(context_path)
     environment['CI_APPLE_PHYSICAL_DEVICE'] = 'true'
     process = subprocess.Popen(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import redirect_stdout
+import base64
 from datetime import datetime, timedelta, timezone
 import fcntl
 import importlib.util
@@ -335,196 +336,152 @@ class RepositoryApplePhysicalDeviceTests(unittest.TestCase):
 
 
     def signing_env(self, runner_temp: Path) -> dict[str, str]:
-        key = b"-----BEGIN PRIVATE KEY-----\ncentral-test-key\n-----END PRIVATE KEY-----\n"
         return {
             **os.environ,
             "RUNNER_TEMP": str(runner_temp),
             "CI_APPLE_TEAM_ID": "ABCDE12345",
-            "CI_APP_STORE_CONNECT_KEY_ID": "KEYID12345",
-            "CI_APP_STORE_CONNECT_ISSUER_ID": "12345678-1234-1234-1234-1234567890ab",
-            "CI_APP_STORE_CONNECT_API_KEY_P8_BASE64": __import__("base64").b64encode(key).decode("ascii"),
+            "CI_APPLE_DEVELOPMENT_P12_BASE64": base64.b64encode(b"\x30" + b"p" * 63).decode("ascii"),
+            "CI_APPLE_DEVELOPMENT_P12_PASSWORD": "fake-p12-password",
         }
 
-    def test_signing_setup_isolates_ephemeral_keychain_and_records_only_private_redactions(self) -> None:
+    def test_signing_setup_imports_owner_p12_and_proves_same_isolated_keychain(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             runner_temp = Path(td)
             secret_path = runner_temp / device.SECRET_NAME
             secret_path.write_text("device-secret\n", encoding="utf-8")
             secret_path.chmod(0o600)
-            env = self.signing_env(runner_temp)
             original = "/Users/runner/Library/Keychains/login.keychain-db"
             managed = str(runner_temp / device.SIGNING_KEYCHAIN_NAME)
+            fingerprint = "A" * 40
             active = {"managed": False}
             calls: list[list[str]] = []
 
             def private_command(argv: list[str], **_kwargs):
+                self.assertNotIn("CI_APPLE_DEVELOPMENT_P12_BASE64", os.environ)
+                self.assertNotIn("CI_APPLE_DEVELOPMENT_P12_PASSWORD", os.environ)
                 calls.append(argv)
                 if argv[:4] == ["security", "list-keychains", "-d", "user"] and len(argv) == 4:
-                    value = managed if active["managed"] else original
-                    return f'"{value}"\n'.encode()
+                    return f'"{managed if active["managed"] else original}"\n'.encode()
                 if argv[:4] == ["security", "default-keychain", "-d", "user"] and len(argv) == 4:
-                    value = managed if active["managed"] else original
-                    return f'"{value}"\n'.encode()
+                    return f'"{managed if active["managed"] else original}"\n'.encode()
                 if argv[:5] == ["security", "list-keychains", "-d", "user", "-s"]:
-                    active["managed"] = True
+                    active["managed"] = argv[-1] == managed
                 if argv[:5] == ["security", "default-keychain", "-d", "user", "-s"]:
-                    active["managed"] = True
+                    active["managed"] = argv[-1] == managed
                 if argv[:2] == ["security", "create-keychain"]:
                     Path(argv[-1]).write_bytes(b"keychain")
-                return b""
-
-            with (
-                patch.dict(os.environ, env, clear=True),
-                patch.object(device, "_run_private", side_effect=private_command),
-                patch.object(device, "_create_request_owned_identity", return_value="A" * 40) as create_identity,
-            ):
-                redactions = device.setup_signing(runner_temp, secret_path)
-
-            self.assertTrue((runner_temp / device.SIGNING_STATE_NAME).is_file())
-            self.assertTrue((runner_temp / device.SIGNING_API_KEY_NAME).is_file())
-            self.assertTrue((runner_temp / device.SIGNING_KEYCHAIN_NAME).is_file())
-            create_identity.assert_called_once()
-            self.assertIn(["security", "list-keychains", "-d", "user", "-s", managed], calls)
-            self.assertIn(["security", "default-keychain", "-d", "user", "-s", managed], calls)
-            dynamic = secret_path.read_text(encoding="utf-8")
-            self.assertIn(managed, dynamic)
-            self.assertIn("A" * 40, dynamic)
-            self.assertIn(managed.encode(), redactions)
-            self.assertIn(("A" * 40).encode(), redactions)
-
-    def test_request_owned_identity_imports_partition_acl_and_performs_private_key_codesign_probe(self) -> None:
-        import base64
-        import hashlib
-
-        with tempfile.TemporaryDirectory() as td:
-            runner_temp = Path(td)
-            env = self.signing_env(runner_temp)
-            state_path = runner_temp / device.SIGNING_STATE_NAME
-            keychain = runner_temp / device.SIGNING_KEYCHAIN_NAME
-            keychain.write_bytes(b"keychain")
-            keychain.chmod(0o600)
-            state = {
-                "schema": device.SIGNING_STATE_SCHEMA,
-                "teamId": "ABCDE12345",
-                "originalDefaultKeychain": "/Users/runner/login.keychain-db",
-                "originalSearchKeychains": ["/Users/runner/login.keychain-db"],
-                "managedKeychain": str(keychain),
-                "certificateId": None,
-            }
-            certificate = b"central-certificate-der"
-            fingerprint = hashlib.sha1(certificate).hexdigest().upper()
-            commands: list[list[str]] = []
-
-            def private_command(argv: list[str], **_kwargs):
-                commands.append(argv)
-                if argv[:2] == ["openssl", "genrsa"]:
-                    Path(argv[argv.index("-out") + 1]).write_text("key", encoding="ascii")
-                elif argv[:3] == ["openssl", "req", "-new"]:
-                    Path(argv[argv.index("-out") + 1]).write_text(
-                        "-----BEGIN CERTIFICATE REQUEST-----\nTEST\n-----END CERTIFICATE REQUEST-----\n",
-                        encoding="ascii",
-                    )
-                elif argv[:3] == ["openssl", "x509", "-inform"] and "-out" in argv:
-                    Path(argv[argv.index("-out") + 1]).write_text("certificate", encoding="ascii")
-                elif argv[:3] == ["openssl", "pkcs12", "-export"]:
-                    Path(argv[argv.index("-out") + 1]).write_bytes(b"bundle")
-                elif argv[:4] == ["security", "find-identity", "-v", "-p"]:
-                    return f'  1) {fingerprint} "Apple Development: Created via API (ABCDE12345)"\n'.encode()
-                return b""
-
-            with (
-                patch.dict(os.environ, env, clear=True),
-                patch.object(device, "_run_private", side_effect=private_command),
-                patch.object(device, "_make_token", return_value="token"),
-                patch.object(device, "_csr_public_key_der", return_value=b"public-key"),
-                patch.object(device, "_certificate_public_key_der", return_value=b"public-key"),
-                patch.object(
-                    device,
-                    "_request_json",
-                    return_value={
-                        "data": {
-                            "type": "certificates",
-                            "id": "CERTIFICATE_123",
-                            "attributes": {
-                                "certificateType": "DEVELOPMENT",
-                                "certificateContent": base64.b64encode(certificate).decode("ascii"),
-                            },
-                        }
-                    },
-                ),
-            ):
-                device._write_signing_state(state_path, state, exclusive=True)
-                observed = device._create_request_owned_identity(
-                    runner_temp, state_path, keychain, "temporary-password",
-                    runner_temp / device.SIGNING_API_KEY_NAME, "KEYID12345",
-                    "12345678-1234-1234-1234-1234567890ab",
-                )
-
-            self.assertEqual(observed, fingerprint)
-            updated = json.loads(state_path.read_text(encoding="utf-8"))
-            self.assertEqual(updated["certificateId"], "CERTIFICATE_123")
-            self.assertTrue(any(cmd[:2] == ["security", "import"] for cmd in commands))
-            self.assertTrue(any(cmd[:2] == ["security", "set-key-partition-list"] for cmd in commands))
-            self.assertTrue(any(cmd[:3] == ["codesign", "--force", "--sign"] for cmd in commands))
-            self.assertTrue(any(cmd[:3] == ["codesign", "--verify", "--strict"] for cmd in commands))
-
-    def test_signing_cleanup_revokes_exact_certificate_restores_keychain_and_removes_private_state(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            runner_temp = Path(td)
-            env = self.signing_env(runner_temp)
-            state_path = runner_temp / device.SIGNING_STATE_NAME
-            keychain = runner_temp / device.SIGNING_KEYCHAIN_NAME
-            api_key = runner_temp / device.SIGNING_API_KEY_NAME
-            keychain.write_bytes(b"keychain")
-            api_key.write_bytes(b"key")
-            keychain.chmod(0o600)
-            api_key.chmod(0o600)
-            state = {
-                "schema": device.SIGNING_STATE_SCHEMA,
-                "teamId": "ABCDE12345",
-                "originalDefaultKeychain": "/Users/runner/login.keychain-db",
-                "originalSearchKeychains": ["/Users/runner/login.keychain-db", "/Library/Keychains/System.keychain"],
-                "managedKeychain": str(keychain),
-                "certificateId": "CERTIFICATE_123",
-            }
-            commands: list[list[str]] = []
-
-            def private_command(argv: list[str], **_kwargs):
-                commands.append(argv)
+                if argv[:4] == ["security", "find-identity", "-v", "-p"]:
+                    return f'  1) {fingerprint} "Apple Development: Owner Identity (ABCDE12345)"\n'.encode()
                 if argv[:2] == ["security", "delete-keychain"]:
                     Path(argv[-1]).unlink(missing_ok=True)
                 return b""
 
-            with (
-                patch.dict(os.environ, env, clear=True),
-                patch.object(device, "_run_private", side_effect=private_command),
-                patch.object(device, "_make_token", return_value="token"),
-                patch.object(device, "_request_empty") as revoke,
-            ):
-                device._write_signing_state(state_path, state, exclusive=True)
+            env = self.signing_env(runner_temp)
+            with patch.dict(os.environ, env, clear=True), patch.object(device, "_run_private", side_effect=private_command):
+                redactions = device.setup_signing(runner_temp, secret_path)
+                self.assertEqual(
+                    (runner_temp / device.SIGNING_BUNDLE_NAME).read_bytes(), b"\x30" + b"p" * 63,
+                )
+                self.assertEqual((runner_temp / device.SIGNING_BUNDLE_NAME).stat().st_mode & 0o777, 0o600)
                 device.cleanup_signing()
 
-            revoke.assert_called_once_with("DELETE", f"{device.API_BASE}/v1/certificates/CERTIFICATE_123", "token")
-            self.assertIn(
-                ["security", "list-keychains", "-d", "user", "-s", "/Users/runner/login.keychain-db", "/Library/Keychains/System.keychain"],
-                commands,
-            )
-            self.assertIn(
-                ["security", "default-keychain", "-d", "user", "-s", "/Users/runner/login.keychain-db"],
-                commands,
-            )
-            self.assertFalse(state_path.exists())
-            self.assertFalse(keychain.exists())
-            self.assertFalse(api_key.exists())
+            self.assertTrue(any(cmd[:2] == ["security", "import"] for cmd in calls))
+            self.assertTrue(any(cmd[:2] == ["security", "set-key-partition-list"] for cmd in calls))
+            self.assertTrue(any(cmd[:3] == ["codesign", "--force", "--sign"] for cmd in calls))
+            self.assertTrue(any(cmd[:3] == ["codesign", "--verify", "--strict"] for cmd in calls))
+            self.assertNotIn("openssl", [cmd[0] for cmd in calls])
+            self.assertNotIn("DELETE", [cmd[0] for cmd in calls])
+            self.assertEqual(active["managed"], False)
+            self.assertFalse((runner_temp / device.SIGNING_STATE_NAME).exists())
+            self.assertFalse((runner_temp / device.SIGNING_KEYCHAIN_NAME).exists())
+            self.assertFalse((runner_temp / device.SIGNING_BUNDLE_NAME).exists())
+            self.assertIn(env["CI_APPLE_DEVELOPMENT_P12_PASSWORD"].encode(), redactions)
+            self.assertIn(env["CI_APPLE_DEVELOPMENT_P12_BASE64"].encode(), redactions)
+            self.assertIn(fingerprint.encode(), redactions)
+            self.assertIn(fingerprint, secret_path.read_text())
 
-    def test_signing_credentials_fail_closed_without_complete_central_tuple(self) -> None:
+    def test_identity_is_rejected_if_non_development_mismatched_or_ambiguous(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            keychain = Path(td) / "managed.keychain-db"
+            cases = (
+                f'  1) {"A" * 40} "Apple Distribution: Owner Identity (ABCDE12345)"\n',
+                f'  1) {"A" * 40} "Apple Development: Owner Identity (OTHER12345)"\n',
+                f'  1) {"A" * 40} "Apple Development: First (ABCDE12345)"\n  2) {"B" * 40} "Apple Development: Second (ABCDE12345)"\n',
+                '  0 valid identities found\n',
+            )
+            for value in cases:
+                with self.subTest(value=value), patch.object(device, "_run_private", return_value=value.encode()):
+                    with self.assertRaisesRegex(device.DeviceError, "identity validation failed"):
+                        device._selected_signing_identity(keychain, "ABCDE12345")
+
+    def test_p12_credentials_are_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            good = self.signing_env(Path(td))
+            bad = (
+                {"CI_APPLE_DEVELOPMENT_P12_PASSWORD": ""},
+                {"CI_APPLE_DEVELOPMENT_P12_BASE64": "%%%"},
+                {"CI_APPLE_DEVELOPMENT_P12_BASE64": base64.b64encode(b"bad bundle").decode()},
+                {"CI_APPLE_DEVELOPMENT_P12_BASE64": "A" * 500000},
+                {"CI_APPLE_DEVELOPMENT_P12_PASSWORD": "bad\npassword"},
+                {"CI_APPLE_TEAM_ID": "BAD"},
+            )
+            for mutation in bad:
+                with self.subTest(mutation=mutation), patch.dict(os.environ, {**good, **mutation}, clear=True):
+                    with self.assertRaisesRegex(device.DeviceError, "unavailable|invalid"):
+                        device._p12_credentials()
+            with patch.dict(os.environ, good, clear=True):
+                self.assertEqual(device._p12_credentials()[0], "ABCDE12345")
+
+    def test_failed_import_retains_cleanup_state_and_does_not_revoke_certificate(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             runner_temp = Path(td)
-            env = self.signing_env(runner_temp)
-            env.pop("CI_APP_STORE_CONNECT_API_KEY_P8_BASE64")
+            state_path = runner_temp / device.SIGNING_STATE_NAME
+            keychain = runner_temp / device.SIGNING_KEYCHAIN_NAME
+            bundle = runner_temp / device.SIGNING_BUNDLE_NAME
+            secret_path = runner_temp / device.SECRET_NAME
+            secret_path.write_text("device-secret\n", encoding="utf-8")
+            secret_path.chmod(0o600)
+            original = "/Users/runner/login.keychain-db"
+            commands: list[list[str]] = []
+
+            def private_command(argv: list[str], **_kwargs):
+                commands.append(argv)
+                if argv[:4] in (["security", "list-keychains", "-d", "user"], ["security", "default-keychain", "-d", "user"]) and len(argv) == 4:
+                    return f'"{original}"\n'.encode()
+                if argv[:2] == ["security", "create-keychain"]:
+                    Path(argv[-1]).write_bytes(b"keychain")
+                if argv[:2] == ["security", "import"]:
+                    raise device.DeviceError("Central Apple Development signing command failed")
+                if argv[:2] == ["security", "delete-keychain"]:
+                    Path(argv[-1]).unlink(missing_ok=True)
+                return b""
+
+            with patch.dict(os.environ, self.signing_env(runner_temp), clear=True), patch.object(device, "_run_private", side_effect=private_command):
+                with self.assertRaisesRegex(device.DeviceError, "command failed"):
+                    device.setup_signing(runner_temp, secret_path)
+                self.assertTrue(state_path.is_file())
+                self.assertTrue(bundle.is_file())
+                device.cleanup_signing()
+            self.assertFalse(state_path.exists())
+            self.assertFalse(bundle.exists())
+            self.assertFalse(keychain.exists())
+            self.assertFalse(any(cmd[0] in ("openssl", "curl") for cmd in commands))
+
+    def test_p12_secrets_do_not_reach_product_entrypoint(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            entry = root / "device-test.sh"
+            entry.write_text(
+                "#!/usr/bin/env python3\n"
+                "import os, sys\n"
+                "if 'CI_APPLE_DEVELOPMENT_P12_BASE64' in os.environ: sys.exit(31)\n"
+                "if 'CI_APPLE_DEVELOPMENT_P12_PASSWORD' in os.environ: sys.exit(32)\n",
+                encoding="utf-8",
+            )
+            entry.chmod(0o755)
+            env = self.signing_env(root)
             with patch.dict(os.environ, env, clear=True):
-                with self.assertRaisesRegex(device.DeviceError, "credentials are unavailable"):
-                    device._apple_credentials()
+                self.assertEqual(device.run_entrypoint(entry, root, root / "device-context", "device-identifier"), 0)
 
     def test_untracked_symlink_or_non_executable_entrypoint_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as td:
