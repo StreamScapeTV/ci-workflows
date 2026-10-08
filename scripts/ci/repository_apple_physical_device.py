@@ -397,8 +397,12 @@ def _p12_credentials() -> tuple[str, bytes, str]:
     password = os.environ.get('CI_APPLE_DEVELOPMENT_P12_PASSWORD', '')
     if TEAM_RE.fullmatch(team_id) is None:
         fail('Central Apple Development signing team is unavailable')
+    try:
+        password_bytes = password.encode('utf-8')
+    except UnicodeError as exc:
+        raise DeviceError('Central Apple Development PKCS12 credentials are unavailable') from exc
     if (not password or any(character in password for character in '\r\n\0')
-            or len(password.encode('utf-8')) > MAX_P12_PASSWORD_BYTES):
+            or len(password_bytes) > MAX_P12_PASSWORD_BYTES):
         fail('Central Apple Development PKCS12 credentials are unavailable')
     if (not encoded or not encoded.isascii() or len(encoded) > ((MAX_P12_BYTES + 2) // 3) * 4
             or any(character in encoded for character in '\r\n\0')):
