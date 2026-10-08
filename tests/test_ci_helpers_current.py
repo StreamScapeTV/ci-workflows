@@ -29,7 +29,7 @@ class CiHelperTests(_prior.CiHelperTests):
         inventory = yaml.safe_load((_prior.ROOT / "INVENTORY.yaml").read_text())
         self.assertEqual(
             set(inventory["workflows"]),
-            {"apple", "repository", "repository_plan", "apple_binary", "apple_swiftpm", "library_package_release", "android", "python", "maven", "public_native_image_chart", "oci_reproducibility", "branch_delete", "source_snapshot_delete", "source_snapshot", "source_checkpoint_publish", "central_dispatch", "ci_log_retention", "github_issue_dependency_projection", "self_check", "runner_images"},
+            {"apple", "repository", "repository_plan", "apple_binary", "apple_swiftpm", "library_package_release", "android", "python", "cluster_inspector", "maven", "public_native_image_chart", "oci_reproducibility", "branch_delete", "source_snapshot_delete", "source_snapshot", "source_checkpoint_publish", "central_dispatch", "ci_log_retention", "github_issue_dependency_projection", "self_check", "runner_images"},
         )
         self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git", "source_snapshot"})
         self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility", "ci_log_reconcile", "github_issue_dependency_projection", "repository_log_checkpoint", "repository_log_capture", "repository_log_timeline", "repository_progress_relay", "repository_runtime_probe", "repository_execution_plan", "protected_deployed_conformance", "repository_apple_physical_device", "source_snapshot_delete", "source_snapshot_lifecycle", "source_checkpoint_publish", "swiftpm_binary"})
@@ -43,7 +43,7 @@ class CiHelperTests(_prior.CiHelperTests):
 
     def test_workflows_use_no_reusable_prefix(self) -> None:
         names = {p.name for p in (_prior.ROOT / ".github/workflows").glob("*.yml")}
-        self.assertEqual(len(names), 20)
+        self.assertEqual(len(names), 21)
         self.assertNotIn("broker.yml", names)
         self.assertFalse(any(name.startswith("reusable-") for name in names))
         self.assertIn("source-snapshot-delete.yml", names)
@@ -53,6 +53,7 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertIn("source-snapshot.yml", names)
         self.assertNotIn("source-bundle-publish.yml", names)
         self.assertIn("source-checkpoint-publish.yml", names)
+        self.assertIn("cluster-inspector.yml", names)
         self.assertIn("apple-binary.yml", names)
         self.assertIn("apple-swiftpm.yml", names)
         self.assertIn("library-package-release.yml", names)
@@ -83,6 +84,7 @@ class CiHelperTests(_prior.CiHelperTests):
             ("source-snapshot-delete.yml", "delete", 10),
             ("source-snapshot.yml", "snapshot", 30),
             ("source-checkpoint-publish.yml", "publish", 30),
+            ("cluster-inspector.yml", "inspect", 30),
         ):
             workflow = yaml.safe_load((workflows / filename).read_text())
             self.assertEqual(workflow["jobs"][job]["timeout-minutes"], minutes, f"{filename}:{job}")
@@ -112,6 +114,7 @@ class CiHelperTests(_prior.CiHelperTests):
             "apple",
             "android",
             "python",
+            "cluster_inspector",
             "public_native_image_chart",
             "oci_reproducibility",
         )
