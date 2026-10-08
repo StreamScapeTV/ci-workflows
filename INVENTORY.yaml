@@ -6,6 +6,7 @@ workflows:
   repository_plan: .github/workflows/repository-plan.yml
   android: .github/workflows/android.yml
   python: .github/workflows/python.yml
+  cluster_inspector: .github/workflows/cluster-inspector.yml
   maven: .github/workflows/maven.yml
   apple_binary: .github/workflows/apple-binary.yml
   apple_swiftpm: .github/workflows/apple-swiftpm.yml

@@ -137,6 +137,28 @@ jobs:
               ;;
           esac
 
+      - name: Validate cluster inspection request
+        if: ${{ steps.claim.outputs.workflow_key == 'inspection.cluster' }}
+        shell: bash
+        env:
+          TEST_PROFILE: ${{ steps.claim.outputs.test_profile }}
+          REQUEST_IS_TAG: ${{ steps.claim.outputs.is_tag }}
+          INPUTS_JSON: ${{ steps.claim.outputs.inputs_json }}
+        run: |
+          set -Eeuo pipefail
+          test "${REQUEST_IS_TAG}" = false || {
+            echo "inspection.cluster accepts branch source only" >&2
+            exit 2
+          }
+          case "${TEST_PROFILE}" in
+            longhorn|cnpg|flux) ;;
+            *) echo "inspection.cluster supports only longhorn, cnpg, or flux" >&2; exit 2 ;;
+          esac
+          jq -e 'type == "object" and length == 0' <<<"${INPUTS_JSON}" >/dev/null || {
+            echo "inspection.cluster accepts no semantic inputs" >&2
+            exit 2
+          }
+
       - name: Resolve tag-driven release identity
         id: tag_release
         if: >-
@@ -833,6 +855,32 @@ jobs:
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
 
+  cluster_inspector:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'inspection.cluster' }}
+    concurrency:
+      group: central-ci-${{ needs.request.outputs.validation_concurrency_key }}
+      cancel-in-progress: ${{ needs.request.outputs.validation_cancel_in_progress == 'true' }}
+    uses: ./.github/workflows/cluster-inspector.yml
+    with:
+      repository: ${{ needs.request.outputs.repository }}
+      ref: ${{ needs.request.outputs.ref }}
+      source_is_tag: ${{ needs.request.outputs.is_tag == 'true' }}
+      test_profile: ${{ needs.request.outputs.test_profile }}
+      ci_run_id: ${{ inputs.ci_run_id }}
+    secrets:
+      SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
+      SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+      AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+      AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+      GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+      GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+      CLUSTER_INSPECTOR_KUBECONFIG_B64: ${{ secrets.CLUSTER_INSPECTOR_KUBECONFIG_B64 }}
+
   python:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'validation.python' }}
@@ -1329,6 +1377,7 @@ jobs:
       - android
       - android_release
       - python
+      - cluster_inspector
       - maven
       - apple_binary
       - apple_swiftpm
@@ -1357,6 +1406,8 @@ jobs:
           needs.android_release.result == 'failure' ||
           needs.python.result == 'cancelled' ||
           needs.python.result == 'failure' ||
+          needs.cluster_inspector.result == 'cancelled' ||
+          needs.cluster_inspector.result == 'failure' ||
           needs.maven.result == 'cancelled' ||
           needs.maven.result == 'failure' ||
           needs.apple_binary.result == 'cancelled' ||
