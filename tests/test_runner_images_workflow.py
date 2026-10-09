@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -45,6 +48,57 @@ class RunnerImagesWorkflowTests(unittest.TestCase):
         self.assertNotIn("docker login", validate_text)
         self.assertNotIn("docker push", validate_text)
         self.assertNotIn("ghcr.io/streamscapetv", validate_text)
+
+    def test_mobile_flutter_smoke_cleanup_is_bounded_and_fail_closed(self) -> None:
+        smoke = (ROOT / "runner-images/mobile/smoke.sh").read_text()
+        self.assertIn("trap cleanup_flutter_smoke EXIT", smoke)
+        self.assertIn("for attempt in 1 2 3 4 5 6 7 8; do", smoke)
+        self.assertIn('rm -rf -- "${flutter_smoke_root}"', smoke)
+        self.assertIn('test ! -e "${flutter_smoke_root}"', smoke)
+        self.assertIn('test ! -L "${flutter_smoke_root}"', smoke)
+        self.assertIn('echo "Mobile Flutter smoke fixture cleanup did not converge" >&2', smoke)
+        self.assertIn("    return 1", smoke)
+        self.assertIn("  cleanup_flutter_smoke\n  trap - EXIT", smoke)
+
+    def test_mobile_flutter_cleanup_recovers_race_and_rejects_residue(self) -> None:
+        smoke = (ROOT / "runner-images/mobile/smoke.sh").read_text()
+        start = smoke.index("  cleanup_flutter_smoke() {")
+        end = smoke.index("\n  trap cleanup_flutter_smoke EXIT", start)
+        function = smoke[start:end]
+        with tempfile.TemporaryDirectory() as temp_root:
+            fixture = Path(temp_root) / "flutter-fixture"
+            fixture.mkdir()
+            (fixture / "gradle").mkdir()
+            env = {**os.environ, "SMOKE_ROOT": str(fixture)}
+            setup = ('set -Eeuo pipefail\n'
+                     'flutter_smoke_root="$SMOKE_ROOT"\n'
+                     + function + '\n'
+                     'tries=0\n'
+                     'sleep() { :; }\n')
+
+            recovered = subprocess.run(
+                ["bash", "-c", setup
+                 + 'rm() { tries=$((tries + 1)); '
+                   'if (( tries < 3 )); then return 1; fi; command rm "$@"; }\n'
+                   'cleanup_flutter_smoke\n'
+                   'test "$tries" -eq 3\n'
+                   'test ! -e "$flutter_smoke_root"\n'],
+                env=env, capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(recovered.returncode, 0, recovered.stderr)
+
+            fixture.mkdir()
+            (fixture / "gradle").mkdir()
+            rejected = subprocess.run(
+                ["bash", "-c", setup
+                 + 'rm() { tries=$((tries + 1)); return 1; }\n'
+                   'if cleanup_flutter_smoke; then exit 11; fi\n'
+                   'test "$tries" -eq 8\n'
+                   'test -d "$flutter_smoke_root"\n'],
+                env=env, capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(rejected.returncode, 0, rejected.stderr)
+            self.assertIn("cleanup did not converge", rejected.stderr)
 
     def test_tag_publication_keeps_write_permission_and_all_images(self) -> None:
         trigger = self.workflow["on"]
