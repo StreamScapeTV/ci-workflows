@@ -1,7 +1,7 @@
 # Docker-capable Actions runner. The image contains client tooling only; the daemon is a separate Flux-owned runtime sidecar.
 FROM docker.io/library/docker:29.8.0-cli@sha256:eccaacfeed644c7de222ff047483568cb988dde95476fbaaf10ea2d04921bb66 AS docker-cli
 
-FROM ghcr.io/actions/actions-runner:2.337.0@sha256:e5496277be5d09bc968b3d64911b74e219ac4a3f2edce956a3ecf9271bea1ef4 AS actions-runner
+FROM ghcr.io/actions/actions-runner:2.338.0@sha256:4ffadc0002b2581327e06101fc8c06cd189232baf79fe561fac9caeb76f5e807 AS actions-runner
 
 USER root
 RUN set -eux; \
