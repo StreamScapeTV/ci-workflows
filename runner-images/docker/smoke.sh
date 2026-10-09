@@ -6,7 +6,7 @@ test -x /home/runner/run.sh
 bash -n /home/runner/run.sh
 
 docker --version | grep -F 'Docker version 29.8.1'
-docker buildx version | grep -F 'v0.37.0'
+docker buildx version | grep -F 'v0.37.1'
 docker compose version | grep -F 'v5.5.1'
 docker-compose version | grep -F 'v5.5.1'
 
