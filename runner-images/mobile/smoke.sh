@@ -110,7 +110,19 @@ if [[ "${CIW_RUNNER_IMAGE_BUILD_PHASE:-0}" != "1" ]]; then
   mkdir -p "${flutter_smoke_root}/tmp" "${flutter_smoke_root}/jvm-tmp"
   chmod 0700 "${flutter_smoke_root}/tmp" "${flutter_smoke_root}/jvm-tmp"
   cleanup_flutter_smoke() {
-    rm -rf "${flutter_smoke_root}"
+    # A recently finished Gradle daemon can briefly recreate files during
+    # removal. Retry this exact scratch directory, but never accept residue.
+    local attempt
+    for attempt in 1 2 3 4 5 6 7 8; do
+      if rm -rf -- "${flutter_smoke_root}" \
+          && test ! -e "${flutter_smoke_root}" \
+          && test ! -L "${flutter_smoke_root}"; then
+        return 0
+      fi
+      sleep 1
+    done
+    echo "Mobile Flutter smoke fixture cleanup did not converge" >&2
+    return 1
   }
   trap cleanup_flutter_smoke EXIT
 
