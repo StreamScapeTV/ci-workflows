@@ -33,6 +33,7 @@ TEAM_RE = re.compile(r'[A-Z0-9]{10}')
 MAX_STATE_BYTES = 16384
 MAX_P12_BYTES = 128 * 1024
 MAX_P12_PASSWORD_BYTES = 1024
+MAX_IDENTITY_INVENTORY_BYTES = 32 * 1024
 
 
 class DeviceError(RuntimeError):
@@ -424,23 +425,68 @@ def _materialize_p12(runner_temp: Path, raw: bytes) -> Path:
     return path
 
 
-def _selected_signing_identity(keychain: Path, team_id: str) -> str:
-    """Allow precisely one currently valid private-key-backed Apple Development identity."""
-    raw = _run_private(['security', 'find-identity', '-v', '-p', 'codesigning', str(keychain)])
+def _identity_records(raw: bytes) -> list[tuple[str, str]]:
+    """Parse private Security inventories without exposing the identity or raw output."""
+    if len(raw) > MAX_IDENTITY_INVENTORY_BYTES:
+        fail('Central Apple Development signing identity inventory is invalid')
     try:
         inventory = raw.decode('utf-8', errors='strict')
     except UnicodeError as exc:
-        raise DeviceError('Central Apple Development signing identity is invalid') from exc
-    identities = [
-        (match.group(1).upper(), match.group(2))
-        for line in inventory.splitlines()
-        if (match := re.fullmatch(r'\s*\d+\)\s+([0-9A-Fa-f]{40})\s+"([^"\r\n]{1,256})"\s*', line))
-    ]
-    if (len(identities) != 1
-            or not identities[0][1].startswith(('Apple Development:', 'iOS Development:'))
-            or not identities[0][1].endswith(f'({team_id})')):
-        fail('Central Apple Development signing identity validation failed')
-    return identities[0][0]
+        raise DeviceError('Central Apple Development signing identity inventory is invalid') from exc
+    records: list[tuple[str, str]] = []
+    reported_count: int | None = None
+    for line in inventory.splitlines():
+        # Security appends an optional summary and policy headers. A reported
+        # count must agree with the parsed rows; never silently ignore a
+        # malformed numbered identity or echo any raw inventory on failure.
+        count = re.fullmatch(r'\s*(\d+)\s+(?:valid\s+)?identit(?:y|ies)\s+found\s*', line)
+        if count is not None:
+            if reported_count is not None:
+                fail('Central Apple Development signing identity inventory is invalid')
+            reported_count = int(count.group(1))
+            continue
+        if re.match(r'\s*\d+\)', line) is None:
+            continue
+        match = re.fullmatch(
+            r'\s*\d+\)\s+([0-9A-Fa-f]{40})\s+"([^"\r\n]{1,256})"'
+            r'(?:\s+\([^()\r\n]{1,100}\))?\s*', line,
+        )
+        if match is None:
+            fail('Central Apple Development signing identity inventory is invalid')
+        records.append((match.group(1).upper(), match.group(2)))
+    if reported_count is not None and reported_count != len(records):
+        fail('Central Apple Development signing identity inventory is invalid')
+    return records
+
+
+def _identity_failure(reason: str) -> NoReturn:
+    """Emit only a fixed, non-sensitive category, never an identity inventory."""
+    fail(f'Central Apple Development signing identity validation failed ({reason})')
+
+
+def _selected_signing_identity(keychain: Path, team_id: str) -> str:
+    """Allow precisely one currently valid private-key-backed Apple Development identity."""
+    valid = _identity_records(_run_private([
+        'security', 'find-identity', '-v', '-p', 'codesigning', str(keychain),
+    ]))
+    if not valid:
+        # Non-`-v` enumerates *key-backed* identities even when none pass
+        # Security's trust/expiry validation. This distinguishes an absent
+        # private key from an imported but invalid/untrusted identity.
+        all_key_backed = _identity_records(_run_private([
+            'security', 'find-identity', '-p', 'codesigning', str(keychain),
+        ]))
+        if not all_key_backed:
+            _identity_failure('no-key-backed-identity')
+        _identity_failure('no-valid-identity')
+    if len(valid) != 1:
+        _identity_failure('ambiguous-valid-identities')
+    fingerprint, common_name = valid[0]
+    if not common_name.startswith(('Apple Development:', 'iOS Development:')):
+        _identity_failure('wrong-certificate-type')
+    if not common_name.endswith(f'({team_id})'):
+        _identity_failure('team-mismatch')
+    return fingerprint
 
 
 def _probe_signing_identity(runner_temp: Path, keychain: Path, team_id: str) -> str:
@@ -454,8 +500,14 @@ def _probe_signing_identity(runner_temp: Path, keychain: Path, team_id: str) -> 
         _run_private(['xcrun', 'clang', str(source), '-o', str(binary)])
         # Deliberately omit --keychain: prove codesign sees the same isolated default
         # search context inherited by the repository-owned Xcode build.
-        _run_private(['codesign', '--force', '--sign', fingerprint, '--timestamp=none', str(binary)])
-        _run_private(['codesign', '--verify', '--strict', str(binary)])
+        try:
+            _run_private(['codesign', '--force', '--sign', fingerprint, '--timestamp=none', str(binary)])
+        except DeviceError as exc:
+            raise DeviceError('Central Apple Development signing probe failed (codesign)') from exc
+        try:
+            _run_private(['codesign', '--verify', '--strict', str(binary)])
+        except DeviceError as exc:
+            raise DeviceError('Central Apple Development signing probe failed (verification)') from exc
     return fingerprint
 
 
