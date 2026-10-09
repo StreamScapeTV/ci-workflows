@@ -414,6 +414,90 @@ class RepositoryApplePhysicalDeviceTests(unittest.TestCase):
                     with self.assertRaisesRegex(device.DeviceError, "identity validation failed"):
                         device._selected_signing_identity(keychain, "ABCDE12345")
 
+    def test_valid_identity_failure_reasons_are_fixed_and_secret_free(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            keychain = Path(td) / "managed.keychain-db"
+            certificate = "Private Certificate Name"
+            fingerprint = "C" * 40
+            valid = lambda title: f'  1) {fingerprint} "{title}"\n  1 valid identities found\n'.encode()
+            all_invalid = (
+                f'  1) {fingerprint} "Apple Development: {certificate} (ABCDE12345)" '
+                '(CSSMERR_TP_NOT_TRUSTED)\n  1 identities found\n'
+            ).encode()
+            cases = (
+                (b'  0 valid identities found\n', b'  0 identities found\n', 'no-key-backed-identity'),
+                (b'  0 valid identities found\n', all_invalid, 'no-valid-identity'),
+                (valid(f'Apple Distribution: {certificate} (ABCDE12345)'), None, 'wrong-certificate-type'),
+                (valid(f'Apple Development: {certificate} (OTHER12345)'), None, 'team-mismatch'),
+                ((f'  1) {fingerprint} "Apple Development: {certificate} (ABCDE12345)"\n'
+                 f'  2) {"D" * 40} "Apple Development: Second (ABCDE12345)"\n'
+                 '  2 valid identities found\n').encode(), None, 'ambiguous-valid-identities'),
+            )
+            for valid_inventory, all_inventory, code in cases:
+                observed: list[list[str]] = []
+
+                def private_command(argv: list[str], **_kwargs):
+                    observed.append(argv)
+                    self.assertEqual(argv[-1], str(keychain))
+                    return valid_inventory if '-v' in argv else all_inventory
+
+                with self.subTest(code=code), patch.object(device, '_run_private', side_effect=private_command):
+                    with self.assertRaises(device.DeviceError) as raised:
+                        device._selected_signing_identity(keychain, "ABCDE12345")
+                    self.assertEqual(
+                        str(raised.exception),
+                        f'Central Apple Development signing identity validation failed ({code})',
+                    )
+                    self.assertNotIn(certificate, str(raised.exception))
+                    self.assertNotIn(fingerprint, str(raised.exception))
+                    self.assertNotIn('ABCDE12345', str(raised.exception))
+                    self.assertEqual(len(observed), 2 if all_inventory is not None else 1)
+
+    def test_identity_inventory_parser_rejects_private_malformed_output(self) -> None:
+        invalid_rows = (
+            b'  1) NOT_A_FINGERPRINT "Private Person"\n',
+            b'  1) ' + b'A' * 40 + b' "Private Person" (bad\n',
+            b'\xff',
+            b'private\n' * 10000,
+            b'  1) ' + b'A' * 40 + b' "Private Person"\n  2 valid identities found\n',
+        )
+        for raw in invalid_rows:
+            with self.subTest(raw=raw[:24]):
+                with self.assertRaisesRegex(device.DeviceError, 'identity inventory is invalid') as raised:
+                    device._identity_records(raw)
+                self.assertNotIn('Private Person', str(raised.exception))
+                self.assertNotIn('NOT_A_FINGERPRINT', str(raised.exception))
+
+    def test_valid_identity_selection_does_not_query_nonvalidated_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            keychain = Path(td) / 'managed.keychain-db'
+            fingerprint = 'F' * 40
+            valid = f'  1) {fingerprint} "Apple Development: Person (ABCDE12345)"\n  1 valid identities found\n'
+            with patch.object(device, '_run_private', return_value=valid.encode()) as runner:
+                self.assertEqual(device._selected_signing_identity(keychain, 'ABCDE12345'), fingerprint)
+                runner.assert_called_once_with([
+                    'security', 'find-identity', '-v', '-p', 'codesigning', str(keychain),
+                ])
+
+    def test_signing_probe_error_is_fixed_and_does_not_reveal_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            keychain = Path(td) / 'managed.keychain-db'
+            temp = Path(td)
+            fingerprint = 'F' * 40
+            for command, code in (('codesign', 'codesign'), ('verify', 'verification')):
+                with self.subTest(command=command):
+                    def private_command(argv: list[str], **_kwargs):
+                        if argv[:2] == ['security', 'find-identity']:
+                            return f'  1) {fingerprint} "Apple Development: Private Person (ABCDE12345)"\n'.encode()
+                        if argv[0] == 'codesign' and (command == 'codesign' or '--verify' in argv):
+                            raise device.DeviceError('private hidden command failure')
+                        return b''
+                    with patch.object(device, '_run_private', side_effect=private_command):
+                        with self.assertRaisesRegex(device.DeviceError, rf'signing probe failed \({code}\)') as raised:
+                            device._probe_signing_identity(temp, keychain, 'ABCDE12345')
+                        self.assertNotIn('Private Person', str(raised.exception))
+                        self.assertNotIn(fingerprint, str(raised.exception))
+
     def test_p12_credentials_are_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             good = self.signing_env(Path(td))
