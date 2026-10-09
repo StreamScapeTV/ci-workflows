@@ -425,38 +425,74 @@ def _materialize_p12(runner_temp: Path, raw: bytes) -> Path:
     return path
 
 
-def _identity_records(raw: bytes) -> list[tuple[str, str]]:
-    """Parse private Security inventories without exposing the identity or raw output."""
+def _identity_records(raw: bytes, *, valid_only: bool = True) -> list[tuple[str, str]]:
+    """Parse Security's one- or two-section identity inventory without disclosing it."""
+    invalid = 'Central Apple Development signing identity inventory is invalid'
     if len(raw) > MAX_IDENTITY_INVENTORY_BYTES:
-        fail('Central Apple Development signing identity inventory is invalid')
+        fail(invalid)
     try:
         inventory = raw.decode('utf-8', errors='strict')
     except UnicodeError as exc:
-        raise DeviceError('Central Apple Development signing identity inventory is invalid') from exc
-    records: list[tuple[str, str]] = []
-    reported_count: int | None = None
+        raise DeviceError(invalid) from exc
+
+    # Without -v, Security can print both "Matching identities" and
+    # "Valid identities only", with distinct counts and overlapping rows.
+    # Never combine them: an invalid key-backed identity is not a valid one.
+    rows: dict[str, list[tuple[str, str]]] = {
+        'plain': [], 'matching': [], 'valid': [],
+    }
+    counts: dict[str, int] = {}
+    sections: set[str] = set()
+    section = 'plain'
     for line in inventory.splitlines():
-        # Security appends an optional summary and policy headers. A reported
-        # count must agree with the parsed rows; never silently ignore a
-        # malformed numbered identity or echo any raw inventory on failure.
-        count = re.fullmatch(r'\s*(\d+)\s+(?:valid\s+)?identit(?:y|ies)\s+found\s*', line)
-        if count is not None:
-            if reported_count is not None:
-                fail('Central Apple Development signing identity inventory is invalid')
-            reported_count = int(count.group(1))
+        stripped = line.strip()
+        if stripped in ('Matching identities', 'Valid identities only'):
+            new_section = 'matching' if stripped == 'Matching identities' else 'valid'
+            if (new_section in sections or (new_section == 'matching' and 'valid' in sections)
+                    or rows['plain'] or (section == 'plain' and counts)):
+                fail(invalid)
+            section = new_section
+            sections.add(section)
             continue
+        summary = re.fullmatch(
+            r'\s*(\d{1,4})\s+(valid\s+)?identit(?:y|ies)\s+found\s*', line,
+        )
+        if summary is not None:
+            category = 'valid' if summary.group(2) else 'matching'
+            if category in counts or (sections and section != category):
+                fail(invalid)
+            counts[category] = int(summary.group(1))
+            continue
+        # A malformed/oversized summary must not be silently ignored as a
+        # harmless Security policy heading.
+        if re.match(r'\s*\d+\s+.*identit', line):
+            fail(invalid)
         if re.match(r'\s*\d+\)', line) is None:
             continue
         match = re.fullmatch(
             r'\s*\d+\)\s+([0-9A-Fa-f]{40})\s+"([^"\r\n]{1,256})"'
             r'(?:\s+\([^()\r\n]{1,100}\))?\s*', line,
         )
-        if match is None:
-            fail('Central Apple Development signing identity inventory is invalid')
-        records.append((match.group(1).upper(), match.group(2)))
-    if reported_count is not None and reported_count != len(records):
-        fail('Central Apple Development signing identity inventory is invalid')
-    return records
+        if match is None or section in counts or (section == 'plain' and counts):
+            fail(invalid)
+        rows[section].append((match.group(1).upper(), match.group(2)))
+
+    if sections:
+        for name in sections:
+            if name in counts and counts[name] != len(rows[name]):
+                fail(invalid)
+        if ('matching' in sections and 'valid' in sections
+                and not set(rows['valid']).issubset(set(rows['matching']))):
+            fail(invalid)
+        # An explicit valid-only section selects validated entries. The
+        # fallback non--v call selects raw key-backed entries instead.
+        chosen = 'valid' if valid_only and 'valid' in sections else 'matching'
+        if chosen not in sections:
+            chosen = 'valid'
+        return rows[chosen]
+    if len(counts) > 1 or (counts and next(iter(counts.values())) != len(rows['plain'])):
+        fail(invalid)
+    return rows['plain']
 
 
 def _identity_failure(reason: str) -> NoReturn:
@@ -475,7 +511,7 @@ def _selected_signing_identity(keychain: Path, team_id: str) -> str:
         # private key from an imported but invalid/untrusted identity.
         all_key_backed = _identity_records(_run_private([
             'security', 'find-identity', '-p', 'codesigning', str(keychain),
-        ]))
+        ]), valid_only=False)
         if not all_key_backed:
             _identity_failure('no-key-backed-identity')
         _identity_failure('no-valid-identity')

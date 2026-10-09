@@ -453,6 +453,120 @@ class RepositoryApplePhysicalDeviceTests(unittest.TestCase):
                     self.assertNotIn('ABCDE12345', str(raised.exception))
                     self.assertEqual(len(observed), 2 if all_inventory is not None else 1)
 
+    def test_security_identity_inventory_two_sections_preserve_validity_boundary(self) -> None:
+        private_name = 'Apple Development: Private Person (ABCDE12345)'
+        other_name = 'Apple Development: Second Private Person (ABCDE12345)'
+        identity_a, identity_b = 'A' * 40, 'B' * 40
+        inventory = (
+            'Policy: Code Signing\n'
+            '  Matching identities\n'
+            f'    1) {identity_a} "{private_name}" (CSSMERR_TP_NOT_TRUSTED)\n'
+            f'    2) {identity_b} "{other_name}"\n'
+            '  2 identities found\n'
+            '\n'
+            '  Valid identities only\n'
+            f'    1) {identity_b} "{other_name}"\n'
+            '  1 valid identities found\n'
+        ).encode()
+        self.assertEqual(
+            device._identity_records(inventory, valid_only=False),
+            [(identity_a, private_name), (identity_b, other_name)],
+        )
+        self.assertEqual(device._identity_records(inventory), [(identity_b, other_name)])
+        zero_valid = (
+            'Policy: Code Signing\n'
+            '  Matching identities\n'
+            f'    1) {identity_a} "{private_name}" (CSSMERR_TP_NOT_TRUSTED)\n'
+            '  1 identities found\n'
+            '  Valid identities only\n'
+            '  0 valid identities found\n'
+        ).encode()
+        self.assertEqual(device._identity_records(zero_valid, valid_only=False), [(identity_a, private_name)])
+        self.assertEqual(device._identity_records(zero_valid), [])
+        no_keys = (
+            'Policy: Code Signing\n'
+            '  Matching identities\n'
+            '  0 identities found\n'
+            '  Valid identities only\n'
+            '  0 valid identities found\n'
+        ).encode()
+        self.assertEqual(device._identity_records(no_keys, valid_only=False), [])
+        self.assertEqual(device._identity_records(no_keys), [])
+
+    def test_dual_section_identity_inventory_classification_is_fixed_and_secret_free(self) -> None:
+        private_name = 'Apple Development: Private Person (ABCDE12345)'
+        fingerprint = 'F' * 40
+        with tempfile.TemporaryDirectory() as td:
+            keychain = Path(td) / 'private-managed-keychain'
+            for keys, code in ((1, 'no-valid-identity'), (0, 'no-key-backed-identity')):
+                matching_line = (
+                    f'  1) {fingerprint} "{private_name}" (CSSMERR_TP_NOT_TRUSTED)\n'
+                    if keys else ''
+                )
+                inventory = (
+                    'Policy: Code Signing\n'
+                    '  Matching identities\n'
+                    + matching_line
+                    + f'  {keys} identities found\n'
+                    '  Valid identities only\n'
+                    '  0 valid identities found\n'
+                ).encode()
+                observed = []
+
+                def security_command(args: list[str], **_kwargs):
+                    observed.append(args)
+                    self.assertEqual(args[-1], str(keychain))
+                    if '-v' in args:
+                        return b'  0 valid identities found\n'
+                    return inventory
+
+                with self.subTest(code=code), patch.object(device, '_run_private', side_effect=security_command):
+                    with self.assertRaises(device.DeviceError) as raised:
+                        device._selected_signing_identity(keychain, 'ABCDE12345')
+                    self.assertEqual(str(raised.exception),
+                                     f'Central Apple Development signing identity validation failed ({code})')
+                    for private_value in (private_name, fingerprint, 'ABCDE12345', str(keychain)):
+                        self.assertNotIn(private_value, str(raised.exception))
+                    self.assertEqual(len(observed), 2)
+                    self.assertIn('-v', observed[0])
+                    self.assertNotIn('-v', observed[1])
+
+    def test_dual_section_identity_inventory_rejects_mismatched_or_hostile_counts(self) -> None:
+        valid_record = f'  1) {"A" * 40} "Private Person"\n'
+        other_record = f'  1) {"B" * 40} "Other Private Person"\n'
+        cases = (
+            # More matching entries than Security actually reported.
+            'Matching identities\n' + valid_record + '  2 identities found\n'
+            'Valid identities only\n  0 valid identities found\n',
+            # Misleading count in the valid-only section.
+            'Matching identities\n' + valid_record + '  1 identities found\n'
+            'Valid identities only\n  1 valid identities found\n',
+            # Repeated or unsectioned summaries are not independently trustworthy.
+            'Matching identities\n' + valid_record + '  1 identities found\n'
+            '  1 identities found\n',
+            valid_record + '  1 identities found\n  1 valid identities found\n',
+            # An identity cannot be valid without being in the matching inventory.
+            'Matching identities\n' + valid_record + '  1 identities found\n'
+            'Valid identities only\n' + other_record + '  1 valid identities found\n',
+            # Reject reversed or repeated Security sections.
+            'Valid identities only\n  0 valid identities found\n'
+            'Matching identities\n' + valid_record + '  1 identities found\n',
+            'Matching identities\n' + valid_record + '  1 identities found\n'
+            'Matching identities\n' + valid_record + '  1 identities found\n',
+            # A summary cannot be followed by additional numbered identity rows.
+            'Matching identities\n  0 identities found\n' + valid_record,
+            # An unsectioned summary also closes its numbered-record list.
+            '  0 valid identities found\n' + valid_record,
+            # Oversized/malformed summaries must not be ignored as harmless headers.
+            'Matching identities\n' + valid_record + '  10000000000 identities found\n',
+        )
+        for raw in cases:
+            with self.subTest(input_case=cases.index(raw)):
+                with self.assertRaisesRegex(device.DeviceError, 'identity inventory is invalid') as raised:
+                    device._identity_records(raw.encode('utf-8'), valid_only=False)
+                self.assertNotIn('Private Person', str(raised.exception))
+                self.assertNotIn('Other Private Person', str(raised.exception))
+
     def test_identity_inventory_parser_rejects_private_malformed_output(self) -> None:
         invalid_rows = (
             b'  1) NOT_A_FINGERPRINT "Private Person"\n',
