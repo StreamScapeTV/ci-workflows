@@ -1,4 +1,5 @@
 from pathlib import Path
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -46,6 +47,44 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertRegex(digests[0], r"^[0-9a-f]{64}$")
         env["ARTIFACT_SELECTION_SHA256"] = digests[0]
         return digests[0]
+
+    @contextmanager
+    def evidence_fixture(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "logs").mkdir()
+            (root / "artifacts").mkdir()
+            (root / "central.log").write_text("source=test; repository exit=65\n")
+            (root / "progress.txt").write_text("tests failed\n")
+            (root / "logs/tool.log").write_text("native test failure diagnostic\n")
+            (root / "github-output").write_text("")
+            yield root, {
+                **os.environ,
+                "RUNNER_TEMP": str(root),
+                "CI_LOG": str(root / "central.log"),
+                "CI_LOG_DIR": str(root / "logs"),
+                "CI_ARTIFACT_DIR": str(root / "artifacts"),
+                "CI_PROGRESS_FILE": str(root / "progress.txt"),
+                "GITHUB_OUTPUT": str(root / "github-output"),
+                "EVIDENCE_SOURCE_SHA": "a" * 40,
+                "EVIDENCE_EXECUTE_OUTCOME": "failure",
+            }
+
+    def execute_evidence_fixture(self, env, *, after_scrub=None):
+        output = Path(env["GITHUB_OUTPUT"])
+        output.write_text("")
+        scrubbed = subprocess.run(
+            ["bash", "-c", self.steps_by_name["Scrub configured CI secrets from private text evidence"]["run"]],
+            cwd=ROOT, env=env, text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(scrubbed.returncode, 0, scrubbed.stderr)
+        self.bind_artifact_selection_digest(env, output)
+        if after_scrub is not None:
+            after_scrub()
+        return subprocess.run(
+            ["bash", "-c", self.steps_by_name["Package bounded repository CI evidence"]["run"]],
+            cwd=ROOT, env=env, text=True, capture_output=True, check=False,
+        )
 
     def run_repository_request(
         self,
@@ -2779,6 +2818,225 @@ printf 'GIT_TERMINAL_PROMPT=%s\\n' "${GIT_TERMINAL_PROMPT:-}"
                 "steps.scrub.outcome == 'success'",
                 self.steps_by_name["Upload private repository CI log to Google Drive"]["if"],
             )
+
+    def test_large_result_directory_preserves_core_diagnostics_and_explicit_omission(self) -> None:
+        with self.evidence_fixture() as (root, env):
+            result = root / "artifacts/native-result.bundle/records"
+            result.mkdir(parents=True)
+            for number in range(300):
+                (result / f"record-{number:04}.json").write_text('{"failed":true}\n')
+            (root / "artifacts/summary.json").write_text('{"failures":3}\n')
+            manifests = []
+            for _ in range(2):
+                packaged = self.execute_evidence_fixture(env)
+                self.assertEqual(packaged.returncode, 0, packaged.stderr)
+                with zipfile.ZipFile(root / "central-repository-ci-evidence.zip") as bundle:
+                    names = set(bundle.namelist())
+                    self.assertEqual(names, {"central.log", "progress.txt", "logs/tool.log", "artifacts/summary.json", "evidence-manifest.json"})
+                    manifests.append(bundle.read("evidence-manifest.json"))
+                    report = json.loads(manifests[-1])
+                    self.assertFalse(report["complete"])
+                    self.assertEqual(report["source_sha"], "a" * 40)
+                    self.assertEqual(report["repository_entrypoint_outcome"], "failure")
+                    self.assertEqual(report["omitted"]["artifacts"]["files"], 300)
+                    self.assertEqual(report["omitted_groups_by_reason"], {"file_count": 1})
+                    self.assertIn(b"exit=65", bundle.read("central.log"))
+                    self.assertIn(b"failed", bundle.read("progress.txt"))
+            self.assertEqual(manifests[0], manifests[1])
+            self.assertEqual(len(list(result.iterdir())), 300)
+
+    def test_packet_budget_prioritizes_diagnostics_and_bounds_omission_report(self) -> None:
+        with self.evidence_fixture() as (root, env):
+            (root / "logs/central-runtime-probe.txt").write_text("fixed failure probe\n")
+            for number in range(300):
+                (root / "logs" / f"a-{number:04}.log").write_text("optional log\n")
+                (root / "artifacts" / f"record-{number:04}.json").write_text("{}\n")
+            packaged = self.execute_evidence_fixture(env)
+            self.assertEqual(packaged.returncode, 0, packaged.stderr)
+            with zipfile.ZipFile(root / "central-repository-ci-evidence.zip") as bundle:
+                names = bundle.namelist()
+                self.assertEqual(len(names), 256)
+                self.assertIn("central.log", names)
+                self.assertIn("progress.txt", names)
+                self.assertIn("logs/central-runtime-probe.txt", names)
+                self.assertFalse(any(name.startswith("artifacts/") for name in names))
+                report_bytes = bundle.read("evidence-manifest.json")
+                self.assertLessEqual(len(report_bytes), 64 * 1024)
+                report = json.loads(report_bytes)
+                self.assertEqual(report["omitted"]["logs"]["files"], 49)
+                self.assertEqual(report["omitted"]["artifacts"]["files"], 300)
+                self.assertTrue(report["omission_details_truncated"])
+                self.assertEqual(len(report["omission_details"]), 64)
+                self.assertFalse(report["complete"])
+
+    def test_unicode_omission_paths_keep_report_inside_reserved_budget(self) -> None:
+        with self.evidence_fixture() as (root, env):
+            for number in range(253):
+                (root / "logs" / f"a-{number:04}.log").write_text("retained log\n")
+            nested = root / "logs" / ("\U0001f4c1" * 60) / ("\U0001f4c1" * 60)
+            nested.mkdir(parents=True)
+            for number in range(64):
+                (nested / f"log-{number:04}.txt").write_text("omitted log\n")
+            packaged = self.execute_evidence_fixture(env)
+            self.assertEqual(packaged.returncode, 0, packaged.stderr)
+            with zipfile.ZipFile(root / "central-repository-ci-evidence.zip") as bundle:
+                report_bytes = bundle.read("evidence-manifest.json")
+                self.assertLessEqual(len(report_bytes), 64 * 1024)
+                report = json.loads(report_bytes)
+                self.assertEqual(report["omitted"]["logs"]["files"], 65)
+                self.assertTrue(any(item["path_truncated"] for item in report["omission_details"]))
+                self.assertTrue(all(len(json.dumps(item["path"]).encode()) <= 512 for item in report["omission_details"]))
+
+    def test_aggregate_budget_omits_whole_artifact_group_and_keeps_small_summary(self) -> None:
+        with self.evidence_fixture() as (root, env):
+            group = root / "artifacts/large-result.bundle"
+            group.mkdir()
+            for number in range(4):
+                with (group / f"record-{number}").open("wb") as handle:
+                    handle.truncate(16 * 1024 * 1024)
+            (root / "artifacts/summary.json").write_text("{}\n")
+            packaged = self.execute_evidence_fixture(env)
+            self.assertEqual(packaged.returncode, 0, packaged.stderr)
+            with zipfile.ZipFile(root / "central-repository-ci-evidence.zip") as bundle:
+                self.assertLessEqual(sum(item.file_size for item in bundle.infolist()), 64 * 1024 * 1024)
+                self.assertFalse(any("large-result.bundle/" in name for name in bundle.namelist()))
+                self.assertIn("artifacts/summary.json", bundle.namelist())
+                report = json.loads(bundle.read("evidence-manifest.json"))
+                self.assertEqual(report["omitted_groups_by_reason"], {"aggregate_bytes": 1})
+                self.assertEqual(report["omitted"]["artifacts"], {"groups": 1, "files": 4, "bytes": 64 * 1024 * 1024})
+                self.assertEqual(report["oversized_artifact_files"], 0)
+
+    def test_unsafe_member_omits_whole_directory(self) -> None:
+        for mode in ("quarantine", "per_file_bytes"):
+            with self.subTest(mode=mode), self.evidence_fixture() as (root, env):
+                secret = "private-fixture-credential"
+                env["CI_SECRET_TEST"] = secret
+                group = root / "artifacts/result.bundle"
+                group.mkdir()
+                (group / "safe.json").write_text("{}\n")
+                unsafe = group / "unsafe.bin"
+                if mode == "quarantine":
+                    unsafe.write_text(secret)
+                else:
+                    with unsafe.open("wb") as handle:
+                        handle.truncate(16 * 1024 * 1024 + 1)
+                (root / "artifacts/summary.json").write_text("{}\n")
+                packaged = self.execute_evidence_fixture(env)
+                self.assertEqual(packaged.returncode, 0, packaged.stderr)
+                with zipfile.ZipFile(root / "central-repository-ci-evidence.zip") as bundle:
+                    self.assertEqual([name for name in bundle.namelist() if name.startswith("artifacts/")], ["artifacts/summary.json"])
+                    self.assertNotIn(secret.encode(), b"".join(bundle.read(name) for name in bundle.namelist()))
+                    report = json.loads(bundle.read("evidence-manifest.json"))
+                    self.assertFalse(report["complete"])
+                    self.assertEqual(report["omitted"]["artifacts"]["files"], 2)
+                    self.assertEqual(report["omitted_groups_by_reason"], {mode: 1})
+                    self.assertEqual(report["quarantined_artifact_files"], int(mode == "quarantine"))
+                    self.assertEqual(report["oversized_artifact_files"], int(mode == "per_file_bytes"))
+
+    def test_secret_filenames_and_parent_names_are_omitted_and_redacted(self) -> None:
+        for secret_source in ("configured", "dynamic"):
+            for kind in ("logs", "artifacts"):
+                for location in ("filename", "nested-parent"):
+                    with self.subTest(secret_source=secret_source, kind=kind, location=location), self.evidence_fixture() as (root, env):
+                        secret = "private-fixture-credential"
+                        if secret_source == "configured":
+                            env["CI_SECRET_TEST"] = secret
+                        else:
+                            dynamic = root / "dynamic-secrets.txt"
+                            dynamic.write_text(secret + "\n")
+                            env["CI_DYNAMIC_SECRET_FILE"] = str(dynamic)
+                        relative = f"{secret}.json" if location == "filename" else f"result-{secret}.bundle/nested/safe.json"
+                        path = root / kind / relative
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_text("safe diagnostic content\n")
+                        if location == "nested-parent":
+                            (path.parent / "another.json").write_text("safe sibling content\n")
+                        (root / "artifacts/summary.json").write_text("{}\n")
+                        packaged = self.execute_evidence_fixture(env)
+                        self.assertEqual(packaged.returncode, 0, packaged.stderr)
+                        with zipfile.ZipFile(root / "central-repository-ci-evidence.zip") as bundle:
+                            self.assertTrue(all(secret not in name for name in bundle.namelist()))
+                            self.assertNotIn(secret.encode(), b"".join(bundle.read(name) for name in bundle.namelist()))
+                            self.assertIn("artifacts/summary.json", bundle.namelist())
+                            report = json.loads(bundle.read("evidence-manifest.json"))
+                            self.assertFalse(report["complete"])
+                            self.assertEqual(report["omitted"][kind]["files"], 1 if location == "filename" else 2)
+                            self.assertEqual(set(report["omitted_groups_by_reason"]), {"quarantine"})
+                            self.assertTrue(all("[REDACTED]" in item["path"] for item in report["omission_details"]))
+
+    def test_secret_bearing_error_paths_do_not_reach_console(self) -> None:
+        for mode in ("log-symlink", "oversized-log", "artifact-escape"):
+            with self.subTest(mode=mode), self.evidence_fixture() as (root, env):
+                secret = "private-fixture-credential"
+                env["CI_SECRET_TEST"] = secret
+                kind = "artifacts" if mode == "artifact-escape" else "logs"
+                path = root / kind / f"{secret}.log"
+                if mode == "oversized-log":
+                    with path.open("wb") as handle:
+                        handle.truncate(16 * 1024 * 1024 + 1)
+                else:
+                    path.symlink_to(root / "central.log")
+                scrubbed = subprocess.run(
+                    ["bash", "-c", self.steps_by_name["Scrub configured CI secrets from private text evidence"]["run"]],
+                    env=env, text=True, capture_output=True, check=False,
+                )
+                self.assertNotEqual(scrubbed.returncode, 0)
+                self.assertNotIn(secret, scrubbed.stdout + scrubbed.stderr)
+                self.assertIn("repository CI", scrubbed.stderr)
+
+    def test_secret_bearing_symlink_loop_never_exposes_filesystem_paths(self) -> None:
+        for secret_source in ("configured", "dynamic"):
+            with self.subTest(secret_source=secret_source), self.evidence_fixture() as (root, env):
+                secret = "private-fixture-credential"
+                if secret_source == "configured":
+                    env["CI_SECRET_TEST"] = secret
+                else:
+                    dynamic = root / "dynamic-secrets.txt"
+                    dynamic.write_text(secret + "\n")
+                    env["CI_DYNAMIC_SECRET_FILE"] = str(dynamic)
+                path = root / "artifacts" / f"{secret}.link"
+                path.symlink_to(path.name)
+                scrubbed = subprocess.run(
+                    ["bash", "-c", self.steps_by_name["Scrub configured CI secrets from private text evidence"]["run"]],
+                    env=env, text=True, capture_output=True, check=False,
+                )
+                self.assertNotIn(secret, scrubbed.stdout + scrubbed.stderr)
+                self.assertNotIn("Traceback", scrubbed.stdout + scrubbed.stderr)
+                if scrubbed.returncode == 0:
+                    # Path.resolve(strict=False) tolerates loops on Python 3.13+.
+                    selection = json.loads((root / "central-repository-ci-artifact-selection.json").read_text())
+                    self.assertEqual(selection["artifacts"], [])
+                    self.assertEqual(selection["retained_groups"], [])
+                    self.assertEqual(selection["report"]["quarantined_artifact_files"], 1)
+                    self.assertEqual(selection["report"]["omitted_groups_by_reason"], {"quarantine": 1})
+                else:
+                    self.assertIn("repository CI evidence processing failed:", scrubbed.stderr)
+
+    def test_selected_evidence_mutation_after_scrub_fails_closed(self) -> None:
+        for mode in ("new-member", "core-log", "product-log", "log-directory-symlink"):
+            with self.subTest(mode=mode), self.evidence_fixture() as (root, env):
+                group = root / "artifacts/result.bundle"
+                group.mkdir()
+                (group / "result.json").write_text("{}\n")
+                nested_logs = root / "logs/nested"
+                nested_logs.mkdir()
+                (nested_logs / "diagnostic.log").write_text("selected diagnostic\n")
+                def mutate():
+                    if mode == "new-member":
+                        (group / "late.json").write_text("{}\n")
+                    elif mode == "core-log":
+                        (root / "central.log").write_text("late unreviewed content\n")
+                    elif mode == "product-log":
+                        (root / "logs/tool.log").write_text("late unreviewed content\n")
+                    else:
+                        moved = root / "logs/moved"
+                        nested_logs.rename(moved)
+                        nested_logs.symlink_to(moved, target_is_directory=True)
+                packaged = self.execute_evidence_fixture(env, after_scrub=mutate)
+                self.assertNotEqual(packaged.returncode, 0)
+                self.assertIn("selection changed after scrub", packaged.stderr)
+                self.assertFalse((root / "central-repository-ci-evidence.zip").exists())
+                self.assertNotIn("archive=", Path(env["GITHUB_OUTPUT"]).read_text())
 
     def test_artifact_symlink_escape_is_rejected_without_reading_outside_bytes(self) -> None:
         scrub = self.steps_by_name["Scrub configured CI secrets from private text evidence"]["run"]
