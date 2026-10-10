@@ -558,6 +558,84 @@ def _imported_certificate_metadata(
         raise DeviceError('Central Apple Development certificate metadata could not be read') from None
 
 
+# Fixed categories only. These describe the imported leaf and what is visible
+# inside *our own* keychain; neither proves that macOS trusts the certificate.
+TRUST_DIAGNOSTICS = frozenset({
+    'UNDETERMINED', 'LEAF_EXPIRED', 'LEAF_NOT_YET_VALID',
+    'VALID_LEAF_G3_ISSUER_IN_KEYCHAIN', 'VALID_LEAF_G3_ISSUER_NOT_IN_KEYCHAIN',
+    'VALID_LEAF_OTHER_ISSUER',
+})
+WWDR_G3_ISSUER = frozenset({
+    ('commonName', 'Apple Worldwide Developer Relations Certification Authority'),
+    ('organizationalUnitName', 'G3'),
+    ('organizationName', 'Apple Inc.'),
+    ('countryName', 'US'),
+})
+
+
+def _imported_certificate_trust_diagnostic(
+    keychain: Path, fingerprint: str, *, command: Callable[[list[str]], bytes] | None = None,
+) -> str:
+    """Safely classify a public leaf after Security reports no valid identity.
+
+    The diagnostic never changes trust settings or accepts an identity. An issuer
+    absent from the isolated keychain might still exist in other trust domains;
+    only Security's ordinary -v check can establish actual signing validity.
+    """
+    command = _run_private if command is None else command
+    try:
+        if (re.fullmatch(r'[0-9A-F]{40}', fingerprint) is None or keychain.is_symlink()
+                or not keychain.parent.is_absolute() or keychain.parent.is_symlink()
+                or not keychain.parent.is_dir()):
+            raise ValueError
+        raw = command(['security', 'find-certificate', '-a', '-p', str(keychain)])
+        if not isinstance(raw, bytes) or not 0 < len(raw) <= MAX_CERTIFICATE_INVENTORY_BYTES:
+            raise ValueError
+        blocks = list(CERTIFICATE_PEM_RE.finditer(raw))
+        if not 1 <= len(blocks) <= 16:
+            raise ValueError
+        decoded = []
+        leaf_index = None
+        end = 0
+        with tempfile.TemporaryDirectory(prefix='central-apple-public-diagnostic-', dir=keychain.parent) as temporary:
+            for index, block in enumerate(blocks):
+                if raw[end:block.start()].strip():
+                    raise ValueError
+                der = base64.b64decode(block.group(1).replace(b'\r', b'').replace(b'\n', b''), validate=True)
+                if not 32 <= len(der) <= MAX_CERTIFICATE_BYTES:
+                    raise ValueError
+                if hashlib.sha1(der).hexdigest().upper() == fingerprint:
+                    if leaf_index is not None:
+                        raise ValueError
+                    leaf_index = index
+                certificate = Path(temporary) / f'public-{index}.pem'
+                write_private(certificate, block.group(0), max_bytes=MAX_CERTIFICATE_BYTES)
+                decoded.append(ssl._ssl._test_decode_cert(str(certificate)))
+                end = block.end()
+        if raw[end:].strip() or leaf_index is None:
+            raise ValueError
+        leaf = decoded[leaf_index]
+        not_before = ssl.cert_time_to_seconds(leaf['notBefore'])
+        not_after = ssl.cert_time_to_seconds(leaf['notAfter'])
+        now = datetime.now(timezone.utc).timestamp()
+        if not_before > now:
+            return 'LEAF_NOT_YET_VALID'
+        if not_after < now:
+            return 'LEAF_EXPIRED'
+        issuer = frozenset((name, value) for rdn in leaf['issuer'] for name, value in rdn)
+        if issuer != WWDR_G3_ISSUER:
+            return 'VALID_LEAF_OTHER_ISSUER'
+        available = any(
+            i != leaf_index and frozenset((name, value) for rdn in certificate['subject']
+                                          for name, value in rdn) == issuer
+            for i, certificate in enumerate(decoded)
+        )
+        return ('VALID_LEAF_G3_ISSUER_IN_KEYCHAIN' if available
+                else 'VALID_LEAF_G3_ISSUER_NOT_IN_KEYCHAIN')
+    except (OSError, ValueError, RuntimeError, KeyError, TypeError, AttributeError, UnicodeError):
+        return 'UNDETERMINED'
+
+
 def _selected_signing_identity(keychain: Path, team_id: str) -> str:
     """Allow precisely one currently valid private-key-backed Apple Development identity."""
     valid = _identity_records(_run_private([

@@ -398,11 +398,21 @@ available, the API check compares it internally against read-only certificates;
 
 The only console evidence is fixed stage/result categories (`P12_IMPORT`,
 `PRIVATE_KEY_PRESENT`, `CERTIFICATE_READ`, `CERT_TEAM_MATCH`,
-`CERT_TRUST_VALID`, `CODESIGN`, `CODESIGN_VERIFY`, `API_AUTH`,
+`CERT_TRUST_VALID`, `CERT_TRUST_DIAGNOSTIC`, `CODESIGN`, `CODESIGN_VERIFY`, `API_AUTH`,
 `API_CERT_ACCESS`, `API_CERT_ACCOUNT_MATCH`, `CLEANUP`). No raw Security/OpenSSL/API output,
 private certificate names, team identifiers, fingerprints, serials, private
-paths, tokens or response bodies are printed. Failure does not authorize a
-certificate/profile mutation or a further physical-device test. The job and
+paths, tokens or response bodies are printed. When Security reports
+`CERT_TRUST_VALID=NO_VALID_IDENTITY`, the **optional, non-authorizing**
+`CERT_TRUST_DIAGNOSTIC` classifies only the already imported public leaf's
+validity dates and whether its known WWDR G3 issuer is present *in the
+managed keychain*. It reports a fixed category such as `LEAF_EXPIRED`,
+`LEAF_NOT_YET_VALID`, `VALID_LEAF_G3_ISSUER_NOT_IN_KEYCHAIN`,
+`VALID_LEAF_G3_ISSUER_IN_KEYCHAIN`, `VALID_LEAF_OTHER_ISSUER` or
+`UNDETERMINED`. Absence in the isolated keychain does not prove absence in
+macOS trust stores or justify creating a new trusted anchor. The original
+Security `-v` result and actual noninteractive signature remain mandatory;
+these diagnostics neither import CAs nor relax certificate policy.
+Failure does not authorize a certificate/profile mutation or a further physical-device test. The job and
 its `always()` cleanup purge the transient P12/P8, probe and public certificate
 before attempting keychain restoration and deletion. Search-list and default
 keychain restoration are attempted independently. The separate cleanup stage
