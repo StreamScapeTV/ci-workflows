@@ -4,11 +4,13 @@ from contextlib import redirect_stdout
 import base64
 from datetime import datetime, timedelta, timezone
 import fcntl
+import hashlib
 import importlib.util
 import io
 import json
 import os
 from pathlib import Path
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -22,6 +24,27 @@ spec = importlib.util.spec_from_file_location("repository_apple_physical_device"
 assert spec is not None and spec.loader is not None
 device = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(device)
+
+# Public synthetic certificate only; its private key is not retained. Security's
+# trust/private-key boundary is mocked, while public DER/subject decoding is real.
+SIGNING_CERT_PEM = b"""-----BEGIN CERTIFICATE-----
+MIICFTCCAbqgAwIBAgIDEjq8MAoGCCqGSM49BAMCMGgxNzA1BgNVBAMMLkFwcGxl
+IERldmVsb3BtZW50OiBTeW50aGV0aWMgVGVzdCAoUEVSU09OMTIzNCkxEzARBgNV
+BAsMCkFCQ0RFMTIzNDUxGDAWBgNVBAoMD0NlbnRyYWwgQ0kgVGVzdDAeFw0yNjEw
+MTAyMjQxNDhaFw0zNjEwMDcyMjQxNDhaMGgxNzA1BgNVBAMMLkFwcGxlIERldmVs
+b3BtZW50OiBTeW50aGV0aWMgVGVzdCAoUEVSU09OMTIzNCkxEzARBgNVBAsMCkFC
+Q0RFMTIzNDUxGDAWBgNVBAoMD0NlbnRyYWwgQ0kgVGVzdDBZMBMGByqGSM49AgEG
+CCqGSM49AwEHA0IABPgFeP+nJQrF++lMgQRg5kEOHJ7yNNUVI3GoNl0GtLG2+cpW
+oUFLMLEcgBlbDCAN9C73cAjabH+gcYsRcEFkLJOjUzBRMB0GA1UdDgQWBBS8Jnvc
+FJN18klDNHZBsreZkzF0TzAfBgNVHSMEGDAWgBS8JnvcFJN18klDNHZBsreZkzF0
+TzAPBgNVHRMBAf8EBTADAQH/MAoGCCqGSM49BAMCA0kAMEYCIQCNH4cHTUqDOlVt
+G/NFli4LWtAOXn4rFSBKdirxBTUp6QIhAMcZVyvpOvU5BtTQwdb6YM9lDHu3LXaj
+KRBi01qHh3eS
+-----END CERTIFICATE-----
+"""
+SIGNING_CERT_DER = ssl.PEM_cert_to_DER_cert(SIGNING_CERT_PEM.decode('ascii'))
+SIGNING_CERT_FINGERPRINT = hashlib.sha1(SIGNING_CERT_DER).hexdigest().upper()
+SIGNING_CERT_NAME = 'Apple Development: Synthetic Test (PERSON1234)'
 
 
 class RepositoryApplePhysicalDeviceTests(unittest.TestCase):
@@ -344,6 +367,18 @@ class RepositoryApplePhysicalDeviceTests(unittest.TestCase):
             "CI_APPLE_DEVELOPMENT_P12_PASSWORD": "fake-p12-password",
         }
 
+    def prepare_cleanup_state(self, root: Path) -> tuple[Path, Path, Path]:
+        state, keychain, bundle = device._signing_paths(root)
+        original = '/synthetic/login.keychain-db'
+        device._write_signing_state(state, {
+            'schema': device.SIGNING_STATE_SCHEMA, 'teamId': 'ABCDE12345',
+            'originalDefaultKeychain': original, 'originalSearchKeychains': [original],
+            'managedKeychain': str(keychain),
+        })
+        keychain.write_bytes(b'synthetic-keychain')
+        bundle.write_bytes(b'synthetic-p12')
+        return state, keychain, bundle
+
     def test_signing_setup_imports_owner_p12_and_proves_same_isolated_keychain(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             runner_temp = Path(td)
@@ -352,7 +387,7 @@ class RepositoryApplePhysicalDeviceTests(unittest.TestCase):
             secret_path.chmod(0o600)
             original = "/Users/runner/Library/Keychains/login.keychain-db"
             managed = str(runner_temp / device.SIGNING_KEYCHAIN_NAME)
-            fingerprint = "A" * 40
+            fingerprint = SIGNING_CERT_FINGERPRINT
             active = {"managed": False}
             calls: list[list[str]] = []
 
@@ -371,7 +406,9 @@ class RepositoryApplePhysicalDeviceTests(unittest.TestCase):
                 if argv[:2] == ["security", "create-keychain"]:
                     Path(argv[-1]).write_bytes(b"keychain")
                 if argv[:4] == ["security", "find-identity", "-v", "-p"]:
-                    return f'  1) {fingerprint} "Apple Development: Owner Identity (ABCDE12345)"\n'.encode()
+                    return f'  1) {fingerprint} "{SIGNING_CERT_NAME}"\n'.encode()
+                if argv[:2] == ["security", "find-certificate"]:
+                    return SIGNING_CERT_PEM
                 if argv[:2] == ["security", "delete-keychain"]:
                     Path(argv[-1]).unlink(missing_ok=True)
                 return b""
@@ -404,15 +441,18 @@ class RepositoryApplePhysicalDeviceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             keychain = Path(td) / "managed.keychain-db"
             cases = (
-                f'  1) {"A" * 40} "Apple Distribution: Owner Identity (ABCDE12345)"\n',
-                f'  1) {"A" * 40} "Apple Development: Owner Identity (OTHER12345)"\n',
-                f'  1) {"A" * 40} "Apple Development: First (ABCDE12345)"\n  2) {"B" * 40} "Apple Development: Second (ABCDE12345)"\n',
-                '  0 valid identities found\n',
+                (f'  1) {"A" * 40} "Apple Distribution: Owner Identity (ABCDE12345)"\n', "ABCDE12345"),
+                # A matching-looking CN suffix cannot override the signed OU.
+                (f'  1) {SIGNING_CERT_FINGERPRINT} "{SIGNING_CERT_NAME}"\n', "PERSON1234"),
+                (f'  1) {"A" * 40} "Apple Development: First (ABCDE12345)"\n  2) {"B" * 40} "Apple Development: Second (ABCDE12345)"\n', "ABCDE12345"),
+                ('  0 valid identities found\n', "ABCDE12345"),
             )
-            for value in cases:
-                with self.subTest(value=value), patch.object(device, "_run_private", return_value=value.encode()):
+            for value, team in cases:
+                def command(args, **_kwargs):
+                    return SIGNING_CERT_PEM if args[1] == 'find-certificate' else value.encode()
+                with self.subTest(value=value), patch.object(device, "_run_private", side_effect=command):
                     with self.assertRaisesRegex(device.DeviceError, "identity validation failed"):
-                        device._selected_signing_identity(keychain, "ABCDE12345")
+                        device._selected_signing_identity(keychain, team)
 
     def test_valid_identity_failure_reasons_are_fixed_and_secret_free(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -441,7 +481,8 @@ class RepositoryApplePhysicalDeviceTests(unittest.TestCase):
                     self.assertEqual(argv[-1], str(keychain))
                     return valid_inventory if '-v' in argv else all_inventory
 
-                with self.subTest(code=code), patch.object(device, '_run_private', side_effect=private_command):
+                with (self.subTest(code=code), patch.object(device, '_run_private', side_effect=private_command),
+                      patch.object(device, '_imported_certificate_metadata', return_value=('OTHER12345', '123ABC'))):
                     with self.assertRaises(device.DeviceError) as raised:
                         device._selected_signing_identity(keychain, "ABCDE12345")
                     self.assertEqual(
@@ -582,27 +623,85 @@ class RepositoryApplePhysicalDeviceTests(unittest.TestCase):
                 self.assertNotIn('Private Person', str(raised.exception))
                 self.assertNotIn('NOT_A_FINGERPRINT', str(raised.exception))
 
-    def test_valid_identity_selection_does_not_query_nonvalidated_inventory(self) -> None:
+    def test_valid_identity_selection_reads_public_leaf_without_nonvalidated_inventory(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             keychain = Path(td) / 'managed.keychain-db'
-            fingerprint = 'F' * 40
-            valid = f'  1) {fingerprint} "Apple Development: Person (ABCDE12345)"\n  1 valid identities found\n'
-            with patch.object(device, '_run_private', return_value=valid.encode()) as runner:
+            fingerprint = SIGNING_CERT_FINGERPRINT
+            valid = f'  1) {fingerprint} "{SIGNING_CERT_NAME}"\n  1 valid identities found\n'
+            def command(args, **_kwargs):
+                return SIGNING_CERT_PEM if args[1] == 'find-certificate' else valid.encode()
+            with patch.object(device, '_run_private', side_effect=command) as runner:
                 self.assertEqual(device._selected_signing_identity(keychain, 'ABCDE12345'), fingerprint)
-                runner.assert_called_once_with([
-                    'security', 'find-identity', '-v', '-p', 'codesigning', str(keychain),
+                self.assertEqual([call.args[0] for call in runner.call_args_list], [
+                    ['security', 'find-identity', '-v', '-p', 'codesigning', str(keychain)],
+                    ['security', 'find-certificate', '-a', '-p', str(keychain)],
                 ])
+
+    def test_public_leaf_is_fingerprint_bound_and_decoded_in_private_temporary_file(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            # Another public certificate record precedes the selected identity.
+            other_der = SIGNING_CERT_DER[:-1] + bytes([SIGNING_CERT_DER[-1] ^ 1])
+            inventory = ssl.DER_cert_to_PEM_cert(other_der).encode('ascii') + SIGNING_CERT_PEM
+            decode = device.ssl._ssl._test_decode_cert
+            def private_decode(path):
+                self.assertEqual(Path(path).stat().st_mode & 0o777, 0o600)
+                self.assertEqual(Path(path).parent.stat().st_mode & 0o777, 0o700)
+                return decode(path)
+            with (patch.object(device, '_run_private', return_value=inventory),
+                  patch.object(device.ssl._ssl, '_test_decode_cert', side_effect=private_decode)):
+                self.assertEqual(device._imported_certificate_metadata(root / 'keychain', SIGNING_CERT_FINGERPRINT),
+                                 ('ABCDE12345', '123ABC'))
+            self.assertEqual(list(root.iterdir()), [])
+
+    def test_public_leaf_rejects_missing_malformed_ambiguous_and_unmatched_certificates(self) -> None:
+        invalid_der = b'not-a-certificate' * 4
+        cases = (
+            (b'', SIGNING_CERT_FINGERPRINT),
+            (b'x' * (device.MAX_CERTIFICATE_INVENTORY_BYTES + 1), SIGNING_CERT_FINGERPRINT),
+            (b'private non-PEM output', SIGNING_CERT_FINGERPRINT),
+            (SIGNING_CERT_PEM + b'private trailing output', SIGNING_CERT_FINGERPRINT),
+            (SIGNING_CERT_PEM * 2, SIGNING_CERT_FINGERPRINT),
+            (SIGNING_CERT_PEM * 17, SIGNING_CERT_FINGERPRINT),
+            (SIGNING_CERT_PEM, 'F' * 40),
+            (ssl.DER_cert_to_PEM_cert(invalid_der).encode(), hashlib.sha1(invalid_der).hexdigest().upper()),
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for raw, fingerprint in cases:
+                with self.subTest(case=cases.index((raw, fingerprint))), patch.object(device, '_run_private', return_value=raw):
+                    with self.assertRaises(device.DeviceError) as caught:
+                        device._imported_certificate_metadata(root / 'keychain', fingerprint)
+                self.assertEqual(str(caught.exception), 'Central Apple Development certificate metadata could not be read')
+                self.assertEqual(list(root.iterdir()), [])
+
+    def test_public_leaf_requires_exactly_one_valid_subject_ou(self) -> None:
+        subjects = (
+            (),
+            ((('organizationalUnitName', 'ABCDE12345'),), (('organizationalUnitName', 'OTHER12345'),)),
+            ((('organizationalUnitName', 'not-a-team'),),),
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for subject in subjects:
+                with (self.subTest(subject=subject), patch.object(device, '_run_private', return_value=SIGNING_CERT_PEM),
+                      patch.object(device.ssl._ssl, '_test_decode_cert', return_value={'subject': subject, 'serialNumber': '123ABC'})):
+                    with self.assertRaisesRegex(device.DeviceError, 'certificate metadata could not be read'):
+                        device._imported_certificate_metadata(root / 'keychain', SIGNING_CERT_FINGERPRINT)
+                self.assertEqual(list(root.iterdir()), [])
 
     def test_signing_probe_error_is_fixed_and_does_not_reveal_identity(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             keychain = Path(td) / 'managed.keychain-db'
             temp = Path(td)
-            fingerprint = 'F' * 40
+            fingerprint = SIGNING_CERT_FINGERPRINT
             for command, code in (('codesign', 'codesign'), ('verify', 'verification')):
                 with self.subTest(command=command):
                     def private_command(argv: list[str], **_kwargs):
                         if argv[:2] == ['security', 'find-identity']:
-                            return f'  1) {fingerprint} "Apple Development: Private Person (ABCDE12345)"\n'.encode()
+                            return f'  1) {fingerprint} "{SIGNING_CERT_NAME}"\n'.encode()
+                        if argv[:2] == ['security', 'find-certificate']:
+                            return SIGNING_CERT_PEM
                         if argv[0] == 'codesign' and (command == 'codesign' or '--verify' in argv):
                             raise device.DeviceError('private hidden command failure')
                         return b''
@@ -664,6 +763,99 @@ class RepositoryApplePhysicalDeviceTests(unittest.TestCase):
             self.assertFalse(bundle.exists())
             self.assertFalse(keychain.exists())
             self.assertFalse(any(cmd[0] in ("openssl", "curl") for cmd in commands))
+
+    def test_failed_search_restore_still_restores_default_and_removes_p12(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            state, keychain, bundle = device._signing_paths(root)
+            calls = []
+            fail_restore = True
+            def command(args, **_kwargs):
+                calls.append(args)
+                if args[1] == 'list-keychains' and fail_restore:
+                    raise device.DeviceError('synthetic restore failure')
+                if args[1] == 'delete-keychain':
+                    keychain.unlink()
+                return b''
+            with patch.dict(os.environ, {'RUNNER_TEMP': td}), patch.object(device, '_run_private', side_effect=command):
+                self.prepare_cleanup_state(root)
+                with self.assertRaisesRegex(device.DeviceError, 'signing cleanup failed'):
+                    device.cleanup_signing()
+                self.assertTrue(any(args[1] == 'default-keychain' for args in calls))
+                self.assertFalse(bundle.exists())
+                self.assertFalse(keychain.exists())
+                self.assertTrue(state.exists())
+                fail_restore = False
+                device.cleanup_signing()
+                self.assertFalse(state.exists())
+
+    def test_missing_or_malformed_cleanup_state_cannot_retain_raw_p12(self) -> None:
+        for missing in (False, True):
+            with self.subTest(missing_state=missing), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                with patch.dict(os.environ, {'RUNNER_TEMP': td}), patch.object(device, '_run_private') as command:
+                    state, keychain, bundle = self.prepare_cleanup_state(root)
+                    if missing:
+                        state.unlink()
+                    else:
+                        state.write_text('{invalid-json')
+                    with self.assertRaises(device.DeviceError) as caught:
+                        device.cleanup_signing()
+                    self.assertFalse(bundle.exists())
+                    self.assertTrue(keychain.exists())
+                    self.assertEqual(state.exists(), not missing)
+                    command.assert_not_called()
+                self.assertNotIn(td, str(caught.exception))
+
+    def test_unreadable_cleanup_state_is_safe_after_raw_p12_purge(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with patch.dict(os.environ, {'RUNNER_TEMP': td}):
+                state, keychain, bundle = self.prepare_cleanup_state(root)
+                stderr = io.StringIO()
+                with (patch.object(device, '_read_signing_state', side_effect=PermissionError(f'private-state-path:{state}')),
+                      patch.object(device, '_run_private') as command, patch.object(device.sys, 'stderr', stderr)):
+                    self.assertEqual(device.main(['cleanup']), 2)
+                self.assertEqual(stderr.getvalue(), 'Central Apple Development signing cleanup state is unavailable\n')
+                self.assertFalse(bundle.exists())
+                self.assertTrue(state.exists())
+                self.assertTrue(keychain.exists())
+                command.assert_not_called()
+
+    def test_cleanup_unlink_errors_are_safe_and_do_not_stop_independent_restoration(self) -> None:
+        for failed_file in ('bundle', 'state'):
+            with self.subTest(file=failed_file), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                with patch.dict(os.environ, {'RUNNER_TEMP': td}):
+                    state, keychain, bundle = self.prepare_cleanup_state(root)
+                    failed_path = bundle if failed_file == 'bundle' else state
+                    unlink = Path.unlink
+                    events = []
+                    def guarded_unlink(path, *args, **kwargs):
+                        events.append(('unlink', path.name))
+                        if path == failed_path:
+                            raise PermissionError(f'private-unlink-path:{path}')
+                        return unlink(path, *args, **kwargs)
+                    def command(args, **_kwargs):
+                        events.append(('security', args[1]))
+                        if args[1] == 'delete-keychain':
+                            keychain.unlink()
+                        return b''
+                    stderr = io.StringIO()
+                    with (patch.object(Path, 'unlink', guarded_unlink),
+                          patch.object(device, '_run_private', side_effect=command),
+                          patch.object(device.sys, 'stderr', stderr)):
+                        self.assertEqual(device.main(['cleanup']), 2)
+                    self.assertEqual(stderr.getvalue(), 'Central Apple Development signing cleanup failed\n')
+                    self.assertEqual(events[0], ('unlink', bundle.name))
+                    self.assertIn(('security', 'list-keychains'), events)
+                    self.assertIn(('security', 'default-keychain'), events)
+                    self.assertFalse(keychain.exists())
+                    self.assertTrue(state.exists())
+                    self.assertEqual(bundle.exists(), failed_file == 'bundle')
+                    with patch.object(device, '_run_private', side_effect=command):
+                        device.cleanup_signing()
+                    self.assertEqual(list(root.iterdir()), [])
 
     def test_p12_secrets_do_not_reach_product_entrypoint(self) -> None:
         with tempfile.TemporaryDirectory() as td:

@@ -14,6 +14,9 @@ import yaml
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/"scripts/ci"))
 import apple_credential_preflight as preflight
+from tests.test_repository_apple_physical_device import (
+    SIGNING_CERT_FINGERPRINT, SIGNING_CERT_NAME, SIGNING_CERT_PEM,
+)
 
 
 class CredentialPreflightTests(unittest.TestCase):
@@ -46,13 +49,33 @@ class CredentialPreflightTests(unittest.TestCase):
             with self.subTest(candidate=candidate),self.assertRaises(ValueError):
                 preflight._ecdsa_der_to_jose(candidate)
 
-    def test_subject_and_serial_are_private_bounded_and_exact(self):
-        self.assertEqual(preflight._subject_ou(b"subject=CN=Apple Development: Owner (ABCDE12345),OU=ABCDE12345,O=Apple Inc."),"ABCDE12345")
-        self.assertEqual(preflight._subject_ou(b"subject=OU=ABCDE12345,OU=OTHER12345,O=Apple Inc."),"")
-        self.assertEqual(preflight._subject_ou(b"subject=CN=Owner,OU=WRONG,O=Apple"),"")
-        self.assertEqual(preflight._leaf_serial(b"serial=001ABC\n"),"001ABC")
-        self.assertEqual(preflight._leaf_fingerprint(b"sha1 Fingerprint="+b"AA:"*19+b"AA\n"),"AA"*20)
-        self.assertEqual(preflight._leaf_serial(b"serial=invalid private material\n"),"")
+    def test_public_certificate_read_failure_does_not_accuse_credentials(self):
+        with tempfile.TemporaryDirectory() as td:
+            p=preflight.Preflight(Path(td))
+            inventory=f'1) {SIGNING_CERT_FINGERPRINT} "{SIGNING_CERT_NAME}"\n1 identity found\n'.encode()
+            calls=[]
+            def command(args,**_kwargs):
+                calls.append(args)
+                if args[:2]==['security','find-identity']:
+                    return inventory
+                if args[:2]==['security','find-certificate']:
+                    raise RuntimeError('private certificate tool error')
+                return b''
+            credentials=('ABCDE12345',b'\x30'+b'a'*63,'synthetic-password',b'','','')
+            with (patch.object(p,'_create_keychain'),patch.object(preflight,'_credentials',return_value=credentials),
+                  patch.object(preflight,'_call',side_effect=command)):
+                output=io.StringIO()
+                with redirect_stdout(output):
+                    self.assertEqual(p.run(),1)
+            self.assertIn('P12_IMPORT=PASS',output.getvalue())
+            self.assertIn('PRIVATE_KEY_PRESENT=PASS',output.getvalue())
+            self.assertIn('CERTIFICATE_READ=READ_FAILED',output.getvalue())
+            self.assertIn('CERT_TEAM_MATCH=NOT_APPLICABLE',output.getvalue())
+            self.assertIn('API_AUTH=INVALID_KEY',output.getvalue())
+            self.assertIn('CLEANUP=PASS',output.getvalue())
+            self.assertNotIn('private certificate tool error',output.getvalue())
+            self.assertNotIn(['openssl','pkcs12'],[args[:2] for args in calls])
+            self.assertFalse(p.root.exists())
 
     def test_api_status_is_fixed_without_provider_values(self):
         with tempfile.TemporaryDirectory() as td:
@@ -80,8 +103,8 @@ class CredentialPreflightTests(unittest.TestCase):
             p.cleanup()
 
     def test_run_uses_isolated_keychain_and_cleans_all_state(self):
-        fingerprint="A"*40
-        common_name="Apple Development: Owner (ABCDE12345)"
+        fingerprint=SIGNING_CERT_FINGERPRINT
+        common_name=SIGNING_CERT_NAME
         trace=[]
         with tempfile.TemporaryDirectory() as td:
             tmp=Path(td)
@@ -101,38 +124,35 @@ class CredentialPreflightTests(unittest.TestCase):
                             f'Valid identities only\n  1) {fingerprint} "{common_name}"\n1 valid identity found\n').encode()
                 if args[:3]==["security","find-identity","-v"]:
                     return f'  1) {fingerprint} "{common_name}"\n1 valid identity found\n'.encode()
+                if args[:2]==["security","find-certificate"]:
+                    return SIGNING_CERT_PEM
                 if args[:2]==["openssl","pkcs12"]:
-                    Path(args[args.index("-out")+1]).write_bytes(b"leaf")
-                if args[:2]==["openssl","x509"] and "-subject" in args:
-                    return b"subject=CN=Apple Development: Owner (ABCDE12345),OU=ABCDE12345,O=Apple\n"
-                if args[:2]==["openssl","x509"] and "-serial" in args:
-                    return b"serial=001ABC\n"
-                if args[:2]==["openssl","x509"] and "-fingerprint" in args:
-                    return b"sha1 Fingerprint="+(b"AA:"*19)+b"AA\n"
+                    self.fail('must not decrypt a natively imported P12 a second time')
                 if args[:2]==["xcrun","clang"]:
                     Path(args[-1]).write_bytes(b"mach-o")
                 return b""
             p=preflight.Preflight(tmp)
             def cred():
                 return "ABCDE12345",b"\x30"+b"x"*63,"private-password",b"-----BEGIN PRIVATE KEY-----\nfoo\n-----END PRIVATE KEY-----","AAAAA12345","fd8567df-5955-4ae5-bf23-13e023d10a6d"
-            proof=json.dumps({"data":[{"attributes":{"serialNumber":"001ABC"}}]}).encode()
+            proof=json.dumps({"data":[{"attributes":{"serialNumber":"123ABC"}}]}).encode()
             with patch.object(preflight,"_credentials",side_effect=cred),patch.object(preflight,"_call",side_effect=private_call),patch.object(preflight,"_jwt",return_value="hidden.jwt"),patch.object(preflight,"_apple_certificates",return_value=(200,proof)):
                 output=io.StringIO()
                 with redirect_stdout(output):
                     self.assertEqual(p.run(),0)
             self.assertIn("P12_IMPORT=PASS",output.getvalue())
             self.assertIn("API_CERT_ACCOUNT_MATCH=PASS",output.getvalue())
-            self.assertIn("CERT_NAME_POLICY=PASS",output.getvalue())
-            for private in ("private-password","ABCDE12345",fingerprint,"001ABC","hidden.jwt",str(tmp)):
+            self.assertIn("CERTIFICATE_READ=PASS",output.getvalue())
+            self.assertIn("CLEANUP=PASS",output.getvalue())
+            for private in ("private-password","ABCDE12345",fingerprint,"123ABC","hidden.jwt",str(tmp),common_name):
                 self.assertNotIn(private,output.getvalue())
             self.assertFalse((tmp/preflight.ROOT_NAME).exists())
             self.assertTrue(any(args[:2]==["codesign","--force"] for args in trace))
             self.assertTrue(any(args[:2]==["codesign","--verify"] for args in trace))
             self.assertTrue(any(args[:2]==["security","delete-keychain"] for args in trace))
 
-    def test_real_ou_match_but_display_suffix_mismatch_is_classified_separately(self):
-        fingerprint="A"*40
-        name="Apple Development: Owner (OTHER12345)"
+    def test_real_ou_match_with_different_display_suffix_passes_preflight(self):
+        fingerprint=SIGNING_CERT_FINGERPRINT
+        name=SIGNING_CERT_NAME
         original="/Users/runner/login.keychain-db"
         with tempfile.TemporaryDirectory() as td:
             temp=Path(td)
@@ -150,30 +170,26 @@ class CredentialPreflightTests(unittest.TestCase):
                             f'Valid identities only\n1) {fingerprint} "{name}"\n1 valid identity found\n').encode()
                 if args[:3]==["security","find-identity","-v"]:
                     return f'1) {fingerprint} "{name}"\n1 valid identity found\n'.encode()
+                if args[:2]==["security","find-certificate"]:
+                    return SIGNING_CERT_PEM
                 if args[:2]==["openssl","pkcs12"]:
-                    Path(args[args.index("-out")+1]).write_bytes(b"cert")
-                if args[:2]==["openssl","x509"] and "-subject" in args:
-                    return b"subject=CN=Apple Development: Owner (OTHER12345),OU=ABCDE12345,O=Apple\n"
-                if args[:2]==["openssl","x509"] and "-serial" in args:
-                    return b"serial=001ABC\n"
-                if args[:2]==["openssl","x509"] and "-fingerprint" in args:
-                    return b"sha1 Fingerprint="+(b"AA:"*19)+b"AA\n"
+                    self.fail('must not decrypt a natively imported P12 a second time')
                 if args[:2]==["xcrun","clang"]:
                     Path(args[-1]).write_bytes(b"binary")
                 return b""
             p=preflight.Preflight(temp)
             pem=b"-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----"
             creds=("ABCDE12345",b"\x30"+b"a"*63,"secret-password",pem,"ABCDE12345","fd8567df-5955-4ae5-bf23-13e023d10a6d")
-            response=json.dumps({"data":[{"attributes":{"serialNumber":"001ABC"}}]}).encode()
+            response=json.dumps({"data":[{"attributes":{"serialNumber":"123ABC"}}]}).encode()
             with patch.object(preflight,"_credentials",return_value=creds),patch.object(preflight,"_call",side_effect=command),patch.object(preflight,"_jwt",return_value="private"),patch.object(preflight,"_apple_certificates",return_value=(200,response)):
                 output=io.StringIO()
                 with redirect_stdout(output):
-                    self.assertEqual(p.run(),1)
+                    self.assertEqual(p.run(),0)
             self.assertIn("CERT_TEAM_MATCH=PASS",output.getvalue())
-            self.assertIn("CERT_NAME_POLICY=NAME_MISMATCH",output.getvalue())
+            self.assertNotIn("CERT_NAME_POLICY",output.getvalue())
             self.assertIn("CODESIGN_VERIFY=PASS",output.getvalue())
             self.assertFalse((temp/preflight.ROOT_NAME).exists())
-            self.assertNotIn("OTHER12345",output.getvalue())
+            self.assertNotIn("PERSON1234",output.getvalue())
 
     def test_p12_password_import_failure_is_sanitized_and_cleaned(self):
         with tempfile.TemporaryDirectory() as td:
@@ -207,8 +223,8 @@ class CredentialPreflightTests(unittest.TestCase):
             self.assertTrue(any(a[:2]==["security","delete-keychain"] for a in commands))
 
     def test_private_key_present_but_security_trust_invalid_does_not_codesign(self):
-        fingerprint="A"*40
-        name="Apple Development: Owner (ABCDE12345)"
+        fingerprint=SIGNING_CERT_FINGERPRINT
+        name=SIGNING_CERT_NAME
         with tempfile.TemporaryDirectory() as td:
             root=Path(td)
             pre=preflight.Preflight(root)
@@ -230,14 +246,8 @@ class CredentialPreflightTests(unittest.TestCase):
                             f'Valid identities only\n0 valid identities found\n').encode()
                 if args[:3]==["security","find-identity","-v"]:
                     return b"0 valid identities found\n"
-                if args[:2]==["openssl","pkcs12"]:
-                    Path(args[args.index("-out")+1]).write_bytes(b"leaf")
-                if args[:2]==["openssl","x509"] and "-subject" in args:
-                    return b"subject=CN=Apple Development: Owner (ABCDE12345),OU=ABCDE12345,O=Apple\n"
-                if args[:2]==["openssl","x509"] and "-serial" in args:
-                    return b"serial=001ABC\n"
-                if args[:2]==["openssl","x509"] and "-fingerprint" in args:
-                    return b"sha1 Fingerprint="+(b"AA:"*19)+b"AA\n"
+                if args[:2]==["security","find-certificate"]:
+                    return SIGNING_CERT_PEM
                 return b""
             with patch.object(preflight,"_call",side_effect=private):
                 with self.assertRaises(preflight.PreflightFailure) as caught:
@@ -248,6 +258,75 @@ class CredentialPreflightTests(unittest.TestCase):
             self.assertEqual(pre.status["CERT_TEAM_MATCH"],"PASS")
             self.assertNotIn("codesign",[args[0] for args in calls])
             self.assertFalse((root/preflight.ROOT_NAME).exists())
+
+    def test_cleanup_always_purges_credentials_and_probes_then_retries_context(self):
+        for failed_operation in ('list-keychains','default-keychain','delete-keychain'):
+            with self.subTest(operation=failed_operation),tempfile.TemporaryDirectory() as td:
+                p=preflight.Preflight(Path(td))
+                p._secure_root()
+                p.state.write_text(json.dumps({'search':['/synthetic/login.keychain-db'],'default':'/synthetic/login.keychain-db'}))
+                p.keychain.write_bytes(b'synthetic-keychain')
+                for name in ('owner.p12','api.p8','pub.pem','leaf.pem','probe.c','probe'):
+                    (p.root/name).write_bytes(b'synthetic-private-payload')
+                nested=p.root/'central-apple-public-leaf-interrupted'
+                nested.mkdir()
+                (nested/'leaf.pem').write_bytes(b'synthetic-public-leaf')
+                calls=[]
+                failure=failed_operation
+                def command(args,**_kwargs):
+                    calls.append(args)
+                    for name in ('owner.p12','api.p8','probe.c','probe'):
+                        self.assertFalse((p.root/name).exists())
+                    if args[1]==failure:
+                        raise RuntimeError('synthetic-private-failure')
+                    if args[1]=='delete-keychain':
+                        p.keychain.unlink()
+                    return b''
+                with patch.object(preflight,'_call',side_effect=command):
+                    with self.assertRaisesRegex(RuntimeError,'private keychain cleanup failed'):
+                        p.cleanup()
+                    self.assertTrue(any(args[1]=='list-keychains' for args in calls))
+                    self.assertTrue(any(args[1]=='default-keychain' for args in calls))
+                    self.assertTrue(p.state.is_file())
+                    expected={p.state.name,p.keychain.name} if failed_operation=='delete-keychain' else {p.state.name}
+                    self.assertEqual({path.name for path in p.root.iterdir()},expected)
+                    failure=None
+                    p.cleanup()
+                self.assertFalse(p.root.exists())
+
+    def test_invalid_cleanup_state_still_removes_credentials_without_claiming_restoration(self):
+        with tempfile.TemporaryDirectory() as td:
+            p=preflight.Preflight(Path(td))
+            p._secure_root()
+            p.state.write_text('{invalid-state')
+            (p.root/'owner.p12').write_bytes(b'synthetic-p12')
+            (p.root/'api.p8').write_bytes(b'synthetic-p8')
+            with patch.object(preflight,'_call') as command:
+                with self.assertRaisesRegex(RuntimeError,'private keychain cleanup failed'):
+                    p.cleanup()
+            command.assert_not_called()
+            self.assertEqual(list(p.root.iterdir()),[p.state])
+
+    def test_cleanup_result_never_overwrites_successful_credential_stages(self):
+        with tempfile.TemporaryDirectory() as td:
+            p=preflight.Preflight(Path(td))
+            def signing(*_args):
+                for stage in ('P12_IMPORT','PRIVATE_KEY_PRESENT','CERTIFICATE_READ','CERT_TEAM_MATCH','CERT_TRUST_VALID','CODESIGN','CODESIGN_VERIFY'):
+                    p._stage(stage,'PASS')
+            def api(*_args):
+                p._stage('API_AUTH','PASS')
+                p._stage('API_CERT_ACCESS','PASS')
+            with (patch.object(preflight,'_credentials',return_value=('ABCDE12345',b'x','synthetic-password',b'x','key','issuer')),
+                  patch.object(p,'_p12',side_effect=signing),patch.object(p,'_api',side_effect=api),
+                  patch.object(p,'cleanup',side_effect=RuntimeError('private-cleanup-error'))):
+                output=io.StringIO()
+                with redirect_stdout(output):
+                    self.assertEqual(p.run(),1)
+            self.assertIn('P12_IMPORT=PASS',output.getvalue())
+            self.assertIn('CODESIGN_VERIFY=PASS',output.getvalue())
+            self.assertIn('CLEANUP=CLEANUP_FAILED',output.getvalue())
+            self.assertNotIn('private-cleanup-error',output.getvalue())
+            p.cleanup()
 
     def test_invalid_team_does_not_suppress_independent_api_diagnostic(self):
         with tempfile.TemporaryDirectory() as td:

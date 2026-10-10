@@ -17,7 +17,6 @@ import secrets
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -28,12 +27,13 @@ import repository_apple_physical_device as signing
 
 ROOT_NAME = "central-apple-credential-preflight-v1"
 STAGES = (
-    "P12_IMPORT", "PRIVATE_KEY_PRESENT", "CERT_TEAM_MATCH", "CERT_NAME_POLICY", "CERT_TRUST_VALID",
+    "P12_IMPORT", "PRIVATE_KEY_PRESENT", "CERTIFICATE_READ", "CERT_TEAM_MATCH", "CERT_TRUST_VALID",
     "CODESIGN", "CODESIGN_VERIFY", "API_AUTH", "API_CERT_ACCESS", "API_CERT_ACCOUNT_MATCH",
+    "CLEANUP",
 )
 SAFE_RESULTS = frozenset((
     "PASS", "NOT_APPLICABLE", "MISSING", "INVALID_P12", "IMPORT_FAILED", "NO_PRIVATE_KEY",
-    "AMBIGUOUS", "WRONG_TYPE", "WRONG_TEAM", "NAME_MISMATCH", "CERT_INVALID", "NO_VALID_IDENTITY",
+    "AMBIGUOUS", "WRONG_TYPE", "WRONG_TEAM", "READ_FAILED", "CERT_INVALID", "NO_VALID_IDENTITY",
     "SIGN_FAILED", "VERIFY_FAILED", "KEYCHAIN_SETUP_FAILED", "INVALID_KEY", "INVALID_JWT", "UNAUTHORIZED_401",
     "FORBIDDEN_403", "NETWORK_ERROR", "HTTP_ERROR", "BAD_RESPONSE", "NOT_VISIBLE",
     "UNEXPECTED_FAILURE", "CLEANUP_FAILED",
@@ -96,38 +96,6 @@ def _credentials() -> tuple[str, bytes, str, bytes, str, str]:
     except (ValueError, binascii.Error):
         p8 = b""
     return team, p12, password, p8, key_id, issuer
-
-
-def _subject_ou(subject: bytes) -> str:
-    """Extract exact unescaped 10-character X.509 subject OU, without logging CN."""
-    if len(subject) > 8192:
-        return ""
-    try:
-        line = subject.decode("utf-8", errors="strict").strip()
-    except UnicodeError:
-        return ""
-    if not line.startswith("subject="):
-        return ""
-    groups = re.findall(r"(?:^|(?<!\\),)OU=([A-Z0-9]{10})(?=,|$)", line[8:])
-    return groups[0] if len(groups) == 1 else ""
-
-
-def _leaf_fingerprint(raw: bytes) -> str:
-    if len(raw)>256:
-        return ""
-    try:
-        value=raw.decode("ascii").strip()
-    except UnicodeError:
-        return ""
-    match=re.fullmatch(r"(?:sha1 |SHA1 )?Fingerprint=((?:[0-9A-Fa-f]{2}:){19}[0-9A-Fa-f]{2})",value)
-    return match.group(1).replace(":", "").upper() if match else ""
-
-
-def _leaf_serial(raw: bytes) -> str:
-    if len(raw) > 1024:
-        return ""
-    match = re.fullmatch(rb"serial=([0-9A-Fa-f]{1,64})\s*", raw)
-    return match.group(1).decode("ascii").upper() if match else ""
 
 
 def _ecdsa_der_to_jose(raw: bytes) -> bytes:
@@ -291,25 +259,15 @@ class Preflight:
         _, common_name = found[0]
         if not common_name.startswith(("Apple Development:","iOS Development:")):
             raise PreflightFailure("CERT_TEAM_MATCH","WRONG_TYPE")
-        env = dict(os.environ, PREFLIGHT_PKCS12_PASS=password)
         try:
-            _call(["openssl","pkcs12","-in",str(self.root/"owner.p12"),"-clcerts","-nokeys",
-                   "-passin","env:PREFLIGHT_PKCS12_PASS","-out",str(self.root/"leaf.pem")],env=env)
-            (self.root/"leaf.pem").chmod(0o600)
-            subject = _call(["openssl","x509","-in",str(self.root/"leaf.pem"),"-noout","-subject","-nameopt","RFC2253"])
-            serial = _call(["openssl","x509","-in",str(self.root/"leaf.pem"),"-noout","-serial"])
-            digest = _call(["openssl","x509","-in",str(self.root/"leaf.pem"),"-noout","-fingerprint","-sha1"])
-        except RuntimeError:
-            raise PreflightFailure("CERT_TEAM_MATCH","CERT_INVALID") from None
-        if _leaf_fingerprint(digest) != found[0][0]:
-            raise PreflightFailure("CERT_TEAM_MATCH","CERT_INVALID")
-        if _subject_ou(subject) != team:
+            signed_team, serial = signing._imported_certificate_metadata(self.keychain, found[0][0], command=_call)
+        except signing.DeviceError:
+            raise PreflightFailure("CERTIFICATE_READ","READ_FAILED") from None
+        self._stage("CERTIFICATE_READ","PASS")
+        if signed_team != team:
             raise PreflightFailure("CERT_TEAM_MATCH","WRONG_TEAM")
-        self.serial = _leaf_serial(serial) or None
+        self.serial = serial
         self._stage("CERT_TEAM_MATCH","PASS")
-        # Diagnose the separate existing product-side CN-suffix selector without
-        # misclassifying a correct signed subject OU as a bad Apple Developer team.
-        self._stage("CERT_NAME_POLICY","PASS" if common_name.endswith("(" + team + ")") else "NAME_MISMATCH")
         try:
             valid = signing._identity_records(_call(["security","find-identity","-v","-p","codesigning",str(self.keychain)]))
         except (RuntimeError, signing.DeviceError):
@@ -389,11 +347,12 @@ class Preflight:
         finally:
             try:
                 self.cleanup()
+                self._stage("CLEANUP","PASS")
             except (RuntimeError, OSError, ValueError, signing.DeviceError):
-                self._stage("P12_IMPORT","CLEANUP_FAILED")
+                self._stage("CLEANUP","CLEANUP_FAILED")
         for key,value in self.status.items():
             print(key+"="+value)
-        must_pass=("P12_IMPORT","PRIVATE_KEY_PRESENT","CERT_TEAM_MATCH","CERT_NAME_POLICY","CERT_TRUST_VALID", "CODESIGN","CODESIGN_VERIFY","API_AUTH","API_CERT_ACCESS")
+        must_pass=("P12_IMPORT","PRIVATE_KEY_PRESENT","CERTIFICATE_READ","CERT_TEAM_MATCH","CERT_TRUST_VALID", "CODESIGN","CODESIGN_VERIFY","API_AUTH","API_CERT_ACCESS","CLEANUP")
         return 0 if all(self.status[k]=="PASS" for k in must_pass) and self.status["API_CERT_ACCOUNT_MATCH"] in ("PASS","NOT_APPLICABLE") else 1
 
     def cleanup(self) -> None:
@@ -404,21 +363,43 @@ class Preflight:
         if not self.root.is_dir():
             raise RuntimeError("private cleanup target invalid")
         errors=[]
-        if self.state.exists():
-            if self.state.is_symlink() or not self.state.is_file():
-                raise RuntimeError("private keychain state invalid")
+        # Remove credential/probe payloads before potentially failing keychain
+        # commands. Only recovery state and the managed keychain can remain.
+        for path in self.root.iterdir():
+            if path in (self.state, self.keychain):
+                continue
             try:
+                if path.is_symlink() or not path.is_dir():
+                    path.unlink()
+                else:
+                    shutil.rmtree(path)
+            except OSError:
+                errors.append("private-file")
+        if self.state.exists() or self.state.is_symlink():
+            try:
+                if (self.state.is_symlink() or not self.state.is_file()
+                        or self.state.stat().st_size > 16 * 1024):
+                    raise ValueError
                 state=json.loads(self.state.read_text(encoding="utf-8"))
                 search=state["search"]
                 default=state["default"]
                 if (set(state)!={"search","default"} or not isinstance(search,list) or not search
-                    or any(not isinstance(v,str) or not v.startswith("/") for v in search)
-                    or not isinstance(default,str) or not default.startswith("/")):
+                    or any(not isinstance(v,str) or not v.startswith("/") or any(c in v for c in "\x00\r\n") for v in search)
+                    or not isinstance(default,str) or not default.startswith("/") or any(c in default for c in "\x00\r\n")):
                     raise ValueError
-                _call(["security","list-keychains","-d","user","-s",*search])
-                _call(["security","default-keychain","-d","user","-s",default])
-            except (OSError,ValueError,RuntimeError,KeyError):
+            except (OSError,ValueError,RuntimeError,KeyError,TypeError):
                 errors.append("context")
+            else:
+                for command in (
+                    ["security","list-keychains","-d","user","-s",*search],
+                    ["security","default-keychain","-d","user","-s",default],
+                ):
+                    try:
+                        _call(command)
+                    except RuntimeError:
+                        errors.append("context")
+        elif self.keychain.exists() or self.keychain.is_symlink():
+            errors.append("context")
         if self.keychain.exists() or self.keychain.is_symlink():
             try:
                 if self.keychain.is_symlink():
@@ -428,7 +409,8 @@ class Preflight:
                 errors.append("keychain")
         if errors or self.keychain.exists() or self.keychain.is_symlink():
             raise RuntimeError("private keychain cleanup failed")
-        shutil.rmtree(self.root)
+        self.state.unlink(missing_ok=True)
+        self.root.rmdir()
         if self.root.exists() or self.root.is_symlink():
             raise RuntimeError("private cleanup residue")
 
