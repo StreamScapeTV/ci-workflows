@@ -2044,13 +2044,20 @@ jobs:
           CI_SECRET_APPLE_DEVELOPMENT_P12_BASE64: ${{ inputs.operation == 'device-test' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APPLE_DEVELOPMENT_P12_BASE64 || '' }}
           CI_SECRET_APPLE_DEVELOPMENT_P12_PASSWORD: ${{ inputs.operation == 'device-test' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APPLE_DEVELOPMENT_P12_PASSWORD || '' }}
           CI_DYNAMIC_SECRET_FILE: ${{ runner.temp }}/central-apple-physical-device-secrets.txt
+          EVIDENCE_SOURCE_SHA: ${{ steps.source_identity.outputs.source_sha }}
+          EVIDENCE_EXECUTE_OUTCOME: ${{ steps.execute_contract.outcome }}
         run: |
           set -Eeuo pipefail
           python3 - <<'PY_REDACT'
           import hashlib
           import json
           import os
+          import sys
           from pathlib import Path
+
+          # Filesystem exceptions can embed credential-bearing artifact names.
+          # Keep unexpected failures actionable without printing paths or tracebacks.
+          sys.excepthook = lambda kind, *_: print(f"repository CI evidence processing failed: {kind.__name__}", file=sys.stderr)
 
           paths = [Path(os.environ["CI_LOG"]), Path(os.environ["CI_PROGRESS_FILE"])]
           log_root = Path(os.environ["CI_LOG_DIR"])
@@ -2064,12 +2071,12 @@ jobs:
           resolved_log_root = log_root.resolve(strict=True)
           for path in sorted(log_root.rglob("*")):
               if path.is_symlink():
-                  raise SystemExit(f"repository CI text evidence must not contain symlinks: {path.name}")
+                  raise SystemExit("repository CI text evidence must not contain symlinks")
               if not path.is_file():
                   continue
               resolved = path.resolve(strict=True)
               if os.path.commonpath((str(resolved), str(resolved_log_root))) != str(resolved_log_root):
-                  raise SystemExit(f"repository CI text evidence escapes its Central-owned root: {path.name}")
+                  raise SystemExit("repository CI text evidence escapes its Central-owned root")
               paths.append(path)
           secrets = [value.encode() for name, value in os.environ.items() if name.startswith("CI_SECRET_") and value]
           dynamic_secret_path = Path(os.environ.get("CI_DYNAMIC_SECRET_FILE", str(Path(os.environ["RUNNER_TEMP"]) / "central-apple-physical-device-secrets.txt")))
@@ -2083,9 +2090,9 @@ jobs:
                       secrets.append(line)
           for path in paths:
               if path.is_symlink() or not path.is_file():
-                  raise SystemExit(f"repository CI text evidence must remain one regular non-symlink file: {path.name}")
+                  raise SystemExit("repository CI text evidence must remain one regular non-symlink file")
               if path.stat().st_size > 16 * 1024 * 1024:
-                  raise SystemExit(f"repository CI text evidence file exceeds 16 MiB before scrub: {path.name}")
+                  raise SystemExit("repository CI text evidence file exceeds 16 MiB before scrub")
               data = path.read_bytes()
               for raw in secrets:
                   data = data.replace(raw, b"[REDACTED]")
@@ -2103,12 +2110,81 @@ jobs:
                       return True
               return False
 
+          # Reserve the fixed diagnostic pair and a bounded report before optional
+          # logs/artifacts. Raw artifact directories are atomic evidence groups;
+          # an incomplete native result directory must never look like a full one.
+          report_budget = 64 * 1024
+          core = []
+          for name, variable in (("central.log", "CI_LOG"), ("progress.txt", "CI_PROGRESS_FILE")):
+              path = Path(os.environ[variable])
+              if path.is_symlink() or not path.is_file():
+                  raise SystemExit("repository CI text evidence changed during scrub")
+              data = path.read_bytes()
+              if len(data) > 16 * 1024 * 1024 or contains_configured_secret(data):
+                  raise SystemExit("repository CI text evidence changed during scrub")
+              core.append({"path": name, "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)})
+          remaining_files = 256 - len(core) - 1
+          remaining_bytes = 64 * 1024 * 1024 - sum(item["size"] for item in core) - report_budget
+          omissions = {"logs": {"groups": 0, "files": 0, "bytes": 0}, "artifacts": {"groups": 0, "files": 0, "bytes": 0}}
+          omission_reasons = {}
+          omission_details = []
+
+          def omit(kind: str, name: str, count: int, size: int, reason: str) -> None:
+              totals = omissions[kind]
+              totals["groups"] += 1
+              totals["files"] += count
+              totals["bytes"] += size
+              omission_reasons[reason] = omission_reasons.get(reason, 0) + 1
+              if len(omission_details) < 64:
+                  safe_name = os.fsencode(name)
+                  for raw in secrets:
+                      safe_name = safe_name.replace(raw, b"[REDACTED]")
+                      safe_name = safe_name.replace(raw.replace(b"\n", b"\\n"), b"[REDACTED]")
+                  full_name = safe_name.decode("utf-8", errors="replace")
+                  bounded_name = full_name[:240]
+                  while len(json.dumps(bounded_name).encode("utf-8")) > 512:
+                      bounded_name = bounded_name[:-1]
+                  omission_details.append({"kind": kind, "path": bounded_name, "path_truncated": bounded_name != full_name, "files": count, "bytes": size, "reason": reason})
+
+          selected_logs = []
+          # The fixed runtime probe is a failure diagnostic, before other product
+          # logs. All log bytes were scrubbed above, including omitted log files.
+          log_paths = sorted(log_root.rglob("*"), key=lambda path: (path.name != "central-runtime-probe.txt", path.relative_to(log_root).as_posix()))
+          for path in log_paths:
+              if not path.is_file():
+                  continue
+              size = path.stat().st_size
+              relative_path = path.relative_to(log_root).as_posix()
+              if contains_configured_secret(os.fsencode(relative_path)):
+                  omit("logs", relative_path, 1, size, "quarantine")
+                  continue
+              if remaining_files < 1 or size > remaining_bytes:
+                  omit("logs", relative_path, 1, size, "file_count" if remaining_files < 1 else "aggregate_bytes")
+                  continue
+              data = path.read_bytes()
+              if path.is_symlink() or len(data) > 16 * 1024 * 1024 or contains_configured_secret(data):
+                  raise SystemExit("repository CI text evidence changed during scrub")
+              selected_logs.append({"path": relative_path, "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)})
+              remaining_files -= 1
+              remaining_bytes -= len(data)
+          selected_logs.sort(key=lambda item: item["path"])
+
           resolved_artifact_root = artifact_root.resolve(strict=True)
           retained_artifacts: list[dict[str, object]] = []
+          artifact_groups = {}
           quarantined_secret_count = 0
           excluded_oversized_count = 0
           for path in sorted(artifact_root.rglob("*")):
               relative_path = path.relative_to(artifact_root).as_posix()
+              if not path.is_symlink() and not path.is_file():
+                  continue
+              group_name = Path(relative_path).parts[0]
+              group = artifact_groups.setdefault(group_name, {"items": [], "files": 0, "bytes": 0, "reason": None})
+              group["files"] += 1
+              secret_path = contains_configured_secret(os.fsencode(relative_path))
+              if secret_path:
+                  quarantined_secret_count += 1
+                  group["reason"] = "quarantine"
               if path.is_symlink():
                   raw_target = os.readlink(path)
                   data = os.fsencode(raw_target)
@@ -2123,22 +2199,28 @@ jobs:
                   resolved_target = path.resolve(strict=False)
                   if os.path.commonpath((str(resolved_target), str(resolved_artifact_root))) != str(resolved_artifact_root):
                       raise SystemExit("repository CI artifact evidence symlink escapes its Central-owned root")
+                  group["bytes"] += len(data)
                   kind = "symlink"
               elif path.is_file():
                   resolved = path.resolve(strict=True)
                   if os.path.commonpath((str(resolved), str(resolved_artifact_root))) != str(resolved_artifact_root):
-                      raise SystemExit(f"repository CI artifact evidence escapes its Central-owned root: {path.name}")
+                      raise SystemExit("repository CI artifact evidence escapes its Central-owned root")
+                  group["bytes"] += path.stat().st_size
                   if path.stat().st_size > 16 * 1024 * 1024:
                       excluded_oversized_count += 1
+                      if group["reason"] is None:
+                          group["reason"] = "per_file_bytes"
                       continue
                   data = path.read_bytes()
                   kind = "file"
               else:
                   continue
-              if contains_configured_secret(data):
-                  quarantined_secret_count += 1
+              if secret_path or contains_configured_secret(data):
+                  if not secret_path:
+                      quarantined_secret_count += 1
+                  group["reason"] = "quarantine"
                   continue
-              retained_artifacts.append(
+              group["items"].append(
                   {
                       "kind": kind,
                       "path": relative_path,
@@ -2147,9 +2229,44 @@ jobs:
                   }
               )
 
+          retained_groups = []
+          for name, group in sorted(artifact_groups.items()):
+              reason = group["reason"]
+              if reason is None and group["files"] > remaining_files:
+                  reason = "file_count"
+              if reason is None and group["bytes"] > remaining_bytes:
+                  reason = "aggregate_bytes"
+              if reason is not None:
+                  omit("artifacts", name, group["files"], group["bytes"], reason)
+                  continue
+              retained_groups.append(name)
+              retained_artifacts.extend(group["items"])
+              remaining_files -= group["files"]
+              remaining_bytes -= group["bytes"]
+          retained_artifacts.sort(key=lambda item: item["path"])
+          omitted_groups = sum(value["groups"] for value in omissions.values())
+          source_sha = os.environ.get("EVIDENCE_SOURCE_SHA", "")
+          if len(source_sha) != 40 or any(ch not in "0123456789abcdef" for ch in source_sha):
+              source_sha = None
+          execute_outcome = os.environ.get("EVIDENCE_EXECUTE_OUTCOME", "unknown")
+          if execute_outcome not in {"success", "failure", "cancelled", "skipped"}:
+              execute_outcome = "unknown"
+          report = {
+              "schema_version": 1, "complete": omitted_groups == 0,
+              "source_sha": source_sha, "repository_entrypoint_outcome": execute_outcome,
+              "limits": {"raw_file_bytes": 16 * 1024 * 1024, "packet_bytes": 64 * 1024 * 1024, "packet_files": 256},
+              "selected": {"core_files": len(core), "log_files": len(selected_logs), "artifact_groups": len(retained_groups), "artifact_files": len(retained_artifacts)},
+              "omitted": omissions, "omitted_groups_by_reason": omission_reasons,
+              "quarantined_artifact_files": quarantined_secret_count,
+              "oversized_artifact_files": excluded_oversized_count,
+              "omission_details": omission_details,
+              "omission_details_truncated": omitted_groups > len(omission_details),
+          }
+          if len(json.dumps(report, sort_keys=True, separators=(",", ":")).encode("utf-8")) + 1 > report_budget:
+              raise SystemExit("repository CI evidence omission report exceeds its bound")
           artifact_selection_bytes = (
               json.dumps(
-                  {"schema_version": 1, "artifacts": retained_artifacts},
+                  {"schema_version": 2, "core": core, "logs": selected_logs, "artifacts": retained_artifacts, "retained_groups": retained_groups, "report": report},
                   sort_keys=True,
                   separators=(",", ":"),
               ) + "\n"
@@ -2189,6 +2306,8 @@ jobs:
           import sys
           import zipfile
 
+          sys.excepthook = lambda kind, *_: print(f"repository CI evidence processing failed: {kind.__name__}", file=sys.stderr)
+
           archive = Path(sys.argv[1])
           log_root = Path(os.environ["CI_LOG_DIR"])
           artifact_root = Path(os.environ["CI_ARTIFACT_DIR"])
@@ -2213,31 +2332,72 @@ jobs:
               raise SystemExit("repository CI artifact selection is unreadable") from exc
           if (
               not isinstance(artifact_selection, dict)
-              or set(artifact_selection) != {"schema_version", "artifacts"}
-              or artifact_selection.get("schema_version") != 1
+              or set(artifact_selection) != {"schema_version", "core", "logs", "artifacts", "retained_groups", "report"}
+              or artifact_selection.get("schema_version") != 2
               or not isinstance(artifact_selection.get("artifacts"), list)
+              or not isinstance(artifact_selection.get("core"), list)
+              or not isinstance(artifact_selection.get("logs"), list)
+              or not isinstance(artifact_selection.get("retained_groups"), list)
+              or not isinstance(artifact_selection.get("report"), dict)
           ):
               raise SystemExit("repository CI artifact selection schema is invalid")
 
-          entries: list[tuple[str, Path | None, bytes | None, bool]] = []
-          total = 0
+          report = (json.dumps(artifact_selection["report"], sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+          if len(report) > 64 * 1024:
+              raise SystemExit("repository CI evidence omission report exceeds its bound")
+          entries: list[tuple[str, Path | None, bytes | None, bool]] = [("evidence-manifest.json", None, report, False)]
+          total = len(report)
           if log_root.is_symlink() or not log_root.is_dir():
               raise SystemExit("repository CI logs root must remain one real directory")
           resolved_log_root = log_root.resolve(strict=True)
-          for path in sorted(log_root.rglob("*")):
-              archive_name = f"logs/{path.relative_to(log_root).as_posix()}"
-              if path.is_symlink():
-                  raise SystemExit("repository CI logs evidence must not contain symlinks")
-              if not path.is_file():
-                  continue
-              resolved = path.resolve(strict=True)
-              if os.path.commonpath((str(resolved), str(resolved_log_root))) != str(resolved_log_root):
-                  raise SystemExit("repository CI logs evidence escapes its Central-owned root")
-              size = path.stat().st_size
-              if size > 16 * 1024 * 1024:
+
+          def checked_text(item, path: Path) -> bytes:
+              if (
+                  not isinstance(item, dict)
+                  or set(item) != {"path", "sha256", "size"}
+                  or not isinstance(item.get("path"), str)
+                  or not isinstance(item.get("sha256"), str)
+                  or len(item["sha256"]) != 64
+                  or any(ch not in "0123456789abcdef" for ch in item["sha256"])
+                  or not isinstance(item.get("size"), int)
+                  or isinstance(item.get("size"), bool)
+                  or item["size"] < 0
+              ):
+                  raise SystemExit("repository CI text evidence selection is invalid")
+              if path.is_symlink() or not path.is_file():
+                  raise SystemExit("repository CI text evidence selection changed after scrub")
+              if path.stat().st_size > 16 * 1024 * 1024:
                   raise SystemExit("repository CI logs evidence file exceeds 16 MiB")
-              total += size
-              entries.append((archive_name, path, None, False))
+              data = path.read_bytes()
+              if len(data) != item["size"] or hashlib.sha256(data).hexdigest() != item["sha256"]:
+                  raise SystemExit("repository CI text evidence selection changed after scrub")
+              return data
+
+          core_paths = {"central.log": Path(os.environ["CI_LOG"]), "progress.txt": Path(os.environ["CI_PROGRESS_FILE"])}
+          if len(artifact_selection["core"]) != 2 or {item.get("path") for item in artifact_selection["core"] if isinstance(item, dict)} != set(core_paths):
+              raise SystemExit("repository CI fixed diagnostic selection is invalid")
+          for item in artifact_selection["core"]:
+              data = checked_text(item, core_paths[item["path"]])
+              total += len(data)
+              entries.append((item["path"], None, data, False))
+          selected_logs = []
+          for item in artifact_selection["logs"]:
+              if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+                  raise SystemExit("repository CI log evidence selection is invalid")
+              relative = Path(item["path"])
+              if relative.is_absolute() or not relative.parts or any(part in ("", ".", "..") for part in relative.parts):
+                  raise SystemExit("repository CI log evidence selection path is invalid")
+              selected_logs.append(relative.as_posix())
+              path = log_root / relative
+              if any((log_root / parent).is_symlink() for parent in relative.parents):
+                  raise SystemExit("repository CI text evidence selection changed after scrub")
+              if os.path.commonpath((str(path.resolve(strict=True)), str(resolved_log_root))) != str(resolved_log_root):
+                  raise SystemExit("repository CI logs evidence escapes its Central-owned root")
+              data = checked_text(item, path)
+              total += len(data)
+              entries.append((f"logs/{relative.as_posix()}", None, data, False))
+          if selected_logs != sorted(set(selected_logs)):
+              raise SystemExit("repository CI log evidence selection paths must be unique and sorted")
 
           if artifact_root.is_symlink() or not artifact_root.is_dir():
               raise SystemExit("repository CI artifacts root must remain one real directory")
@@ -2297,13 +2457,17 @@ jobs:
           if selected_paths != sorted(set(selected_paths)):
               raise SystemExit("repository CI artifact selection paths must be unique and sorted")
 
-          progress = Path(os.environ["CI_PROGRESS_FILE"])
-          if progress.is_symlink() or not progress.is_file():
-              raise SystemExit("repository CI progress evidence must remain one regular file")
-          if progress.stat().st_size > 16 * 1024 * 1024:
-              raise SystemExit("repository CI progress evidence file exceeds 16 MiB")
-          total += progress.stat().st_size
-          entries.append(("progress.txt", progress, None, False))
+          expected_groups = sorted({Path(name).parts[0] for name in selected_paths})
+          if artifact_selection["retained_groups"] != expected_groups:
+              raise SystemExit("repository CI artifact group selection is invalid")
+          for group in expected_groups:
+              root = artifact_root / group
+              actual_paths = {group} if root.is_symlink() or root.is_file() else {
+                  path.relative_to(artifact_root).as_posix()
+                  for path in root.rglob("*") if path.is_symlink() or path.is_file()
+              }
+              if actual_paths != {name for name in selected_paths if Path(name).parts[0] == group}:
+                  raise SystemExit("repository CI artifact selection changed after scrub")
           if len(entries) > 256:
               raise SystemExit("repository CI evidence exceeds 256 files")
           if total > 64 * 1024 * 1024:
