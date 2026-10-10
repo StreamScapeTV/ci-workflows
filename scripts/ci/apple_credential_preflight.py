@@ -28,6 +28,7 @@ import repository_apple_physical_device as signing
 ROOT_NAME = "central-apple-credential-preflight-v1"
 STAGES = (
     "P12_IMPORT", "PRIVATE_KEY_PRESENT", "CERTIFICATE_READ", "CERT_TEAM_MATCH", "CERT_TRUST_VALID",
+    "CERT_TRUST_DIAGNOSTIC",
     "CODESIGN", "CODESIGN_VERIFY", "API_AUTH", "API_CERT_ACCESS", "API_CERT_ACCOUNT_MATCH",
     "CLEANUP",
 )
@@ -37,6 +38,7 @@ SAFE_RESULTS = frozenset((
     "SIGN_FAILED", "VERIFY_FAILED", "KEYCHAIN_SETUP_FAILED", "INVALID_KEY", "INVALID_JWT", "UNAUTHORIZED_401",
     "FORBIDDEN_403", "NETWORK_ERROR", "HTTP_ERROR", "BAD_RESPONSE", "NOT_VISIBLE",
     "UNEXPECTED_FAILURE", "CLEANUP_FAILED",
+    *signing.TRUST_DIAGNOSTICS,
 ))
 MAX_P8_BYTES = 16 * 1024
 API_URL = "https://api.appstoreconnect.apple.com/v1/certificates"
@@ -273,6 +275,12 @@ class Preflight:
         except (RuntimeError, signing.DeviceError):
             raise PreflightFailure("CERT_TRUST_VALID","CERT_INVALID") from None
         if len(valid)!=1 or valid[0] != found[0]:
+            if not valid:
+                # Read only the selected public certificate. Never treat this
+                # diagnostic as evidence that macOS trusts or can sign with it.
+                self._stage("CERT_TRUST_DIAGNOSTIC", signing._imported_certificate_trust_diagnostic(
+                    self.keychain, found[0][0], command=_call,
+                ))
             raise PreflightFailure("CERT_TRUST_VALID","NO_VALID_IDENTITY" if not valid else "AMBIGUOUS")
         self._stage("CERT_TRUST_VALID","PASS")
         source, binary = self.root/"probe.c",self.root/"probe"

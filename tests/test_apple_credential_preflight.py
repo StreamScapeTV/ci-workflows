@@ -15,7 +15,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/"scripts/ci"))
 import apple_credential_preflight as preflight
 from tests.test_repository_apple_physical_device import (
-    SIGNING_CERT_FINGERPRINT, SIGNING_CERT_NAME, SIGNING_CERT_PEM,
+    SIGNING_CERT_DER, SIGNING_CERT_FINGERPRINT, SIGNING_CERT_NAME, SIGNING_CERT_PEM,
 )
 
 
@@ -222,6 +222,56 @@ class CredentialPreflightTests(unittest.TestCase):
             self.assertFalse((temp/preflight.ROOT_NAME).exists())
             self.assertTrue(any(a[:2]==["security","delete-keychain"] for a in commands))
 
+    def test_public_leaf_trust_diagnostics_are_bounded_and_never_change_policy(self):
+        import ssl
+        fake_intermediate = ssl.DER_cert_to_PEM_cert(SIGNING_CERT_DER[:-1] + bytes([
+            SIGNING_CERT_DER[-1] ^ 1,
+        ])).encode('ascii')
+        g3 = (
+            (('commonName', 'Apple Worldwide Developer Relations Certification Authority'),),
+            (('organizationalUnitName', 'G3'),),
+            (('organizationName', 'Apple Inc.'),),
+            (('countryName', 'US'),),
+        )
+        leaf_template = {
+            'subject': ((('commonName', 'Synthetic Leaf'),),),
+            'issuer': g3,
+            'notBefore': 'Jan  1 00:00:00 2020 GMT',
+            'notAfter': 'Jan  1 00:00:00 2099 GMT',
+        }
+        issuer = {'subject': g3}
+        for label, public, validity, expected in (
+            ('missing-issuer', SIGNING_CERT_PEM, leaf_template,
+             'VALID_LEAF_G3_ISSUER_NOT_IN_KEYCHAIN'),
+            ('present-issuer', SIGNING_CERT_PEM + fake_intermediate, leaf_template,
+             'VALID_LEAF_G3_ISSUER_IN_KEYCHAIN'),
+            ('expired', SIGNING_CERT_PEM, {**leaf_template, 'notAfter': 'Jan  1 00:00:00 2020 GMT'},
+             'LEAF_EXPIRED'),
+            ('future', SIGNING_CERT_PEM, {**leaf_template, 'notBefore': 'Jan  1 00:00:00 2099 GMT'},
+             'LEAF_NOT_YET_VALID'),
+            ('different-issuer', SIGNING_CERT_PEM, {**leaf_template, 'issuer': leaf_template['subject']},
+             'VALID_LEAF_OTHER_ISSUER'),
+        ):
+            with self.subTest(case=label),tempfile.TemporaryDirectory() as td:
+                keychain = Path(td) / 'private.keychain-db'
+                def command(argv):
+                    self.assertEqual(argv[:3], ['security', 'find-certificate', '-a'])
+                    return public
+                decoded = [validity] + ([issuer] if label == 'present-issuer' else [])
+                with patch.object(preflight.signing.ssl._ssl, '_test_decode_cert', side_effect=decoded):
+                    actual = preflight.signing._imported_certificate_trust_diagnostic(
+                        keychain, SIGNING_CERT_FINGERPRINT, command=command)
+                self.assertEqual(actual, expected)
+        with tempfile.TemporaryDirectory() as td:
+            with patch.object(preflight.signing.ssl._ssl, '_test_decode_cert',
+                              side_effect=RuntimeError('private certificate value')):
+                self.assertEqual(preflight.signing._imported_certificate_trust_diagnostic(
+                    Path(td) / 'private.keychain-db', SIGNING_CERT_FINGERPRINT,
+                    command=lambda args: SIGNING_CERT_PEM), 'UNDETERMINED')
+            self.assertEqual(preflight.signing._imported_certificate_trust_diagnostic(
+                Path(td) / 'private.keychain-db', SIGNING_CERT_FINGERPRINT,
+                command=lambda args: b'private invalid PEM output'), 'UNDETERMINED')
+
     def test_private_key_present_but_security_trust_invalid_does_not_codesign(self):
         fingerprint=SIGNING_CERT_FINGERPRINT
         name=SIGNING_CERT_NAME
@@ -256,6 +306,7 @@ class CredentialPreflightTests(unittest.TestCase):
                 pre.cleanup()
             self.assertEqual(pre.status["PRIVATE_KEY_PRESENT"],"PASS")
             self.assertEqual(pre.status["CERT_TEAM_MATCH"],"PASS")
+            self.assertEqual(pre.status["CERT_TRUST_DIAGNOSTIC"], "VALID_LEAF_OTHER_ISSUER")
             self.assertNotIn("codesign",[args[0] for args in calls])
             self.assertFalse((root/preflight.ROOT_NAME).exists())
 
