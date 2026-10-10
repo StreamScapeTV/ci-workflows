@@ -34,6 +34,7 @@ jobs:
           tests.test_bash_portability
           tests.test_repository_workflow
           tests.test_repository_apple_physical_device
+          tests.test_apple_credential_preflight
           tests.test_protected_deployed_conformance
           tests.test_repository_host_classes
           tests.test_repository_execution_plan

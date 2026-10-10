@@ -2,6 +2,7 @@ version: 1
 repository: StreamScapeTV/ci-workflows
 workflows:
   apple: .github/workflows/apple.yml
+  apple_credential_preflight: .github/workflows/apple-credential-preflight.yml
   repository: .github/workflows/repository.yml
   repository_plan: .github/workflows/repository-plan.yml
   android: .github/workflows/android.yml
@@ -38,6 +39,7 @@ scripts:
   repository_runtime_probe: scripts/ci/repository_runtime_probe.py
   repository_execution_plan: scripts/ci/repository_execution_plan.py
   repository_apple_physical_device: scripts/ci/repository_apple_physical_device.py
+  apple_credential_preflight: scripts/ci/apple_credential_preflight.py
   protected_deployed_conformance: scripts/ci/protected_deployed_conformance.py
   source_snapshot_delete: scripts/ci/source_snapshot_delete.py
   source_checkpoint_publish: scripts/ci/source_checkpoint_publish.py

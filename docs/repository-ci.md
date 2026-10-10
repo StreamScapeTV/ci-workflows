@@ -372,3 +372,38 @@ A repository is migrated only when:
 
 Release migration additionally requires the write-side publication plan above; migration must never be
 declared merely because a validation entrypoint exists.
+
+### Owner-approved Central Apple credential preflight (no device)
+
+When Apple Development signing credentials require diagnosis, use **Actions →
+Central Apple Credential Preflight → Run workflow** on protected `main`, after its
+source has passed the normal Central PR review and merge. This manual,
+Central-only workflow has no input fields or caller integration. It runs on the
+reviewed self-hosted `macos-latest-xl` Mac; ordinary PRs, schedules, device-test,
+release workflows and product repositories cannot trigger it. Its GitHub Actions
+job grants only `contents: read` and checks its protected source identity.
+
+The step consumes the existing Central repository's Apple Development P12,
+P12 password, Developer Team ID, App Store Connect P8 key, key ID and issuer ID
+as **step-scoped secrets**. They are never forwarded to a product `.ci` script,
+job output or external build. It imports the P12 into a transient isolated
+keychain, examines the certificate's actual signed subject team and chain,
+checks the existing Development identity selector policy, signs and verifies a
+throwaway Mach-O, and sends only an authenticated **GET** to Apple's fixed
+App Store Connect certificates endpoint. Where the P12 public leaf serial is
+available, the API check compares it internally against read-only certificates;
+`403` is not evidence of a Team ID mismatch and issuer UUID is not Team ID.
+
+The only console evidence is fixed stage/result categories (`P12_IMPORT`,
+`PRIVATE_KEY_PRESENT`, `CERT_TEAM_MATCH`, `CERT_NAME_POLICY`,
+`CERT_TRUST_VALID`, `CODESIGN`, `CODESIGN_VERIFY`, `API_AUTH`,
+`API_CERT_ACCESS`, `API_CERT_ACCOUNT_MATCH`). No raw Security/OpenSSL/API output,
+private certificate names, team identifiers, fingerprints, serials, private
+paths, tokens or response bodies are printed. Failure does not authorize a
+certificate/profile mutation or a further physical-device test. The job and
+its `always()` cleanup restore the original keychain context and remove the
+transient P12/P8, keychain, probe and extracted public certificate on success
+and failure. Treat **only actual terminal run evidence**, not a green source
+self-check, as credential proof. If a stage fails, resolve only the identified
+owner-side credential or trust configuration privately before rechecking; the
+separate Media-owned iPhone certification comes later.
