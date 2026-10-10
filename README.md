@@ -1,4 +1,4 @@
-# ci-workflows
+# CI Workflows
 
 `ci-workflows` provides reusable GitHub Actions execution and infrastructure for projects in the [StreamScapeTV](https://github.com/StreamScapeTV) organization. The repository's GitHub address is [`StreamScapeTV/ci-workflows`](https://github.com/StreamScapeTV/ci-workflows); its Agent State project key is `ci-workflows`.
 
