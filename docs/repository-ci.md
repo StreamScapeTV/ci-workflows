@@ -387,23 +387,31 @@ The step consumes the existing Central repository's Apple Development P12,
 P12 password, Developer Team ID, App Store Connect P8 key, key ID and issuer ID
 as **step-scoped secrets**. They are never forwarded to a product `.ci` script,
 job output or external build. It imports the P12 into a transient isolated
-keychain, examines the certificate's actual signed subject team and chain,
-checks the existing Development identity selector policy, signs and verifies a
+keychain, selects the imported public leaf by the private-key-backed identity's
+fingerprint, and validates the certificate's signed subject OU and trust. The
+display-name suffix does not determine the Developer Team ID, and the P12 is not
+decrypted a second time to read its public certificate. It signs and verifies a
 throwaway Mach-O, and sends only an authenticated **GET** to Apple's fixed
 App Store Connect certificates endpoint. Where the P12 public leaf serial is
 available, the API check compares it internally against read-only certificates;
 `403` is not evidence of a Team ID mismatch and issuer UUID is not Team ID.
 
 The only console evidence is fixed stage/result categories (`P12_IMPORT`,
-`PRIVATE_KEY_PRESENT`, `CERT_TEAM_MATCH`, `CERT_NAME_POLICY`,
+`PRIVATE_KEY_PRESENT`, `CERTIFICATE_READ`, `CERT_TEAM_MATCH`,
 `CERT_TRUST_VALID`, `CODESIGN`, `CODESIGN_VERIFY`, `API_AUTH`,
-`API_CERT_ACCESS`, `API_CERT_ACCOUNT_MATCH`). No raw Security/OpenSSL/API output,
+`API_CERT_ACCESS`, `API_CERT_ACCOUNT_MATCH`, `CLEANUP`). No raw Security/OpenSSL/API output,
 private certificate names, team identifiers, fingerprints, serials, private
 paths, tokens or response bodies are printed. Failure does not authorize a
 certificate/profile mutation or a further physical-device test. The job and
-its `always()` cleanup restore the original keychain context and remove the
-transient P12/P8, keychain, probe and extracted public certificate on success
-and failure. Treat **only actual terminal run evidence**, not a green source
-self-check, as credential proof. If a stage fails, resolve only the identified
-owner-side credential or trust configuration privately before rechecking; the
-separate Media-owned iPhone certification comes later.
+its `always()` cleanup purge the transient P12/P8, probe and public certificate
+before attempting keychain restoration and deletion. Search-list and default
+keychain restoration are attempted independently. The separate cleanup stage
+preserves the credential results. After successful payload purge, restoration
+failures retain recovery metadata and any undeleted managed keychain for a retry;
+a filesystem purge failure remains a failed cleanup and must be resolved before
+reuse. Treat **only actual terminal run
+evidence**, not a green source self-check, as credential proof. Resolve a failed
+stage at its demonstrated boundary: a public-certificate read or cleanup failure
+does not establish invalid credentials. Resolve actual credential or trust
+configuration privately before rechecking; the separate Media-owned iPhone
+certification comes later.

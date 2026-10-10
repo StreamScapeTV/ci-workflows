@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import binascii
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -11,12 +12,13 @@ import re
 import secrets
 import shlex
 import signal
+import ssl
 import stat
 import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
-from typing import BinaryIO, NoReturn
+from typing import BinaryIO, Callable, NoReturn
 
 LOCK_PATH = Path('/tmp/streamscapetv-central-apple-physical-device-v1.lock')
 ENTRYPOINT = Path('.ci/device-test.sh')
@@ -34,6 +36,11 @@ MAX_STATE_BYTES = 16384
 MAX_P12_BYTES = 128 * 1024
 MAX_P12_PASSWORD_BYTES = 1024
 MAX_IDENTITY_INVENTORY_BYTES = 32 * 1024
+MAX_CERTIFICATE_INVENTORY_BYTES = 256 * 1024
+MAX_CERTIFICATE_BYTES = 32 * 1024
+CERTIFICATE_PEM_RE = re.compile(
+    rb'-----BEGIN CERTIFICATE-----\r?\n([A-Za-z0-9+/=\r\n]+)-----END CERTIFICATE-----',
+)
 
 
 class DeviceError(RuntimeError):
@@ -500,6 +507,57 @@ def _identity_failure(reason: str) -> NoReturn:
     fail(f'Central Apple Development signing identity validation failed ({reason})')
 
 
+def _imported_certificate_metadata(
+    keychain: Path, fingerprint: str, *, command: Callable[[list[str]], bytes] | None = None,
+) -> tuple[str, str]:
+    """Read signed OU/serial from the public leaf bound to a key-backed identity.
+
+    Security owns PKCS12 import and trust validation. Never decrypt the original
+    bundle a second time or infer the team from its certificate's display name.
+    """
+    command = _run_private if command is None else command
+    try:
+        if (re.fullmatch(r'[0-9A-F]{40}', fingerprint) is None or keychain.is_symlink()
+                or not keychain.parent.is_absolute() or keychain.parent.is_symlink()
+                or not keychain.parent.is_dir()):
+            raise ValueError
+        raw = command(['security', 'find-certificate', '-a', '-p', str(keychain)])
+        if not isinstance(raw, bytes) or not 0 < len(raw) <= MAX_CERTIFICATE_INVENTORY_BYTES:
+            raise ValueError
+        blocks = list(CERTIFICATE_PEM_RE.finditer(raw))
+        if not 1 <= len(blocks) <= 16:
+            raise ValueError
+        matching: list[bytes] = []
+        end = 0
+        for block in blocks:
+            if raw[end:block.start()].strip():
+                raise ValueError
+            encoded = block.group(1).replace(b'\r', b'').replace(b'\n', b'')
+            der = base64.b64decode(encoded, validate=True)
+            if not 32 <= len(der) <= MAX_CERTIFICATE_BYTES:
+                raise ValueError
+            if hashlib.sha1(der).hexdigest().upper() == fingerprint:
+                matching.append(block.group(0))
+            end = block.end()
+        if raw[end:].strip() or len(matching) != 1:
+            raise ValueError
+        with tempfile.TemporaryDirectory(prefix='central-apple-public-leaf-', dir=keychain.parent) as temporary:
+            leaf = Path(temporary) / 'leaf.pem'
+            write_private(leaf, matching[0], max_bytes=MAX_CERTIFICATE_INVENTORY_BYTES)
+            # Decode public certificate fields only; this does not replace the
+            # selected Security identity's separate trust/private-key checks.
+            decoded = ssl._ssl._test_decode_cert(str(leaf))
+        units = [value for rdn in decoded['subject'] for name, value in rdn
+                 if name == 'organizationalUnitName']
+        serial = decoded['serialNumber']
+        if (len(units) != 1 or not isinstance(units[0], str) or TEAM_RE.fullmatch(units[0]) is None
+                or not isinstance(serial, str) or re.fullmatch(r'[0-9A-Fa-f]{1,64}', serial) is None):
+            raise ValueError
+        return units[0], serial.upper()
+    except (OSError, ValueError, RuntimeError, KeyError, TypeError, AttributeError):
+        raise DeviceError('Central Apple Development certificate metadata could not be read') from None
+
+
 def _selected_signing_identity(keychain: Path, team_id: str) -> str:
     """Allow precisely one currently valid private-key-backed Apple Development identity."""
     valid = _identity_records(_run_private([
@@ -520,7 +578,8 @@ def _selected_signing_identity(keychain: Path, team_id: str) -> str:
     fingerprint, common_name = valid[0]
     if not common_name.startswith(('Apple Development:', 'iOS Development:')):
         _identity_failure('wrong-certificate-type')
-    if not common_name.endswith(f'({team_id})'):
+    signed_team, _serial = _imported_certificate_metadata(keychain, fingerprint)
+    if signed_team != team_id:
         _identity_failure('team-mismatch')
     return fingerprint
 
@@ -599,48 +658,58 @@ def setup_signing(runner_temp: Path, secret_path: Path) -> tuple[bytes, ...]:
 def cleanup_signing(*, tolerate_absent: bool = True) -> None:
     runner_temp = _runner_temp()
     state_path, keychain, bundle_path = _signing_paths(runner_temp)
-    if not state_path.exists() and not state_path.is_symlink():
-        if keychain.exists() or keychain.is_symlink():
-            fail('Central Apple Development signing keychain exists without cleanup state')
+    errors: list[str] = []
+    # Raw credential bytes are never needed to restore keychain context. Purge
+    # them before reading recovery state, including when that state is damaged.
+    try:
         if bundle_path.is_symlink():
-            fail('Central Apple Development PKCS12 residue is invalid')
-        if bundle_path.is_file():
+            errors.append('pkcs12')
+        elif bundle_path.is_file():
             bundle_path.unlink()
         elif bundle_path.exists():
-            fail('Central Apple Development PKCS12 residue is invalid')
-        if tolerate_absent:
-            return
-        fail('Central Apple Development signing state is unavailable')
-    state = _read_signing_state(state_path)
-    errors: list[str] = []
-    try:
-        _run_private(['security', 'list-keychains', '-d', 'user', '-s', *[str(item) for item in state['originalSearchKeychains']]])
-        _run_private(['security', 'default-keychain', '-d', 'user', '-s', str(state['originalDefaultKeychain'])])
-    except DeviceError:
-        errors.append('keychain-context')
-    if keychain.is_symlink():
-        errors.append('keychain')
-    elif keychain.exists():
-        try:
-            _run_private(['security', 'delete-keychain', str(keychain)])
-        except DeviceError:
-            errors.append('keychain')
-        if keychain.exists() or keychain.is_symlink():
-            errors.append('keychain')
-    if bundle_path.is_symlink():
-        errors.append('pkcs12')
-    elif bundle_path.is_file():
-        bundle_path.unlink()
+            errors.append('pkcs12')
         if bundle_path.exists() or bundle_path.is_symlink():
             errors.append('pkcs12')
-    elif bundle_path.exists():
+    except OSError:
         errors.append('pkcs12')
+    try:
+        if not state_path.exists() and not state_path.is_symlink():
+            if errors:
+                fail('Central Apple Development signing cleanup failed')
+            if keychain.exists() or keychain.is_symlink():
+                fail('Central Apple Development signing keychain exists without cleanup state')
+            if tolerate_absent:
+                return
+            fail('Central Apple Development signing state is unavailable')
+        state = _read_signing_state(state_path)
+    except (OSError, ValueError, TypeError):
+        raise DeviceError('Central Apple Development signing cleanup state is unavailable') from None
+    for command in (
+        ['security', 'list-keychains', '-d', 'user', '-s', *[str(item) for item in state['originalSearchKeychains']]],
+        ['security', 'default-keychain', '-d', 'user', '-s', str(state['originalDefaultKeychain'])],
+    ):
+        try:
+            _run_private(command)
+        except DeviceError:
+            errors.append('keychain-context')
+    try:
+        if keychain.is_symlink():
+            errors.append('keychain')
+        elif keychain.exists():
+            _run_private(['security', 'delete-keychain', str(keychain)])
+        if keychain.exists() or keychain.is_symlink():
+            errors.append('keychain')
+    except (DeviceError, OSError):
+        errors.append('keychain')
     if errors:
         fail('Central Apple Development signing cleanup failed')
-    state_path.unlink()
-    for path in (state_path, keychain, bundle_path):
-        if path.exists() or path.is_symlink():
-            fail('Central Apple Development signing cleanup left private residue')
+    try:
+        state_path.unlink()
+        for path in (state_path, keychain, bundle_path):
+            if path.exists() or path.is_symlink():
+                fail('Central Apple Development signing cleanup left private residue')
+    except OSError:
+        raise DeviceError('Central Apple Development signing cleanup failed') from None
 
 
 
