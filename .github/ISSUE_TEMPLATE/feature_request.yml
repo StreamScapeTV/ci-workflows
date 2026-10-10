@@ -1,0 +1,36 @@
+name: Feature request
+description: Propose a bounded new capability or improvement without duplicating .ci behavior
+title: "[Feature] "
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Ordinary product commands belong in the consuming repository's .ci scripts.
+        Search existing issues and the generic Repository CI contract before requesting
+        a new Central profile or workflow.
+  - type: textarea
+    id: need
+    attributes:
+      label: Problem and intended outcome
+      description: Which consumer needs this, and what is missing from existing capabilities?
+    validations:
+      required: true
+  - type: textarea
+    id: existing
+    attributes:
+      label: Existing paths considered
+      description: Relevant .ci contract, workflow or issue and why reusing it is insufficient.
+    validations:
+      required: true
+  - type: textarea
+    id: boundary
+    attributes:
+      label: Trust and compatibility boundaries
+      description: Runner/secret permissions, product ownership, current consumers and migration risks.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance evidence
+      description: What tests and live consumer proof would establish success?

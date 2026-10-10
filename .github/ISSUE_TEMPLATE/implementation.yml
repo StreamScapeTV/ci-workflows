@@ -1,5 +1,5 @@
 name: Bounded implementation
-about: Plan one independently mergeable CI workflow slice
+description: Plan one independently mergeable CI workflow slice
 body:
   - type: textarea
     id: objective
