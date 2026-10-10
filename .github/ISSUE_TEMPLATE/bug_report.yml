@@ -1,0 +1,41 @@
+name: Bug report
+description: Report a reproducible ci-workflows source or public CI contract defect
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Do not paste tokens, signing certificates, private endpoints, device identities,
+        or raw private CI logs. Security issues belong in the repository's private
+        vulnerability-reporting channel when available; see SECURITY.md.
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and observed behavior
+      description: State what the reviewed contract should do and what was observed.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Sanitized reproduction
+      description: Steps, affected workflow/operation and minimal safe input; no secrets or private data.
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: Source commit or version
+      placeholder: Git SHA or tag when known
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Safe evidence and scope
+      description: Public check link, fixed error category, affected consumer and cleanup impact.
+  - type: checkboxes
+    id: security
+    attributes:
+      label: Privacy check
+      options:
+        - label: I have removed secrets and private data from this report.
+          required: true
