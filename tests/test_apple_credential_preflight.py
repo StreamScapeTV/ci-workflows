@@ -35,11 +35,17 @@ class CredentialPreflightTests(unittest.TestCase):
             "PREFLIGHT_ASC_P8_BASE64","PREFLIGHT_ASC_KEY_ID","PREFLIGHT_ASC_ISSUER_ID"})
         self.assertTrue(all("secrets." in value for key,value in secret_step["env"].items() if key!="RUNNER_ENVIRONMENT"))
         self.assertIn('github-hosted',str(job["steps"]))
+        distribution_step=next(s for s in job["steps"] if s.get("name", "").endswith("Distribution signing identity"))
+        self.assertEqual(set(distribution_step["env"]), {
+            "CI_APPLE_TEAM_ID", "CI_APPLE_DISTRIBUTION_P12_BASE64", "CI_APPLE_DISTRIBUTION_P12_PASSWORD",
+        })
+        self.assertIn("distribution-setup", distribution_step["run"])
         self.assertNotIn("workflow_call",str(workflow))
         self.assertNotIn("pull_request",str(workflow))
         self.assertNotIn("id-token",str(workflow))
         self.assertIn("always()",job["steps"][-1]["if"])
         self.assertNotIn("secrets.",str(job["steps"][-1]))
+        self.assertIn("distribution-cleanup",job["steps"][-1]["run"])
 
     def test_ecdsa_jose_der_is_exact_64_bytes_and_rejects_malformed(self):
         raw=bytes.fromhex("3006020101020102")
