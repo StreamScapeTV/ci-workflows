@@ -68,6 +68,15 @@ class AppleWorkflowTests(unittest.TestCase):
         self.assertIn("run-apple-testflight.sh", run)
         self.assertIn("CI_APPLE_TESTFLIGHT_BUILD_NUMBER", run)
         self.assertIn("Clean TestFlight credential and release state", self.execute_steps)
+        secrets = self.workflow["on"]["workflow_call"]["secrets"]
+        self.assertIn("APPLE_DISTRIBUTION_P12_BASE64", secrets)
+        self.assertIn("APPLE_DISTRIBUTION_P12_PASSWORD", secrets)
+        setup = self.execute_steps["Prepare ephemeral Apple Distribution signing identity"]
+        self.assertIn("inputs.test_profile == 'testflight'", setup["if"])
+        self.assertIn("distribution-setup", setup["run"])
+        cleanup = self.execute_steps["Restore and delete ephemeral Apple Distribution signing identity"]
+        self.assertIn("always()", cleanup["if"])
+        self.assertIn("distribution-cleanup", cleanup["run"])
 
     def test_agent_state_lifecycle_has_one_start_and_one_finish(self) -> None:
         names = [s.get("name") for s in self.workflow["jobs"]["plan"]["steps"]]

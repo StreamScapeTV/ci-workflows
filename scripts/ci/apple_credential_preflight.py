@@ -221,7 +221,7 @@ class Preflight:
         _call(["security","unlock-keychain","-p",password,str(self.keychain)])
         _call(["security","set-keychain-settings","-lut","21600",str(self.keychain)])
 
-    def _p12(self, team: str, bundle: bytes, password: str) -> None:
+    def _p12(self, team: str, bundle: bytes, password: str, *, certificate_prefixes: tuple[str, ...] = ("Apple Development:", "iOS Development:")) -> None:
         if signing.TEAM_RE.fullmatch(team) is None:
             raise PreflightFailure("CERT_TEAM_MATCH", "MISSING")
         try:
@@ -259,7 +259,7 @@ class Preflight:
             raise PreflightFailure("PRIVATE_KEY_PRESENT","NO_PRIVATE_KEY" if not found else "AMBIGUOUS")
         self._stage("PRIVATE_KEY_PRESENT","PASS")
         _, common_name = found[0]
-        if not common_name.startswith(("Apple Development:","iOS Development:")):
+        if not common_name.startswith(certificate_prefixes):
             raise PreflightFailure("CERT_TEAM_MATCH","WRONG_TYPE")
         try:
             signed_team, serial = signing._imported_certificate_metadata(self.keychain, found[0][0], command=_call)
@@ -450,15 +450,70 @@ def _admission() -> Path:
     return root
 
 
+def _distribution_admission() -> Path:
+    if (os.environ.get("GITHUB_REPOSITORY") != "StreamScapeTV/ci-workflows"
+            or os.environ.get("RUNNER_OS") != "macOS"
+            or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted"):
+        raise RuntimeError("distribution signing request is not approved")
+    root = Path(os.environ.get("RUNNER_TEMP", ""))
+    if not root.is_absolute() or not root.is_dir() or root.is_symlink():
+        raise RuntimeError("distribution signing runner temp invalid")
+    return root
+
+
+def _distribution_credentials() -> tuple[str, bytes, str]:
+    team = os.environ.pop("CI_APPLE_TEAM_ID", "")
+    encoded = os.environ.pop("CI_APPLE_DISTRIBUTION_P12_BASE64", "")
+    password = os.environ.pop("CI_APPLE_DISTRIBUTION_P12_PASSWORD", "")
+    if (len(encoded) > ((signing.MAX_P12_BYTES + 2) // 3) * 4 or not encoded.isascii()
+            or any(character in encoded for character in "\x00\r\n")):
+        encoded = ""
+    try:
+        bundle = base64.b64decode(encoded, validate=True)
+    except (ValueError, binascii.Error):
+        bundle = b""
+    return team, bundle, password
+
+
+def distribution_setup(root: Path) -> int:
+    """Prepare one ephemeral Apple Distribution identity for TestFlight only."""
+    preflight = Preflight(root)
+    preflight.root = root / "central-apple-distribution-signing-v1"
+    preflight.state = preflight.root / "keychain-state.json"
+    preflight.keychain = preflight.root / "distribution.keychain-db"
+    preflight._secure_root()
+    team, bundle, password = _distribution_credentials()
+    try:
+        preflight._p12(team, bundle, password, certificate_prefixes=("Apple Distribution:",))
+    except PreflightFailure as exc:
+        raise RuntimeError(f"Apple Distribution signing setup failed ({exc.stage}={exc.code})") from None
+    print("APPLE_DISTRIBUTION_SIGNING=PASS")
+    return 0
+
+
+def distribution_cleanup(root: Path) -> int:
+    preflight = Preflight(root)
+    preflight.root = root / "central-apple-distribution-signing-v1"
+    preflight.state = preflight.root / "keychain-state.json"
+    preflight.keychain = preflight.root / "distribution.keychain-db"
+    preflight.cleanup()
+    print("APPLE_DISTRIBUTION_SIGNING_CLEANUP=PASS")
+    return 0
+
+
 def main(argv: list[str]|None=None) -> int:
     arguments=sys.argv[1:] if argv is None else argv
-    if arguments not in (["run"],["cleanup"]):
+    if arguments not in (["run"],["cleanup"],["distribution-setup"],["distribution-cleanup"]):
         return 2
     try:
         os.umask(0o077)
-        root=_admission()
+        root = _distribution_admission() if arguments[0].startswith("distribution-") else _admission()
         fence=signing.acquire_fence()
         try:
+            if arguments == ["distribution-setup"]:
+                return distribution_setup(root)
+            if arguments == ["distribution-cleanup"]:
+                return distribution_cleanup(root)
             preflight=Preflight(root)
             if arguments==["cleanup"]:
                 preflight.cleanup()
