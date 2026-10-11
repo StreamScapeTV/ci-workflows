@@ -221,7 +221,7 @@ class Preflight:
         _call(["security","unlock-keychain","-p",password,str(self.keychain)])
         _call(["security","set-keychain-settings","-lut","21600",str(self.keychain)])
 
-    def _p12(self, team: str, bundle: bytes, password: str) -> None:
+    def _p12(self, team: str, bundle: bytes, password: str, *, certificate_prefixes: tuple[str, ...] = ("Apple Development:", "iOS Development:")) -> None:
         if signing.TEAM_RE.fullmatch(team) is None:
             raise PreflightFailure("CERT_TEAM_MATCH", "MISSING")
         try:
@@ -259,7 +259,7 @@ class Preflight:
             raise PreflightFailure("PRIVATE_KEY_PRESENT","NO_PRIVATE_KEY" if not found else "AMBIGUOUS")
         self._stage("PRIVATE_KEY_PRESENT","PASS")
         _, common_name = found[0]
-        if not common_name.startswith(("Apple Development:","iOS Development:")):
+        if not common_name.startswith(certificate_prefixes):
             raise PreflightFailure("CERT_TEAM_MATCH","WRONG_TYPE")
         try:
             signed_team, serial = signing._imported_certificate_metadata(self.keychain, found[0][0], command=_call)
@@ -278,10 +278,22 @@ class Preflight:
             if not valid:
                 # Read only the selected public certificate. Never treat this
                 # diagnostic as evidence that macOS trusts or can sign with it.
-                self._stage("CERT_TRUST_DIAGNOSTIC", signing._imported_certificate_trust_diagnostic(
+                diagnostic = signing._imported_certificate_trust_diagnostic(
                     self.keychain, found[0][0], command=_call,
-                ))
-            raise PreflightFailure("CERT_TRUST_VALID","NO_VALID_IDENTITY" if not valid else "AMBIGUOUS")
+                )
+                self._stage("CERT_TRUST_DIAGNOSTIC", diagnostic)
+                if diagnostic == "VALID_LEAF_G3_ISSUER_NOT_IN_KEYCHAIN":
+                    try:
+                        signing.import_pinned_wwdr_g3(self.keychain, command=_call)
+                        valid = signing._identity_records(_call([
+                            "security","find-identity","-v","-p","codesigning",str(self.keychain),
+                        ]))
+                    except (RuntimeError, signing.DeviceError):
+                        raise PreflightFailure("CERT_TRUST_VALID","CERT_INVALID") from None
+                    if len(valid)==1 and valid[0] == found[0]:
+                        self._stage("CERT_TRUST_DIAGNOSTIC", "WWDR_G3_PINNED_INTERMEDIATE_IMPORTED")
+            if len(valid)!=1 or valid[0] != found[0]:
+                raise PreflightFailure("CERT_TRUST_VALID","NO_VALID_IDENTITY" if not valid else "AMBIGUOUS")
         self._stage("CERT_TRUST_VALID","PASS")
         source, binary = self.root/"probe.c",self.root/"probe"
         _write_secret(source,b"int main(void) { return 0; }\n",limit=1000)
@@ -335,7 +347,9 @@ class Preflight:
                 raise PreflightFailure("API_CERT_ACCESS","BAD_RESPONSE")
             visible.append(row["attributes"].get("serialNumber",""))
         self._stage("API_CERT_ACCOUNT_MATCH","PASS" if any(
-            isinstance(value,str) and value.upper()==self.serial for value in visible
+            isinstance(value,str) and re.fullmatch(r"[0-9A-Fa-f]{1,64}",value) is not None
+            and signing._canonical_certificate_serial(value)==self.serial
+            for value in visible
         ) else "NOT_VISIBLE")
 
     def run(self) -> int:
@@ -428,7 +442,7 @@ def _admission() -> Path:
             or os.environ.get("GITHUB_REF")!="refs/heads/main"
             or os.environ.get("GITHUB_EVENT_NAME")!="workflow_dispatch"
             or os.environ.get("RUNNER_OS")!="macOS"
-            or os.environ.get("RUNNER_ENVIRONMENT")!="self-hosted"):
+            or os.environ.get("RUNNER_ENVIRONMENT")!="github-hosted"):
         raise RuntimeError("preflight request is not approved")
     root=Path(os.environ.get("RUNNER_TEMP",""))
     if not root.is_absolute() or not root.is_dir() or root.is_symlink():
@@ -436,15 +450,70 @@ def _admission() -> Path:
     return root
 
 
+def _distribution_admission() -> Path:
+    if (os.environ.get("GITHUB_REPOSITORY") != "StreamScapeTV/ci-workflows"
+            or os.environ.get("RUNNER_OS") != "macOS"
+            or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted"):
+        raise RuntimeError("distribution signing request is not approved")
+    root = Path(os.environ.get("RUNNER_TEMP", ""))
+    if not root.is_absolute() or not root.is_dir() or root.is_symlink():
+        raise RuntimeError("distribution signing runner temp invalid")
+    return root
+
+
+def _distribution_credentials() -> tuple[str, bytes, str]:
+    team = os.environ.pop("CI_APPLE_TEAM_ID", "")
+    encoded = os.environ.pop("CI_APPLE_DISTRIBUTION_P12_BASE64", "")
+    password = os.environ.pop("CI_APPLE_DISTRIBUTION_P12_PASSWORD", "")
+    if (len(encoded) > ((signing.MAX_P12_BYTES + 2) // 3) * 4 or not encoded.isascii()
+            or any(character in encoded for character in "\x00\r\n")):
+        encoded = ""
+    try:
+        bundle = base64.b64decode(encoded, validate=True)
+    except (ValueError, binascii.Error):
+        bundle = b""
+    return team, bundle, password
+
+
+def distribution_setup(root: Path) -> int:
+    """Prepare one ephemeral Apple Distribution identity for TestFlight only."""
+    preflight = Preflight(root)
+    preflight.root = root / "central-apple-distribution-signing-v1"
+    preflight.state = preflight.root / "keychain-state.json"
+    preflight.keychain = preflight.root / "distribution.keychain-db"
+    preflight._secure_root()
+    team, bundle, password = _distribution_credentials()
+    try:
+        preflight._p12(team, bundle, password, certificate_prefixes=("Apple Distribution:",))
+    except PreflightFailure as exc:
+        raise RuntimeError(f"Apple Distribution signing setup failed ({exc.stage}={exc.code})") from None
+    print("APPLE_DISTRIBUTION_SIGNING=PASS")
+    return 0
+
+
+def distribution_cleanup(root: Path) -> int:
+    preflight = Preflight(root)
+    preflight.root = root / "central-apple-distribution-signing-v1"
+    preflight.state = preflight.root / "keychain-state.json"
+    preflight.keychain = preflight.root / "distribution.keychain-db"
+    preflight.cleanup()
+    print("APPLE_DISTRIBUTION_SIGNING_CLEANUP=PASS")
+    return 0
+
+
 def main(argv: list[str]|None=None) -> int:
     arguments=sys.argv[1:] if argv is None else argv
-    if arguments not in (["run"],["cleanup"]):
+    if arguments not in (["run"],["cleanup"],["distribution-setup"],["distribution-cleanup"]):
         return 2
     try:
         os.umask(0o077)
-        root=_admission()
+        root = _distribution_admission() if arguments[0].startswith("distribution-") else _admission()
         fence=signing.acquire_fence()
         try:
+            if arguments == ["distribution-setup"]:
+                return distribution_setup(root)
+            if arguments == ["distribution-cleanup"]:
+                return distribution_cleanup(root)
             preflight=Preflight(root)
             if arguments==["cleanup"]:
                 preflight.cleanup()

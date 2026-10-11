@@ -90,6 +90,10 @@ name: Apple CI
         required: false
       APP_STORE_CONNECT_API_KEY_P8_BASE64:
         required: false
+      APPLE_DISTRIBUTION_P12_BASE64:
+        required: false
+      APPLE_DISTRIBUTION_P12_PASSWORD:
+        required: false
 
 permissions:
   contents: read
@@ -531,6 +535,26 @@ jobs:
             echo 'prepare-media failed; inspect the private Google Drive CI log.' >&2
             exit 1
           fi
+
+      - name: Check out Central Apple signing helper
+        if: ${{ inputs.test_profile == 'testflight' }}
+        uses: actions/checkout@v4
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.sha }}
+          path: central-ci
+          persist-credentials: false
+
+      - name: Prepare ephemeral Apple Distribution signing identity
+        if: ${{ inputs.test_profile == 'testflight' }}
+        shell: bash
+        env:
+          CI_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CI_APPLE_DISTRIBUTION_P12_BASE64: ${{ secrets.APPLE_DISTRIBUTION_P12_BASE64 }}
+          CI_APPLE_DISTRIBUTION_P12_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_P12_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          python3 central-ci/scripts/ci/apple_credential_preflight.py distribution-setup
 
       - name: Prepare fixed TestFlight release context
         id: testflight_prepare
@@ -1019,6 +1043,13 @@ jobs:
           release_root="${RUNNER_TEMP}/central-apple-testflight"
           rm -rf -- "${release_root}"
           test ! -e "${release_root}"
+
+      - name: Restore and delete ephemeral Apple Distribution signing identity
+        if: ${{ always() && inputs.test_profile == 'testflight' }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 central-ci/scripts/ci/apple_credential_preflight.py distribution-cleanup
 
       - name: Check out Apple development branch for isolated bump staging
         id: mobile_bump_stage_checkout

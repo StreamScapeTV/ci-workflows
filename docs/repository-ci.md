@@ -378,10 +378,12 @@ declared merely because a validation entrypoint exists.
 When Apple Development signing credentials require diagnosis, use **Actions →
 Central Apple Credential Preflight → Run workflow** on protected `main`, after its
 source has passed the normal Central PR review and merge. This manual,
-Central-only workflow has no input fields or caller integration. It runs on the
-reviewed self-hosted `macos-latest-xl` Mac; ordinary PRs, schedules, device-test,
-release workflows and product repositories cannot trigger it. Its GitHub Actions
-job grants only `contents: read` and checks its protected source identity.
+Central-only workflow has no input fields or caller integration. It runs on a
+GitHub-hosted `macos-latest` runner, so the proof does not depend on the
+self-hosted physical-device Mac; ordinary PRs, schedules, device-test, release
+workflows and product repositories cannot trigger it. Its GitHub Actions job
+grants only `contents: read` and checks its protected source identity and hosted
+runner class.
 
 The step consumes the existing Central repository's Apple Development P12,
 P12 password, Developer Team ID, App Store Connect P8 key, key ID and issuer ID
@@ -409,9 +411,14 @@ managed keychain*. It reports a fixed category such as `LEAF_EXPIRED`,
 `LEAF_NOT_YET_VALID`, `VALID_LEAF_G3_ISSUER_NOT_IN_KEYCHAIN`,
 `VALID_LEAF_G3_ISSUER_IN_KEYCHAIN`, `VALID_LEAF_OTHER_ISSUER` or
 `UNDETERMINED`. Absence in the isolated keychain does not prove absence in
-macOS trust stores or justify creating a new trusted anchor. The original
-Security `-v` result and actual noninteractive signature remain mandatory;
-these diagnostics neither import CAs nor relax certificate policy.
+macOS trust stores. Only when that fixed diagnosis is
+`VALID_LEAF_G3_ISSUER_NOT_IN_KEYCHAIN`, Central imports an Apple-published,
+SHA-256-pinned WWDR G3 intermediate into that disposable managed keychain and
+re-runs Security validation. It never changes system keychains, trust settings
+or trust anchors. `WWDR_G3_PINNED_INTERMEDIATE_IMPORTED` means only that this
+bounded repair was attempted successfully; the repeated Security `-v` result
+and actual noninteractive signature remain mandatory proof. These diagnostics
+do not otherwise relax certificate policy.
 Failure does not authorize a certificate/profile mutation or a further physical-device test. The job and
 its `always()` cleanup purge the transient P12/P8, probe and public certificate
 before attempting keychain restoration and deletion. Search-list and default

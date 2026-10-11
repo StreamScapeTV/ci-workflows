@@ -492,7 +492,7 @@ class RepositoryApplePhysicalDeviceTests(unittest.TestCase):
                     self.assertNotIn(certificate, str(raised.exception))
                     self.assertNotIn(fingerprint, str(raised.exception))
                     self.assertNotIn('ABCDE12345', str(raised.exception))
-                    self.assertEqual(len(observed), 2 if all_inventory is not None else 1)
+                    self.assertEqual(len(observed), 3 if code == 'no-valid-identity' else 2 if all_inventory is not None else 1)
 
     def test_security_identity_inventory_two_sections_preserve_validity_boundary(self) -> None:
         private_name = 'Apple Development: Private Person (ABCDE12345)'
@@ -568,9 +568,66 @@ class RepositoryApplePhysicalDeviceTests(unittest.TestCase):
                                      f'Central Apple Development signing identity validation failed ({code})')
                     for private_value in (private_name, fingerprint, 'ABCDE12345', str(keychain)):
                         self.assertNotIn(private_value, str(raised.exception))
-                    self.assertEqual(len(observed), 2)
+                    self.assertEqual(len(observed), 3 if keys else 2)
                     self.assertIn('-v', observed[0])
                     self.assertNotIn('-v', observed[1])
+
+    def test_missing_g3_intermediate_is_repaired_only_for_one_matching_identity(self) -> None:
+        fingerprint = SIGNING_CERT_FINGERPRINT
+        name = SIGNING_CERT_NAME
+        invalid = (
+            'Matching identities\n'
+            f'1) {fingerprint} "{name}" (CSSMERR_TP_NOT_TRUSTED)\n'
+            '1 identity found\n'
+            'Valid identities only\n'
+            '0 valid identities found\n'
+        ).encode()
+        valid = f'1) {fingerprint} "{name}"\n1 valid identity found\n'.encode()
+        with tempfile.TemporaryDirectory() as td:
+            keychain = Path(td) / 'managed.keychain-db'
+            repaired = False
+            commands: list[list[str]] = []
+
+            def command(argv: list[str], **_kwargs):
+                commands.append(argv)
+                if '-v' in argv:
+                    return valid if repaired else b'0 valid identities found\n'
+                return invalid
+
+            def repair(actual_keychain: Path) -> None:
+                nonlocal repaired
+                self.assertEqual(actual_keychain, keychain)
+                repaired = True
+
+            with (patch.object(device, '_run_private', side_effect=command),
+                  patch.object(device, '_imported_certificate_trust_diagnostic',
+                               return_value='VALID_LEAF_G3_ISSUER_NOT_IN_KEYCHAIN'),
+                  patch.object(device, '_imported_certificate_metadata', return_value=('ABCDE12345', '123ABC')),
+                  patch.object(device, 'import_pinned_wwdr_g3', side_effect=repair) as imported):
+                self.assertEqual(device._selected_signing_identity(keychain, 'ABCDE12345'), fingerprint)
+            imported.assert_called_once_with(keychain)
+            self.assertTrue(repaired)
+            self.assertEqual(sum('-v' in command for command in commands), 2)
+
+    def test_pinned_g3_intermediate_import_is_hash_pinned_and_keychain_scoped(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            keychain = Path(td) / 'managed.keychain-db'
+            commands: list[list[str]] = []
+
+            def command(argv: list[str]) -> bytes:
+                commands.append(argv)
+                self.assertEqual(argv[:2], ['security', 'import'])
+                self.assertEqual(argv[-2:], ['-k', str(keychain)])
+                imported = Path(argv[2])
+                self.assertEqual(imported.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(hashlib.sha256(imported.read_bytes()).hexdigest(), device.WWDR_G3_DER_SHA256)
+                return b''
+
+            device.import_pinned_wwdr_g3(keychain, command=command)
+            self.assertEqual(len(commands), 1)
+            self.assertFalse(Path(commands[0][2]).exists())
+            self.assertNotIn('add-trusted-cert', commands[0])
+            self.assertNotIn('trust-settings-import', commands[0])
 
     def test_dual_section_identity_inventory_rejects_mismatched_or_hostile_counts(self) -> None:
         valid_record = f'  1) {"A" * 40} "Private Person"\n'

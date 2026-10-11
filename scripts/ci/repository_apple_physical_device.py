@@ -553,9 +553,16 @@ def _imported_certificate_metadata(
         if (len(units) != 1 or not isinstance(units[0], str) or TEAM_RE.fullmatch(units[0]) is None
                 or not isinstance(serial, str) or re.fullmatch(r'[0-9A-Fa-f]{1,64}', serial) is None):
             raise ValueError
-        return units[0], serial.upper()
+        return units[0], _canonical_certificate_serial(serial)
     except (OSError, ValueError, RuntimeError, KeyError, TypeError, AttributeError):
         raise DeviceError('Central Apple Development certificate metadata could not be read') from None
+
+
+def _canonical_certificate_serial(serial: str) -> str:
+    """Normalize an X.509 serial to the unsigned hexadecimal API representation."""
+    if re.fullmatch(r'[0-9A-Fa-f]{1,64}', serial) is None:
+        raise ValueError('certificate serial is invalid')
+    return serial.upper().lstrip('0') or '0'
 
 
 # Fixed categories only. These describe the imported leaf and what is visible
@@ -563,7 +570,7 @@ def _imported_certificate_metadata(
 TRUST_DIAGNOSTICS = frozenset({
     'UNDETERMINED', 'LEAF_EXPIRED', 'LEAF_NOT_YET_VALID',
     'VALID_LEAF_G3_ISSUER_IN_KEYCHAIN', 'VALID_LEAF_G3_ISSUER_NOT_IN_KEYCHAIN',
-    'VALID_LEAF_OTHER_ISSUER',
+    'VALID_LEAF_OTHER_ISSUER', 'WWDR_G3_PINNED_INTERMEDIATE_IMPORTED',
 })
 WWDR_G3_ISSUER = frozenset({
     ('commonName', 'Apple Worldwide Developer Relations Certification Authority'),
@@ -571,6 +578,46 @@ WWDR_G3_ISSUER = frozenset({
     ('organizationName', 'Apple Inc.'),
     ('countryName', 'US'),
 })
+WWDR_G3_DER_BASE64 = (
+    b'MIIEUTCCAzmgAwIBAgIQfK9pCiW3Of57m0R6wXjF7jANBgkqhkiG9w0BAQsFADBiMQswCQYDVQQGEwJV'
+    b'UzETMBEGA1UEChMKQXBwbGUgSW5jLjEmMCQGA1UECxMdQXBwbGUgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkx'
+    b'FjAUBgNVBAMTDUFwcGxlIFJvb3QgQ0EwHhcNMjAwMjE5MTgxMzQ3WhcNMzAwMjIwMDAwMDAwWjB1MUQwQgYD'
+    b'VQQDDDtBcHBsZSBXb3JsZHdpZGUgRGV2ZWxvcGVyIFJlbGF0aW9ucyBDZXJ0aWZpY2F0aW9uIEF1dGhvcml0'
+    b'eTELMAkGA1UECwwCRzMxEzARBgNVBAoMCkFwcGxlIEluYy4xCzAJBgNVBAYTAlVTMIIBIjANBgkqhkiG9w0B'
+    b'AQEFAAOCAQ8AMIIBCgKCAQEA2PWJ/KhZC4fHTJEuLVaQ03gdpDDppUjvC0O/LYT7JF1FG+XrWTYSXFRknmxi'
+    b'LbTGl8rMPPbWBpH85QKmHGq0edVny6zpPwcR4YS8Rx1mjjmi6LRJ7TrS4RBgeo6TjMrA2gzAg9Dj+ZHWp4z'
+    b'IwXPirkbRYp2SqJBgN31ols2N4Pyb+ni743uvLRfdW/6AWSN1F7gSwe0b5TTO/iK1nkmw5VW/j4SiPKi6xY'
+    b'aVFuQAyZ8D0MyzOhZ71gVcnetHrg21LYwOaU1A0EtMOwSejSGxrC5DVDDOwYqGlJhL32oNP/77HK6XF8J4C'
+    b'jDgXx9UO0m3JQAaN4LSVpelUkl8YDib7wIDAQABo4HvMIHsMBIGA1UdEwEB/wQIMAYBAf8CAQAwHwYDVR0j'
+    b'BBgwFoAUK9BpR5R2Cf70a40uQKb3R01/CF4wRAYIKwYBBQUHAQEEODA2MDQGCCsGAQUFBzABhihodHRwOi8v'
+    b'b2NzcC5hcHBsZS5jb20vb2NzcDAzLWFwcGxlcm9vdGNhMC4GA1UdHwQnMCUwI6AhoB+GHWh0dHA6Ly9jcmwu'
+    b'YXBwbGUuY29tL3Jvb3QuY3JsMB0GA1UdDgQWBBQJ/sAVkPmvZAqSErkmKGMMl+ynsjAOBgNVHQ8BAf8EBAMC'
+    b'AQYwEAYKKoZIhvdjZAYCAQQCBQAwDQYJKoZIhvcNAQELBQADggEBAK1lE+j24IF3RAJHQr5fpTkg6mKp/cWQ'
+    b'yXMT1Z6b0KoPjY3L7QHPbChAW8dVJEH4/M/BtSPp3Ozxb8qAHXfCxGFJJWevD8o5Ja3T43rMMygNDi6hV0Bz'
+    b'+uZcrgZRKe3jhQxPYdwyFot30ETKXXIDMUacrptAGvr04NM++i+MZp+XxFRZ79JI9AeZSWBZGcfdlNHAwWx/'
+    b'eCHvDOs7bJmCS1JgOLU5gm3sUjFTvg+RTElJdI+mUcuER04ddSduvfnSXPN/wmwLCTbiZOTCNwMUGdXqapSq'
+    b'qdv+9poIZ4vvK7iqF0mDr8/LvOnP6pVxsLRFoszlh6oKw0E6eVzaUDSdlTs='
+)
+WWDR_G3_DER_SHA256 = 'dcf21878c77f4198e4b4614f03d696d89c66c66008d4244e1b99161aac91601f'
+
+
+def import_pinned_wwdr_g3(keychain: Path, *, command: Callable[[list[str]], bytes] | None = None) -> None:
+    """Import Apple's pinned public G3 intermediate into only one managed keychain."""
+    command = _run_private if command is None else command
+    try:
+        if (keychain.is_symlink() or not keychain.parent.is_absolute() or keychain.parent.is_symlink()
+                or not keychain.parent.is_dir()):
+            raise ValueError
+        certificate = base64.b64decode(WWDR_G3_DER_BASE64, validate=True)
+        if (not 32 <= len(certificate) <= MAX_CERTIFICATE_BYTES
+                or hashlib.sha256(certificate).hexdigest() != WWDR_G3_DER_SHA256):
+            raise ValueError
+        with tempfile.TemporaryDirectory(prefix='central-apple-wwdr-g3-', dir=keychain.parent) as temporary:
+            path = Path(temporary) / 'AppleWWDRCAG3.cer'
+            write_private(path, certificate, max_bytes=MAX_CERTIFICATE_BYTES)
+            command(['security', 'import', str(path), '-k', str(keychain)])
+    except (OSError, ValueError, RuntimeError, DeviceError):
+        raise DeviceError('Central Apple WWDR G3 intermediate import failed') from None
 
 
 def _imported_certificate_trust_diagnostic(
@@ -650,7 +697,21 @@ def _selected_signing_identity(keychain: Path, team_id: str) -> str:
         ]), valid_only=False)
         if not all_key_backed:
             _identity_failure('no-key-backed-identity')
-        _identity_failure('no-valid-identity')
+        if len(all_key_backed) != 1:
+            _identity_failure('ambiguous-key-backed-identities')
+        fingerprint, common_name = all_key_backed[0]
+        if _imported_certificate_trust_diagnostic(keychain, fingerprint) == 'VALID_LEAF_G3_ISSUER_NOT_IN_KEYCHAIN':
+            if not common_name.startswith(('Apple Development:', 'iOS Development:')):
+                _identity_failure('wrong-certificate-type')
+            signed_team, _serial = _imported_certificate_metadata(keychain, fingerprint)
+            if signed_team != team_id:
+                _identity_failure('team-mismatch')
+            import_pinned_wwdr_g3(keychain)
+            valid = _identity_records(_run_private([
+                'security', 'find-identity', '-v', '-p', 'codesigning', str(keychain),
+            ]))
+        if not valid:
+            _identity_failure('no-valid-identity')
     if len(valid) != 1:
         _identity_failure('ambiguous-valid-identities')
     fingerprint, common_name = valid[0]
