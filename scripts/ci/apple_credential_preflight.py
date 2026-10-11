@@ -278,10 +278,22 @@ class Preflight:
             if not valid:
                 # Read only the selected public certificate. Never treat this
                 # diagnostic as evidence that macOS trusts or can sign with it.
-                self._stage("CERT_TRUST_DIAGNOSTIC", signing._imported_certificate_trust_diagnostic(
+                diagnostic = signing._imported_certificate_trust_diagnostic(
                     self.keychain, found[0][0], command=_call,
-                ))
-            raise PreflightFailure("CERT_TRUST_VALID","NO_VALID_IDENTITY" if not valid else "AMBIGUOUS")
+                )
+                self._stage("CERT_TRUST_DIAGNOSTIC", diagnostic)
+                if diagnostic == "VALID_LEAF_G3_ISSUER_NOT_IN_KEYCHAIN":
+                    try:
+                        signing.import_pinned_wwdr_g3(self.keychain, command=_call)
+                        valid = signing._identity_records(_call([
+                            "security","find-identity","-v","-p","codesigning",str(self.keychain),
+                        ]))
+                    except (RuntimeError, signing.DeviceError):
+                        raise PreflightFailure("CERT_TRUST_VALID","CERT_INVALID") from None
+                    if len(valid)==1 and valid[0] == found[0]:
+                        self._stage("CERT_TRUST_DIAGNOSTIC", "WWDR_G3_PINNED_INTERMEDIATE_IMPORTED")
+            if len(valid)!=1 or valid[0] != found[0]:
+                raise PreflightFailure("CERT_TRUST_VALID","NO_VALID_IDENTITY" if not valid else "AMBIGUOUS")
         self._stage("CERT_TRUST_VALID","PASS")
         source, binary = self.root/"probe.c",self.root/"probe"
         _write_secret(source,b"int main(void) { return 0; }\n",limit=1000)
@@ -335,7 +347,9 @@ class Preflight:
                 raise PreflightFailure("API_CERT_ACCESS","BAD_RESPONSE")
             visible.append(row["attributes"].get("serialNumber",""))
         self._stage("API_CERT_ACCOUNT_MATCH","PASS" if any(
-            isinstance(value,str) and value.upper()==self.serial for value in visible
+            isinstance(value,str) and re.fullmatch(r"[0-9A-Fa-f]{1,64}",value) is not None
+            and signing._canonical_certificate_serial(value)==self.serial
+            for value in visible
         ) else "NOT_VISIBLE")
 
     def run(self) -> int:
@@ -428,7 +442,7 @@ def _admission() -> Path:
             or os.environ.get("GITHUB_REF")!="refs/heads/main"
             or os.environ.get("GITHUB_EVENT_NAME")!="workflow_dispatch"
             or os.environ.get("RUNNER_OS")!="macOS"
-            or os.environ.get("RUNNER_ENVIRONMENT")!="self-hosted"):
+            or os.environ.get("RUNNER_ENVIRONMENT")!="github-hosted"):
         raise RuntimeError("preflight request is not approved")
     root=Path(os.environ.get("RUNNER_TEMP",""))
     if not root.is_absolute() or not root.is_dir() or root.is_symlink():

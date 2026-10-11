@@ -25,7 +25,7 @@ class CredentialPreflightTests(unittest.TestCase):
         self.assertEqual(workflow["on"],{"workflow_dispatch":None})
         self.assertEqual(workflow["permissions"],{"contents":"read"})
         job=workflow["jobs"]["preflight"]
-        self.assertEqual(job["runs-on"],["macos-latest-xl"])
+        self.assertEqual(job["runs-on"],"macos-latest")
         self.assertIn("refs/heads/main",job["if"])
         self.assertIn("StreamScapeTV/ci-workflows",job["if"])
         self.assertIn("workflow_dispatch",job["if"])
@@ -34,6 +34,7 @@ class CredentialPreflightTests(unittest.TestCase):
             "PREFLIGHT_P12_BASE64","PREFLIGHT_P12_PASSWORD","PREFLIGHT_APPLE_TEAM_ID",
             "PREFLIGHT_ASC_P8_BASE64","PREFLIGHT_ASC_KEY_ID","PREFLIGHT_ASC_ISSUER_ID"})
         self.assertTrue(all("secrets." in value for key,value in secret_step["env"].items() if key!="RUNNER_ENVIRONMENT"))
+        self.assertIn('github-hosted',str(job["steps"]))
         self.assertNotIn("workflow_call",str(workflow))
         self.assertNotIn("pull_request",str(workflow))
         self.assertNotIn("id-token",str(workflow))
@@ -93,7 +94,7 @@ class CredentialPreflightTests(unittest.TestCase):
             p=preflight.Preflight(root)
             p._secure_root()
             p.serial="ABCDEF"
-            payload=json.dumps({"data":[{"attributes":{"serialNumber":"abcdef"}}]}).encode()
+            payload=json.dumps({"data":[{"attributes":{"serialNumber":"000abcdef"}}]}).encode()
             with patch.object(preflight,"_jwt",return_value="hidden.jwt"),patch.object(preflight,"_apple_certificates",return_value=(200,payload)) as request:
                 p._api(b"-----BEGIN PRIVATE KEY-----\nprivate\n-----END PRIVATE KEY-----","AAAAA12345","fd8567df-5955-4ae5-bf23-13e023d10a6d")
             self.assertEqual(p.status["API_AUTH"],"PASS")
@@ -310,6 +311,54 @@ class CredentialPreflightTests(unittest.TestCase):
             self.assertNotIn("codesign",[args[0] for args in calls])
             self.assertFalse((root/preflight.ROOT_NAME).exists())
 
+    def test_missing_g3_intermediate_retries_security_before_codesign(self):
+        fingerprint = SIGNING_CERT_FINGERPRINT
+        name = SIGNING_CERT_NAME
+        key_backed = (
+            'Matching identities\n'
+            f'1) {fingerprint} "{name}" (CSSMERR_TP_NOT_TRUSTED)\n'
+            '1 identity found\n'
+            'Valid identities only\n'
+            '0 valid identities found\n'
+        ).encode()
+        valid = f'1) {fingerprint} "{name}"\n1 valid identity found\n'.encode()
+        with tempfile.TemporaryDirectory() as td:
+            pre = preflight.Preflight(Path(td))
+            pre._secure_root()
+            repaired = False
+            calls: list[list[str]] = []
+
+            def command(argv, **_kwargs):
+                calls.append(argv)
+                if argv[:3] == ['security', 'find-identity', '-p']:
+                    return key_backed
+                if argv[:3] == ['security', 'find-identity', '-v']:
+                    return valid if repaired else b'0 valid identities found\n'
+                return b''
+
+            def repair(keychain, *, command):
+                nonlocal repaired
+                self.assertEqual(keychain, pre.keychain)
+                self.assertIs(command, preflight._call)
+                repaired = True
+
+            with (patch.object(pre, '_create_keychain'),
+                  patch.object(preflight, '_call', side_effect=command),
+                  patch.object(preflight.signing, '_imported_certificate_metadata',
+                               return_value=('ABCDE12345', '000123ABC')),
+                  patch.object(preflight.signing, '_imported_certificate_trust_diagnostic',
+                               return_value='VALID_LEAF_G3_ISSUER_NOT_IN_KEYCHAIN'),
+                  patch.object(preflight.signing, 'import_pinned_wwdr_g3', side_effect=repair) as imported):
+                pre._p12('ABCDE12345', b'\x30' + b'x' * 63, 'private-password')
+            imported.assert_called_once()
+            self.assertEqual(pre.serial, '000123ABC')
+            self.assertEqual(pre.status['CERT_TRUST_DIAGNOSTIC'], 'WWDR_G3_PINNED_INTERMEDIATE_IMPORTED')
+            self.assertEqual(pre.status['CERT_TRUST_VALID'], 'PASS')
+            self.assertEqual(pre.status['CODESIGN'], 'PASS')
+            self.assertEqual(pre.status['CODESIGN_VERIFY'], 'PASS')
+            self.assertEqual(sum('-v' in call for call in calls), 2)
+            pre.cleanup()
+
     def test_cleanup_always_purges_credentials_and_probes_then_retries_context(self):
         for failed_operation in ('list-keychains','default-keychain','delete-keychain'):
             with self.subTest(operation=failed_operation),tempfile.TemporaryDirectory() as td:
@@ -392,12 +441,12 @@ class CredentialPreflightTests(unittest.TestCase):
             self.assertFalse((Path(td)/preflight.ROOT_NAME).exists())
 
     def test_bounded_authentication_and_no_device_admission(self):
-        env={"GITHUB_REPOSITORY":"StreamScapeTV/ci-workflows","GITHUB_REF":"refs/heads/main", "GITHUB_EVENT_NAME":"workflow_dispatch","RUNNER_OS":"macOS","RUNNER_ENVIRONMENT":"self-hosted"}
+        env={"GITHUB_REPOSITORY":"StreamScapeTV/ci-workflows","GITHUB_REF":"refs/heads/main", "GITHUB_EVENT_NAME":"workflow_dispatch","RUNNER_OS":"macOS","RUNNER_ENVIRONMENT":"github-hosted"}
         with tempfile.TemporaryDirectory() as td:
             env["RUNNER_TEMP"]=td
             with patch.dict(preflight.os.environ,env,clear=True):
                 self.assertEqual(preflight._admission(),Path(td))
-            for key,value in (("GITHUB_EVENT_NAME","pull_request"),("GITHUB_REF","refs/heads/test"),("RUNNER_ENVIRONMENT","github-hosted"),("RUNNER_OS","Linux")):
+            for key,value in (("GITHUB_EVENT_NAME","pull_request"),("GITHUB_REF","refs/heads/test"),("RUNNER_ENVIRONMENT","self-hosted"),("RUNNER_OS","Linux")):
                 changed={**env,key:value}
                 with patch.dict(preflight.os.environ,changed,clear=True),self.assertRaises(RuntimeError):
                     preflight._admission()
