@@ -436,8 +436,8 @@ certification comes later.
 
 ## Read-only Kubernetes inspector: independently rotatable bearer token
 
-The separately authorized fixed `inspection.cluster` operation uses the trusted Central
-`StreamScapeTV/ci-workflows` GitHub Actions repository secrets. It is not part of an
+The separately authorized fixed `inspection.cluster` operation uses the trusted
+Central CI GitHub Actions repository secrets. It is not part of an
 ordinary product `validation.repository` operation.
 
 - `CLUSTER_INSPECTOR_KUBECONFIG_B64`: base64-encoded kubeconfig containing the
