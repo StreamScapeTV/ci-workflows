@@ -22,7 +22,6 @@ workflows:
   ci_log_retention: .github/workflows/ci-log-retention.yml
   github_issue_dependency_projection: .github/workflows/github-issue-dependency-projection.yml
   self_check: .github/workflows/self-check.yml
-  runner_images: .github/workflows/runner-images.yml
 actions:
   agent_state: actions/agent-state/action.yml
   google_drive: actions/google-drive/action.yml
@@ -47,5 +46,3 @@ scripts:
   swiftpm_binary: scripts/ci/swiftpm_binary.py
 contracts:
   repository_ci_v1: contracts/repository-ci-v1.json
-services:
-  runner_images: runner-images/
