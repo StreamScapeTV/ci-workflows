@@ -14,6 +14,24 @@ Central CI executes fixed tracked repository scripts and owns shared infrastruct
 
 Each supported entrypoint must be tracked, executable, and regular. Unsupported operations must fail closed in the repository rather than inventing another Central profile.
 
+## Ordinary branch validation concurrency
+
+Ordinary validation of one moving repository branch shares one GitHub job-level
+concurrency lane across the generic `build`/`test`/`full`/`ui-test` profiles and
+still-live bounded Apple candidate/screenshot, Android screenshot and Python
+PostgreSQL validation. The later job reaching that lane supersedes its older
+running or pending ordinary validation; unrelated branches and repositories have
+independent lanes. A multi-OS execution plan remains one parent request, so its
+Linux and macOS children can execute concurrently.
+
+Immutable tags, releases, physical-device work, cluster inspections and source
+maintenance never join this cancelling lane. Same-ref physical-device requests
+retain non-cancelling serialization. GitHub concurrency itself does not guarantee
+strict ordering by original Agent State request creation time; Agent State and
+the broker retain admission and terminal-settlement authority, and a cancelled
+job is not a successful product test. The current issue's real-consumer
+cancellation proof is distinct from static source validation.
+
 ## Tracked multi-OS execution plan
 
 A repository that needs one semantic operation to execute on more than one reviewed operating system may add the tracked non-executable regular file `.ci/execution-plan.json` (mode `100644`). The v1 shape is finite and declarative:
