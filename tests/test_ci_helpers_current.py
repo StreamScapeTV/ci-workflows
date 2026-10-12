@@ -161,6 +161,7 @@ class CiHelperTests(_prior.CiHelperTests):
         lane = request_by_name["Resolve bounded validation concurrency lane"]
         self.assertEqual(lane["id"], "validation_lane")
         lane_script = lane["run"]
+        self.assertIn("central-ordinary-branch-validation-v2", lane_script)
         self.assertIn("central-validation-lane-v1", lane_script)
         self.assertIn("SOURCE_REPOSITORY", lane["env"])
         self.assertIn("SOURCE_REF", lane["env"])
@@ -223,21 +224,36 @@ class CiHelperTests(_prior.CiHelperTests):
         duplicate_a = resolve_lane()
         branch_b = resolve_lane(ref="feature/new-head")
         different_profile = resolve_lane(profile="full")
-        different_workflow = resolve_lane(workflow_key="validation.apple")
+        different_workflow = resolve_lane(workflow_key="validation.apple", profile="candidate")
+        retained_python = resolve_lane(workflow_key="validation.python", profile="backend-postgres")
+        retained_android = resolve_lane(workflow_key="validation.android", profile="screenshot-review")
         tag = resolve_lane(ref="1.2.3", is_tag="true")
-        physical = resolve_lane(
-            workflow_key="validation.android",
-            profile="physical-performance",
+        physical = resolve_lane(workflow_key="validation.android", profile="physical-performance")
+        device = resolve_lane(workflow_key="validation.repository", profile="device-test")
+        inspector = resolve_lane(workflow_key="inspection.cluster", profile="flux")
+        maintenance = resolve_lane(workflow_key="maintenance.branch-delete", profile="delete")
+        publication = resolve_lane(workflow_key="source.checkpoint-publish", profile="publish")
+        reproducibility = resolve_lane(workflow_key="oci.reproducibility", profile="prove")
+        second_physical = resolve_lane(
+            workflow_key="validation.repository", profile="device-test",
         )
+        other_repository = resolve_lane(repository="StreamScapeTV/second-project")
 
         self.assertEqual(branch_a["concurrency_key"], duplicate_a["concurrency_key"])
         self.assertEqual(branch_a["cancel_in_progress"], "true")
         self.assertNotEqual(branch_a["concurrency_key"], branch_b["concurrency_key"])
-        self.assertNotEqual(branch_a["concurrency_key"], different_profile["concurrency_key"])
-        self.assertNotEqual(branch_a["concurrency_key"], different_workflow["concurrency_key"])
-        self.assertNotEqual(branch_a["concurrency_key"], tag["concurrency_key"])
-        self.assertEqual(tag["cancel_in_progress"], "false")
-        self.assertEqual(physical["cancel_in_progress"], "false")
+        for val in (different_profile, different_workflow, retained_python, retained_android):
+            self.assertEqual(branch_a["concurrency_key"], val["concurrency_key"])
+            self.assertEqual(val["cancel_in_progress"], "true")
+        for val in (tag, physical, device, inspector, maintenance, publication, reproducibility):
+            self.assertNotEqual(branch_a["concurrency_key"], val["concurrency_key"])
+            self.assertEqual(val["cancel_in_progress"], "false")
+        self.assertNotEqual(physical["concurrency_key"], device["concurrency_key"])
+        self.assertEqual(device["concurrency_key"], second_physical["concurrency_key"])
+        self.assertNotEqual(branch_a["concurrency_key"], other_repository["concurrency_key"])
+        self.assertNotEqual(maintenance["concurrency_key"], publication["concurrency_key"])
+        self.assertNotEqual(maintenance["concurrency_key"], inspector["concurrency_key"])
+        self.assertNotEqual(tag["concurrency_key"], branch_a["concurrency_key"])
 
         branch_delete = jobs["branch_delete"]["concurrency"]
         self.assertEqual(branch_delete["group"], "central-ci-maintenance-${{ inputs.active_key }}")

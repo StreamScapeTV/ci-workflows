@@ -83,14 +83,28 @@ jobs:
           if is_tag not in {"true", "false"}:
               raise SystemExit("Central validation concurrency source kind is invalid")
 
-          material = "\0".join(
-              ("central-validation-lane-v1", repository, ref, is_tag, workflow, profile)
-          ).encode("utf-8")
-          concurrency_key = hashlib.sha256(material).hexdigest()
+          # Ordinary validations of the same moving branch replace one another,
+          # across generic test/full and existing bounded candidate lanes.
+          ordinary_profiles = {
+              "validation.repository": frozenset(("build", "test", "full", "ui-test")),
+              "validation.apple": frozenset(("candidate", "screenshot-review")),
+              "validation.android": frozenset(("screenshot-review",)),
+              "validation.python": frozenset(("backend-postgres",)),
+          }
           cancel_in_progress = (
-              is_tag == "false"
-              and not (workflow == "validation.android" and profile == "physical-performance")
+              is_tag == "false" and profile in ordinary_profiles.get(workflow, ())
           )
+          if cancel_in_progress:
+              material = ("central-ordinary-branch-validation-v2", repository, ref)
+          else:
+              # Preserve per-profile, non-cancelling serialization for physical
+              # devices, tag operations, inspection and infrastructure. Two
+              # physical runs on one branch must not overlap on one device.
+              material = (
+                  "central-validation-lane-v1", repository, ref, is_tag,
+                  workflow, profile,
+              )
+          concurrency_key = hashlib.sha256("\0".join(material).encode("utf-8")).hexdigest()
           output_path = Path(os.environ["GITHUB_OUTPUT"])
           with output_path.open("a", encoding="utf-8") as output:
               output.write(f"concurrency_key={concurrency_key}\n")
