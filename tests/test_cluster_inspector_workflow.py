@@ -31,6 +31,7 @@ class ClusterInspectorWorkflowTests(unittest.TestCase):
             self.assertNotIn(forbidden, inputs)
         secrets = self.workflow["on"]["workflow_call"]["secrets"]
         self.assertTrue(secrets["CLUSTER_INSPECTOR_KUBECONFIG_B64"]["required"])
+        self.assertTrue(secrets["CLUSTER_INSPECTOR_BEARER_TOKEN"]["required"])
         self.assertEqual(self.workflow["permissions"], {"contents": "read"})
         for command in (
             "kubectl get", "kubectl describe", "kubectl logs", "kubectl apply",
@@ -62,21 +63,27 @@ class ClusterInspectorWorkflowTests(unittest.TestCase):
         self.assertIn('test "${SOURCE_REF}" = "${default_branch}"', guard["run"])
         self.assertIn("restricted to the repository default branch", guard["run"])
         self.assertIn("refs/*", guard["run"])
+        central_checkout = self.by_name["Check out reviewed Central inspector credential helper"]
+        self.assertEqual(central_checkout["with"]["repository"], "StreamScapeTV/ci-workflows")
+        self.assertEqual(central_checkout["with"]["ref"], "${{ github.sha }}")
+        self.assertFalse(central_checkout["with"]["persist-credentials"])
         names = [step.get("name") for step in self.steps]
+        self.assertLess(names.index("Check out reviewed Central inspector credential helper"), names.index("Prepare ephemeral cluster inspector kubeconfig"))
         self.assertLess(names.index("Require repository default-branch source"), names.index("Check out requested source"))
         self.assertLess(names.index("Check out requested source"), names.index("Prepare ephemeral cluster inspector kubeconfig"))
 
     def test_kubeconfig_is_ephemeral_and_never_an_input(self) -> None:
         prepare = self.by_name["Prepare ephemeral cluster inspector kubeconfig"]
         cleanup = self.by_name["Remove ephemeral cluster inspector kubeconfig"]
-        self.assertIn("${RUNNER_TEMP}/cluster-inspector-kubeconfig", prepare["run"])
-        self.assertIn("base64 --decode", prepare["run"])
-        self.assertIn("chmod 600", prepare["run"])
-        self.assertIn("KUBECONFIG=", prepare["run"])
+        self.assertEqual(prepare["env"]["CLUSTER_INSPECTOR_BEARER_TOKEN"], "${{ secrets.CLUSTER_INSPECTOR_BEARER_TOKEN }}")
+        self.assertIn("cluster_inspector_credentials.py prepare", prepare["run"])
+        self.assertIn("${RUNNER_TEMP}/cluster-inspector-kubeconfig", cleanup["run"])
+        self.assertIn("${RUNNER_TEMP}/cluster-inspector-bearer-token", cleanup["run"])
+        self.assertIn('rm -f -- "${kubeconfig}" "${token}"', cleanup["run"])
         self.assertEqual(cleanup["if"], "${{ always() }}")
-        self.assertIn('rm -f -- "${path}"', cleanup["run"])
+        self.assertIn('rm -f -- "${kubeconfig}" "${token}"', cleanup["run"])
         self.assertIn("KUBECONFIG=\\n", cleanup["run"])
-        self.assertIn("kubeconfig cleanup failed", cleanup["run"])
+        self.assertIn("credential cleanup failed", cleanup["run"])
         finish = self.by_name["Finish Agent State run"]
         self.assertIn("steps.kubeconfig_cleanup.outcome == 'success'", finish["with"]["status"])
 
@@ -96,6 +103,8 @@ class ClusterInspectorWorkflowTests(unittest.TestCase):
         drive = self.by_name["Upload cluster inspection evidence to Google Drive"]
         finish = self.by_name["Finish Agent State run"]
         self.assertIn("CI_SECRET_CLUSTER_INSPECTOR_KUBECONFIG_B64", scrub["env"])
+        self.assertEqual(scrub["env"]["CI_SECRET_CLUSTER_INSPECTOR_BEARER_TOKEN"],
+                         "${{ secrets.CLUSTER_INSPECTOR_BEARER_TOKEN }}")
         self.assertIn("16 * 1024 * 1024", scrub["run"])
         self.assertIn("[REDACTED]", scrub["run"])
         self.assertEqual(drive["uses"], "StreamScapeTV/ci-workflows/actions/google-drive@main")
@@ -136,6 +145,7 @@ class ClusterInspectorWorkflowTests(unittest.TestCase):
                 "TS_OAUTH_CLIENT_ID",
                 "TS_OAUTH_SECRET",
                 "CLUSTER_INSPECTOR_KUBECONFIG_B64",
+                "CLUSTER_INSPECTOR_BEARER_TOKEN",
             },
         )
         settlement = self.dispatch["jobs"]["settle_cancelled"]

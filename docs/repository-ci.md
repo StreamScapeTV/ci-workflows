@@ -432,3 +432,28 @@ stage at its demonstrated boundary: a public-certificate read or cleanup failure
 does not establish invalid credentials. Resolve actual credential or trust
 configuration privately before rechecking; the separate Media-owned iPhone
 certification comes later.
+
+
+## Read-only Kubernetes inspector: independently rotatable bearer token
+
+The separately authorized fixed `inspection.cluster` operation uses the trusted Central
+`StreamScapeTV/ci-workflows` GitHub Actions repository secrets. It is not part of an
+ordinary product `validation.repository` operation.
+
+- `CLUSTER_INSPECTOR_KUBECONFIG_B64`: base64-encoded kubeconfig containing the
+  existing read-only cluster address, CA and context, **without embedded token,
+  client key, client certificate, exec/auth-provider, username or password**.
+  Its selected inspector user's `user:` map must contain exactly
+  `tokenFile: __CLUSTER_INSPECTOR_TOKEN_FILE__` (literally, without quotes).
+- `CLUSTER_INSPECTOR_BEARER_TOKEN`: the raw, unencoded Kubernetes bearer token
+  for that same limited read-only service account. Rotate this secret alone when
+  it expires; do not repack the kubeconfig unless cluster connection details change.
+
+Central rejects a missing secret or alternate embedded authentication, places the
+bearer token in a mode-0600 file under the job's ephemeral `RUNNER_TEMP`, substitutes
+*only the absolute file path* into kubeconfig's supported `tokenFile` field, and
+removes **both files** unconditionally after the attempted inspection. Neither
+bearer-token bytes nor private kubeconfig content is CI output; scrubbed private
+logs remain protected. The configured kubeconfig RBAC may not read Kubernetes
+Secrets or mutate resources. A valid token does not by itself prove Tailscale
+subnet reachability, API/firewall access, or a successful read-only inspection.
