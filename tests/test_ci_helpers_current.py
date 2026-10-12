@@ -237,7 +237,7 @@ class CiHelperTests(_prior.CiHelperTests):
         second_physical = resolve_lane(
             workflow_key="validation.repository", profile="device-test",
         )
-        other_repository = resolve_lane(repository="StreamScapeTV/second-project")
+        other_repository = resolve_lane(repository="StreamScapeTV/example-second")
 
         self.assertEqual(branch_a["concurrency_key"], duplicate_a["concurrency_key"])
         self.assertEqual(branch_a["cancel_in_progress"], "true")
