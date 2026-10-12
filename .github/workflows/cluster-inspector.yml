@@ -47,6 +47,8 @@ name: Cluster inspector
         required: false
       CLUSTER_INSPECTOR_KUBECONFIG_B64:
         required: true
+      CLUSTER_INSPECTOR_BEARER_TOKEN:
+        required: true
 
 permissions:
   contents: read
@@ -185,28 +187,23 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:github-ci
 
+      - name: Check out reviewed Central inspector credential helper
+        uses: actions/checkout@v4
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.sha }}
+          path: central-ci
+          persist-credentials: false
+
       - name: Prepare ephemeral cluster inspector kubeconfig
         id: kubeconfig
         shell: bash
         env:
           CLUSTER_INSPECTOR_KUBECONFIG_B64: ${{ secrets.CLUSTER_INSPECTOR_KUBECONFIG_B64 }}
+          CLUSTER_INSPECTOR_BEARER_TOKEN: ${{ secrets.CLUSTER_INSPECTOR_BEARER_TOKEN }}
         run: |
           set -Eeuo pipefail
-          test -n "${CLUSTER_INSPECTOR_KUBECONFIG_B64}" || {
-            echo "cluster inspector kubeconfig secret is required" >&2
-            exit 1
-          }
-          kubeconfig="${RUNNER_TEMP}/cluster-inspector-kubeconfig"
-          rm -f -- "${kubeconfig}"
-          umask 077
-          printf '%s' "${CLUSTER_INSPECTOR_KUBECONFIG_B64}" | base64 --decode > "${kubeconfig}"
-          test -s "${kubeconfig}" && test -f "${kubeconfig}" && test ! -L "${kubeconfig}" || {
-            echo "cluster inspector kubeconfig decode failed" >&2
-            exit 1
-          }
-          chmod 600 "${kubeconfig}"
-          printf 'KUBECONFIG=%s\n' "${kubeconfig}" >> "${GITHUB_ENV}"
-          printf 'path=%s\n' "${kubeconfig}" >> "${GITHUB_OUTPUT}"
+          python3 central-ci/scripts/ci/cluster_inspector_credentials.py prepare
 
       - name: Run fixed repository-owned cluster inspection profile
         id: inspect
@@ -249,15 +246,14 @@ jobs:
         id: kubeconfig_cleanup
         if: ${{ always() }}
         shell: bash
-        env:
-          KUBECONFIG_PATH: ${{ steps.kubeconfig.outputs.path }}
         run: |
           set -Eeuo pipefail
-          path="${KUBECONFIG_PATH:-${RUNNER_TEMP}/cluster-inspector-kubeconfig}"
-          rm -f -- "${path}"
+          kubeconfig="${RUNNER_TEMP}/cluster-inspector-kubeconfig"
+          token="${RUNNER_TEMP}/cluster-inspector-bearer-token"
+          rm -f -- "${kubeconfig}" "${token}"
           printf 'KUBECONFIG=\n' >> "${GITHUB_ENV}"
-          if test -e "${path}" || test -L "${path}"; then
-            echo "cluster inspector kubeconfig cleanup failed" >&2
+          if test -e "${kubeconfig}" || test -L "${kubeconfig}" || test -e "${token}" || test -L "${token}"; then
+            echo "cluster inspector credential cleanup failed" >&2
             exit 1
           fi
 
@@ -278,6 +274,7 @@ jobs:
           CI_SECRET_TAILSCALE_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           CI_SECRET_TAILSCALE_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
           CI_SECRET_CLUSTER_INSPECTOR_KUBECONFIG_B64: ${{ secrets.CLUSTER_INSPECTOR_KUBECONFIG_B64 }}
+          CI_SECRET_CLUSTER_INSPECTOR_BEARER_TOKEN: ${{ secrets.CLUSTER_INSPECTOR_BEARER_TOKEN }}
         run: |
           set -Eeuo pipefail
           python3 - <<'PY_REDACT'
