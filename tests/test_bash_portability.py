@@ -90,7 +90,8 @@ class BashPortabilityTests(unittest.TestCase):
 
     def test_standalone_shell_scripts_parse_as_bash(self) -> None:
         scripts = sorted(ROOT.rglob("*.sh"))
-        self.assertGreater(len(scripts), 0)
+        # Dedicated ARC runner images were the last standalone scripts; zero is valid.
+        # If later scripts are added, continue checking each one with bash -n.
         for path in scripts:
             first_line = path.read_text(encoding="utf-8").splitlines()[0]
             self.assertEqual(first_line, "#!/usr/bin/env bash", str(path.relative_to(ROOT)))
