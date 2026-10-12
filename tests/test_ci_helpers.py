@@ -19,11 +19,11 @@ class CiHelperTests(unittest.TestCase):
         inventory = yaml.safe_load((ROOT / "INVENTORY.yaml").read_text())
         self.assertEqual(
             set(inventory["workflows"]),
-            {"apple", "android", "python", "node", "flutter", "maven", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "central_dispatch", "self_check", "runner_images"},
+            {"apple", "android", "python", "node", "flutter", "maven", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "central_dispatch", "self_check"},
         )
         self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git"})
         self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility"})
-        self.assertEqual(set(inventory["services"]), {"runner_images"})
+        self.assertNotIn("services", inventory)
         self.assertFalse((ROOT / "ci-broker").exists())
         self.assertFalse((ROOT / "PYTHON_INVENTORY.yml").exists())
         self.assertFalse((ROOT / "contracts").exists())

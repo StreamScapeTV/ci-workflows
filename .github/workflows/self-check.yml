@@ -63,7 +63,6 @@ jobs:
           tests.test_apple_swiftpm_workflow
           tests.test_library_package_release_workflow
           tests.test_swiftpm_binary
-          tests.test_runner_images_workflow
           tests.test_release_observability
           tests.test_main_ref_release
           tests.test_tag_driven_release

@@ -348,7 +348,7 @@ class RepositoryHostClassTests(unittest.TestCase):
         self.assertEqual(values["host_os"], "macos")
         self.assertIn("resolve_repository_ci_host_class_for_os", self.script)
 
-    def test_hosted_runner_images_use_rolling_latest_aliases(self) -> None:
+    def test_hosted_runner_classes_use_rolling_latest_aliases(self) -> None:
         numeric_ubuntu = re.compile(r"\bubuntu-[0-9]+\.[0-9]+\b")
         numeric_macos = re.compile(r"\bmacos-[0-9]+\b")
         for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
