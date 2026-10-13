@@ -23,6 +23,10 @@ name: Python CI
         required: false
         default: false
     secrets:
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_READ_TOKEN:
+        required: false
       SOURCE_APP_ID:
         required: false
       SOURCE_APP_PRIVATE_KEY:
@@ -124,6 +128,13 @@ jobs:
         with:
           python-version: ${{ steps.python_version.outputs.version }}
 
+      - name: Authenticate default Docker Hub image reads
+        id: dockerhub_read
+        uses: StreamScapeTV/ci-workflows/actions/dockerhub-read@main
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_READ_TOKEN: ${{ secrets.DOCKERHUB_READ_TOKEN }}
+
       - name: Run fixed Python profile
         id: commands
         shell: bash
@@ -222,11 +233,20 @@ jobs:
           test "$TEST_PROFILE" = backend-postgres || { echo "Python validation supports only backend-postgres" >&2; exit 2; }
           run_backend_postgres
 
+      - name: Cleanup default Docker Hub read credentials
+        id: dockerhub_read_cleanup
+        if: ${{ always() }}
+        uses: StreamScapeTV/ci-workflows/actions/dockerhub-read@main
+        with:
+          phase: cleanup
+
       - name: Scrub configured CI secrets from private log
         id: scrub
         if: ${{ always() }}
         shell: bash
         env:
+          CI_SECRET_DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          CI_SECRET_DOCKERHUB_READ_TOKEN: ${{ secrets.DOCKERHUB_READ_TOKEN }}
           CI_SECRET_SOURCE_TOKEN: ${{ steps.source.outputs.token }}
           CI_SECRET_GITHUB_TOKEN: ${{ github.token }}
           CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
@@ -239,11 +259,16 @@ jobs:
         run: |
           set -Eeuo pipefail
           python3 - <<'PY_REDACT'
+          import base64
           import os
           from pathlib import Path
 
           path = Path(os.environ["CI_LOG"])
           data = path.read_bytes()
+          user = os.environ.get("CI_SECRET_DOCKERHUB_USERNAME", "")
+          token = os.environ.get("CI_SECRET_DOCKERHUB_READ_TOKEN", "")
+          if user and token:
+              data = data.replace(base64.b64encode((user + ":" + token).encode()), b"[REDACTED]")
           for name, value in os.environ.items():
               if not name.startswith("CI_SECRET_") or not value:
                   continue
@@ -280,4 +305,4 @@ jobs:
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}
-          status: ${{ steps.commands.outcome == 'success' && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && 'succeeded' || 'failed' }}
+          status: ${{ steps.dockerhub_read.outcome == 'success' && steps.dockerhub_read_cleanup.outcome == 'success' && steps.commands.outcome == 'success' && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && 'succeeded' || 'failed' }}

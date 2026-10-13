@@ -1,0 +1,87 @@
+name: Default Docker Hub read authentication
+description: Fixed ephemeral authenticated Docker Hub reads for Central image-pulling jobs
+inputs:
+  phase:
+    description: Fixed setup or cleanup lifecycle
+    required: false
+    default: setup
+runs:
+  using: composite
+  steps:
+    - name: Configure or remove isolated Docker Hub read credentials
+      shell: bash
+      env:
+        AUTH_PHASE: ${{ inputs.phase }}
+      run: |
+        set -Eeuo pipefail
+        python3 - <<'PY'
+        import base64
+        import json
+        import os
+        from pathlib import Path
+        import shutil
+        import subprocess
+        import sys
+
+        root = Path(os.environ["RUNNER_TEMP"]) / "central-dockerhub-read"
+        phase = os.environ["AUTH_PHASE"]
+        created = False
+        try:
+            if phase == "cleanup":
+                if root.is_symlink():
+                    root.unlink()
+                elif root.exists():
+                    shutil.rmtree(root)
+                if root.exists() or root.is_symlink():
+                    raise ValueError("residue")
+                with open(os.environ["GITHUB_ENV"], "a") as out:
+                    out.write("DOCKER_CONFIG=\nREGISTRY_AUTH_FILE=\nDOCKERHUB_AUTH_FILE=\n")
+            elif phase == "setup":
+                user = os.environ.get("DOCKERHUB_USERNAME", "")
+                token = os.environ.get("DOCKERHUB_READ_TOKEN", "")
+                if not user or not token or any(c in user + token for c in "\r\n\x00") or ":" in user:
+                    raise ValueError("credentials")
+                if root.exists() or root.is_symlink():
+                    raise ValueError("residue")
+                auth = base64.b64encode((user + ":" + token).encode()).decode()
+                for secret in (user, token, auth):
+                    print("::add-mask::" + secret.replace("%", "%25"), flush=True)
+                root.mkdir(mode=0o700)
+                created = True
+                container_auth = root / "auth.json"
+                docker_config = root / "config.json"
+                docker_config.write_text("{}\n")
+                container_auth.write_text("{}\n")
+                docker_config.chmod(0o600)
+                container_auth.chmod(0o600)
+                if shutil.which("docker"):
+                    command = ["docker", "--config", str(root), "login", "--username", user, "--password-stdin", "docker.io"]
+                elif shutil.which("buildah"):
+                    command = ["buildah", "login", "--authfile", str(container_auth), "--username", user, "--password-stdin", "docker.io"]
+                elif shutil.which("skopeo"):
+                    command = ["skopeo", "login", "--authfile", str(container_auth), "--username", user, "--password-stdin", "docker.io"]
+                else:
+                    raise ValueError("tools")
+                subprocess.run(command, input=token.encode(), stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, check=True, timeout=60)
+                # Both Docker and containers/image read the same fixed Docker Hub entry.
+                # No persistent config or private publication credential is imported.
+                value = {"auths": {"docker.io": {"auth": auth}, "https://index.docker.io/v1/": {"auth": auth}}}
+                for path in (container_auth, docker_config):
+                    if path.is_symlink() or not path.is_file():
+                        raise ValueError("config")
+                    path.write_text(json.dumps(value) + "\n")
+                    path.chmod(0o600)
+                with open(os.environ["GITHUB_ENV"], "a") as out:
+                    out.write(f"DOCKER_CONFIG={root}\nREGISTRY_AUTH_FILE={container_auth}\nDOCKERHUB_AUTH_FILE={container_auth}\n")
+            else:
+                raise ValueError("phase")
+        except Exception:
+            if created and root.exists() and not root.is_symlink():
+                try:
+                    shutil.rmtree(root)
+                except OSError:
+                    pass
+            print("Docker Hub read authentication " + ("cleanup" if phase == "cleanup" else "setup") + " failed", file=sys.stderr)
+            raise SystemExit(1) from None
+        PY

@@ -56,6 +56,10 @@ name: Repository-owned CI
         required: false
         default: false
     secrets:
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_READ_TOKEN:
+        required: false
       SOURCE_APP_ID:
         required: true
       SOURCE_APP_PRIVATE_KEY:
@@ -1058,6 +1062,14 @@ jobs:
           TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
 
+      - name: Authenticate default Docker Hub image reads
+        id: dockerhub_read
+        if: ${{ needs.resolve_host.outputs.host_os == 'linux' }}
+        uses: StreamScapeTV/ci-workflows/actions/dockerhub-read@main
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_READ_TOKEN: ${{ secrets.DOCKERHUB_READ_TOKEN }}
+
       - name: Configure ephemeral generic package-manager authentication
         id: registry_auth
         if: ${{ steps.capabilities.outputs.auth_enabled == 'true' }}
@@ -1319,7 +1331,7 @@ jobs:
           helm_cache="${state_root}/helm-repository-cache"
           rm -rf -- "${state_root}"
           mkdir -m 0700 "${state_root}" "${helm_cache}"
-          printf '{}\n' > "${auth_file}"
+          cp "${RUNNER_TEMP}/central-dockerhub-read/auth.json" "${auth_file}"
           chmod 0600 "${auth_file}"
 
           printf '%s' "${REGISTRY_WRITE_TOKEN}" |
@@ -1515,6 +1527,8 @@ jobs:
           CI_APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 || '' }}
           CI_APPLE_DEVELOPMENT_P12_BASE64: ${{ inputs.operation == 'device-test' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APPLE_DEVELOPMENT_P12_BASE64 || '' }}
           CI_APPLE_DEVELOPMENT_P12_PASSWORD: ${{ inputs.operation == 'device-test' && needs.resolve_host.outputs.host_os == 'macos' && secrets.APPLE_DEVELOPMENT_P12_PASSWORD || '' }}
+          CI_SECRET_DOCKERHUB_USERNAME: ${{ needs.resolve_host.outputs.host_os == 'linux' && secrets.DOCKERHUB_USERNAME || '' }}
+          CI_SECRET_DOCKERHUB_READ_TOKEN: ${{ needs.resolve_host.outputs.host_os == 'linux' && secrets.DOCKERHUB_READ_TOKEN || '' }}
           CI_SECRET_REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           CI_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
           CI_SECRET_REGISTRY_WRITE_TOKEN: ${{ secrets.REGISTRY_WRITE_TOKEN }}
@@ -1535,6 +1549,9 @@ jobs:
         run: |
           set -Eeuo pipefail
           protected_agent_state_url="${CI_SECRET_AGENT_STATE_URL:-}"
+          if test -n "${CI_SECRET_DOCKERHUB_USERNAME:-}" && test -n "${CI_SECRET_DOCKERHUB_READ_TOKEN:-}"; then
+            export CI_SECRET_DOCKERHUB_AUTH_B64="$(printf '%s:%s' "${CI_SECRET_DOCKERHUB_USERNAME}" "${CI_SECRET_DOCKERHUB_READ_TOKEN}" | base64 | tr -d '\r\n')"
+          fi
           protected_agent_state_key="${CI_SECRET_AGENT_STATE_KEY:-}"
           protected_https_target="${CI_SECRET_PROTECTED_DEPLOYED_HTTPS_TARGET:-}"
           protected_wss_target="${CI_SECRET_PROTECTED_DEPLOYED_WSS_TARGET:-}"
@@ -1700,6 +1717,9 @@ jobs:
             CI_SECRET_DRIVE_REFRESH_TOKEN \
             CI_SECRET_TAILSCALE_ID \
             CI_SECRET_TAILSCALE_SECRET \
+            CI_SECRET_DOCKERHUB_USERNAME \
+            CI_SECRET_DOCKERHUB_READ_TOKEN \
+            CI_SECRET_DOCKERHUB_AUTH_B64 \
             CI_SECRET_REGISTRY_USERNAME \
             CI_SECRET_REGISTRY_READ_TOKEN \
             CI_SECRET_REGISTRY_WRITE_TOKEN \
@@ -2024,6 +2044,8 @@ jobs:
           CI_SECRET_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
           CI_SECRET_TAILSCALE_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           CI_SECRET_TAILSCALE_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          CI_SECRET_DOCKERHUB_USERNAME: ${{ needs.resolve_host.outputs.host_os == 'linux' && secrets.DOCKERHUB_USERNAME || '' }}
+          CI_SECRET_DOCKERHUB_READ_TOKEN: ${{ needs.resolve_host.outputs.host_os == 'linux' && secrets.DOCKERHUB_READ_TOKEN || '' }}
           CI_SECRET_REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           CI_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
           CI_SECRET_REGISTRY_WRITE_TOKEN: ${{ secrets.REGISTRY_WRITE_TOKEN }}
@@ -2079,6 +2101,11 @@ jobs:
                   raise SystemExit("repository CI text evidence escapes its Central-owned root")
               paths.append(path)
           secrets = [value.encode() for name, value in os.environ.items() if name.startswith("CI_SECRET_") and value]
+          import base64
+          user = os.environ.get("CI_SECRET_DOCKERHUB_USERNAME", "")
+          token = os.environ.get("CI_SECRET_DOCKERHUB_READ_TOKEN", "")
+          if user and token:
+              secrets.append(base64.b64encode((user + ":" + token).encode()))
           dynamic_secret_path = Path(os.environ.get("CI_DYNAMIC_SECRET_FILE", str(Path(os.environ["RUNNER_TEMP"]) / "central-apple-physical-device-secrets.txt")))
           if dynamic_secret_path.exists() or dynamic_secret_path.is_symlink():
               if dynamic_secret_path.is_symlink() or not dynamic_secret_path.is_file():
@@ -2560,6 +2587,13 @@ jobs:
             --log-path "${CI_LOG}" \
             --state-path "${timeline}"
 
+      - name: Cleanup default Docker Hub read credentials
+        id: dockerhub_read_cleanup
+        if: ${{ always() && needs.resolve_host.outputs.host_os == 'linux' }}
+        uses: StreamScapeTV/ci-workflows/actions/dockerhub-read@main
+        with:
+          phase: cleanup
+
       - name: Cleanup ephemeral registry and repository evidence
         id: cleanup
         if: ${{ always() }}
@@ -2606,6 +2640,9 @@ jobs:
           EVIDENCE_OUTCOME: ${{ steps.evidence.outcome }}
           DRIVE_OUTCOME: ${{ steps.drive.outcome }}
           EVIDENCE_DRIVE_OUTCOME: ${{ steps.evidence_drive.outcome }}
+          DOCKERHUB_READ_OUTCOME: ${{ steps.dockerhub_read.outcome }}
+          DOCKERHUB_READ_CLEANUP_OUTCOME: ${{ steps.dockerhub_read_cleanup.outcome }}
+          CI_HOST_OS: ${{ needs.resolve_host.outputs.host_os }}
           CLEANUP_OUTCOME: ${{ steps.cleanup.outcome }}
           APPLE_SIGNING_CLEANUP_OUTCOME: ${{ steps.apple_signing_cleanup.outcome }}
         run: |
@@ -2622,6 +2659,7 @@ jobs:
              && test "${EVIDENCE_OUTCOME}" = success \
              && test "${DRIVE_OUTCOME}" = success \
              && test "${EVIDENCE_DRIVE_OUTCOME}" = success \
+             && { test "${CI_HOST_OS}" != linux || { test "${DOCKERHUB_READ_OUTCOME}" = success && test "${DOCKERHUB_READ_CLEANUP_OUTCOME}" = success; }; } \
              && test "${CLEANUP_OUTCOME}" = success \
              && { test "${APPLE_SIGNING_CLEANUP_OUTCOME}" = success || test "${APPLE_SIGNING_CLEANUP_OUTCOME}" = skipped; }; then
             status=complete
@@ -2720,6 +2758,8 @@ jobs:
           ci_run_id: ${{ inputs.ci_run_id }}
           status: >-
             ${{ steps.request.outcome == 'success'
+                && (needs.resolve_host.outputs.host_os != 'linux' || steps.dockerhub_read.outcome == 'success')
+                && (needs.resolve_host.outputs.host_os != 'linux' || steps.dockerhub_read_cleanup.outcome == 'success')
                 && steps.source_identity.outcome == 'success'
                 && steps.execute_contract.outcome == 'success'
                 && steps.scrub.outcome == 'success'

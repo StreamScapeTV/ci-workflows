@@ -44,6 +44,10 @@ name: Repository-owned CI execution plan
         required: false
         default: false
     secrets:
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_READ_TOKEN:
+        required: false
       SOURCE_APP_ID:
         required: true
       SOURCE_APP_PRIVATE_KEY:
@@ -246,6 +250,8 @@ jobs:
     secrets:
       SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
       SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+      DOCKERHUB_USERNAME: ${{ matrix.host_os == 'linux' && secrets.DOCKERHUB_USERNAME || '' }}
+      DOCKERHUB_READ_TOKEN: ${{ matrix.host_os == 'linux' && secrets.DOCKERHUB_READ_TOKEN || '' }}
       AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
       AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
       GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}

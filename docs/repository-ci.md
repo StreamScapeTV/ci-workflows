@@ -478,3 +478,18 @@ bearer-token bytes nor private kubeconfig content is CI output; scrubbed private
 logs remain protected. The configured kubeconfig RBAC may not read Kubernetes
 Secrets or mutate resources. A valid token does not by itself prove Tailscale
 subnet reachability, API/firewall access, or a successful read-only inspection.
+
+## Default Docker Hub read authentication
+
+Central configures isolated Docker Hub read credentials before Linux repository
+execution, the fixed Python profile, native image/chart publication, and OCI
+reproducibility pulls. This is shared infrastructure setup: agents and product
+CI requests do not request a capability or select a registry. The fixed
+`DOCKERHUB_USERNAME` and `DOCKERHUB_READ_TOKEN` secrets authenticate reads using
+Docker or containers/image tooling. Missing or rejected credentials fail setup
+rather than falling back to anonymous pulls.
+
+Credentials use private per-job files, remain separate from publication
+authority, and are removed during unconditional cleanup. Private evidence
+scrubbing covers the raw credentials and their derived authentication value.
+Existing private-registry publication checks and permissions still apply.
