@@ -120,7 +120,7 @@ Trusted `dockerhub_public_pull` is a reviewed optional Linux Repository CI valid
 
 ## Capability lifetime
 
-Shared capability authorization is resolved by Central before `.ci/*` execution. Long-lived operation capabilities such as `private_network`, `github_git`, `registry_netrc`, `gradle_maven`, `registry_oci_publish`, and exact-run `backup_s3_read` are established for the reviewed execution lifetime. `protected_deployed_conformance` is different by design: the ordinary tracked `full` entrypoint sees only its informational enablement bit; Central materializes the protected bundle only after that entrypoint succeeds, then executes the separately bound certifier and deterministic reset before cleanup. Product scripts never acquire Central infrastructure credentials.
+Shared capability authorization is resolved by Central before `.ci/*` execution. Long-lived operation capabilities such as `private_network`, `github_git`, `registry_netrc`, `dockerhub_public_pull`, `gradle_maven`, `registry_oci_publish`, and exact-run `backup_s3_read` are established for the reviewed execution lifetime. `protected_deployed_conformance` is different by design: the ordinary tracked `full` entrypoint sees only its informational enablement bit; Central materializes the protected bundle only after that entrypoint succeeds, then executes the separately bound certifier and deterministic reset before cleanup. Product scripts never acquire Central infrastructure credentials.
 
 ## What host-class proof establishes
 
@@ -154,6 +154,7 @@ The frozen v1 non-host capability catalog is:
 - `private_network` — Central establishes the reviewed private network before product execution and keeps it available through the repository operation and cleanup lifecycle.
 - `github_git` — Central configures ephemeral Git HTTPS authentication for ordinary Git operations.
 - `registry_netrc` — Central configures ephemeral HTTPS package-registry read authentication through the operation's tool defaults.
+- `dockerhub_public_pull` — Central configures isolated Docker Hub read authentication only for explicitly granted Linux validation, with fixed credentials and unconditional cleanup.
 - `gradle_maven` — Central configures ephemeral Gradle private-Maven read properties.
 - `registry_oci_publish` — for an authorized Linux repository `release`, Central creates isolated Buildah/Skopeo and Helm registry authentication using the reviewed private registry write credential. Repository code receives authenticated tool defaults plus the fixed registry host, never the raw write token; image/chart namespaces and publication coordinates remain repository-owned.
 - `backup_s3_read` — authorized repository `release` only. Central requires a separate private descriptor bound to the exact project, Agent State CI run, repository, tag/ref, observed source SHA, and release operation, then exposes one fixed read-only S3-compatible backup connection bundle only to `.ci/release.sh`. Backup selection, Barman/CloudNativePG restore, PostgreSQL topology, migrations, health/smoke checks, restored-data handling, and cleanup remain repository-owned. Periodic raw-log checkpointing is disabled while this capability is active; final text/artifact evidence is still secret-scrubbed before Drive upload.
