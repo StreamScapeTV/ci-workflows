@@ -114,13 +114,9 @@ Central sets these host values before invoking the repository entrypoint:
 
 `CI_HOST_CLASS` and `CI_HOST_OS` are informational. Repository scripts must not branch into runner-selection logic or attempt to acquire runner credentials.
 
-## Docker Hub read-only pull capability
-
-Trusted `dockerhub_public_pull` is a reviewed optional Linux Repository CI validation capability, not a caller input, release credential, or new workflow family. Central supplies isolated job-scoped `DOCKER_CONFIG` from its root `DOCKERHUB_USERNAME` / `DOCKERHUB_READ_TOKEN` secrets only after a project-specific Agent State grant for build/test/full/ui-test. Product Dockerfile/Compose build commands and immutable image digests remain repository-owned. A read-only Docker Hub token may also access account-private images: do not grant it globally or use it on unrelated repositories. Central masks raw and Docker-encoded auth material, captures scrubbed evidence, and removes the configuration on terminal cleanup. Missing or invalid credentials fail closed; Backend conformance remains a separately required real-consumer proof.
-
 ## Capability lifetime
 
-Shared capability authorization is resolved by Central before `.ci/*` execution. Long-lived operation capabilities such as `private_network`, `github_git`, `registry_netrc`, `dockerhub_public_pull`, `gradle_maven`, `registry_oci_publish`, and exact-run `backup_s3_read` are established for the reviewed execution lifetime. `protected_deployed_conformance` is different by design: the ordinary tracked `full` entrypoint sees only its informational enablement bit; Central materializes the protected bundle only after that entrypoint succeeds, then executes the separately bound certifier and deterministic reset before cleanup. Product scripts never acquire Central infrastructure credentials.
+Shared capability authorization is resolved by Central before `.ci/*` execution. Long-lived operation capabilities such as `private_network`, `github_git`, `registry_netrc`, `gradle_maven`, `registry_oci_publish`, and exact-run `backup_s3_read` are established for the reviewed execution lifetime. `protected_deployed_conformance` is different by design: the ordinary tracked `full` entrypoint sees only its informational enablement bit; Central materializes the protected bundle only after that entrypoint succeeds, then executes the separately bound certifier and deterministic reset before cleanup. Product scripts never acquire Central infrastructure credentials.
 
 ## What host-class proof establishes
 
@@ -154,7 +150,6 @@ The frozen v1 non-host capability catalog is:
 - `private_network` — Central establishes the reviewed private network before product execution and keeps it available through the repository operation and cleanup lifecycle.
 - `github_git` — Central configures ephemeral Git HTTPS authentication for ordinary Git operations.
 - `registry_netrc` — Central configures ephemeral HTTPS package-registry read authentication through the operation's tool defaults.
-- `dockerhub_public_pull` — Central configures isolated Docker Hub read authentication only for explicitly granted Linux validation, with fixed credentials and unconditional cleanup.
 - `gradle_maven` — Central configures ephemeral Gradle private-Maven read properties.
 - `registry_oci_publish` — for an authorized Linux repository `release`, Central creates isolated Buildah/Skopeo and Helm registry authentication using the reviewed private registry write credential. Repository code receives authenticated tool defaults plus the fixed registry host, never the raw write token; image/chart namespaces and publication coordinates remain repository-owned.
 - `backup_s3_read` — authorized repository `release` only. Central requires a separate private descriptor bound to the exact project, Agent State CI run, repository, tag/ref, observed source SHA, and release operation, then exposes one fixed read-only S3-compatible backup connection bundle only to `.ci/release.sh`. Backup selection, Barman/CloudNativePG restore, PostgreSQL topology, migrations, health/smoke checks, restored-data handling, and cleanup remain repository-owned. Periodic raw-log checkpointing is disabled while this capability is active; final text/artifact evidence is still secret-scrubbed before Drive upload.
@@ -483,3 +478,18 @@ bearer-token bytes nor private kubeconfig content is CI output; scrubbed private
 logs remain protected. The configured kubeconfig RBAC may not read Kubernetes
 Secrets or mutate resources. A valid token does not by itself prove Tailscale
 subnet reachability, API/firewall access, or a successful read-only inspection.
+
+## Default Docker Hub read authentication
+
+Central configures isolated Docker Hub read credentials before Linux repository
+execution, the fixed Python profile, native image/chart publication, and OCI
+reproducibility pulls. This is shared infrastructure setup: agents and product
+CI requests do not request a capability or select a registry. The fixed
+`DOCKERHUB_USERNAME` and `DOCKERHUB_READ_TOKEN` secrets authenticate reads using
+Docker or containers/image tooling. Missing or rejected credentials fail setup
+rather than falling back to anonymous pulls.
+
+Credentials use private per-job files, remain separate from publication
+authority, and are removed during unconditional cleanup. Private evidence
+scrubbing covers the raw credentials and their derived authentication value.
+Existing private-registry publication checks and permissions still apply.

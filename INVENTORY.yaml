@@ -26,6 +26,7 @@ actions:
   agent_state: actions/agent-state/action.yml
   google_drive: actions/google-drive/action.yml
   private_git: actions/private-git/action.yml
+  dockerhub_read: actions/dockerhub-read/action.yml
   source_snapshot: actions/source-snapshot/action.yml
 scripts:
   oci_reproducibility: scripts/ci/oci_reproducibility.py

@@ -21,6 +21,10 @@ name: OCI reproducibility proof
         type: string
         required: true
     secrets:
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_READ_TOKEN:
+        required: false
       SOURCE_APP_ID:
         required: true
       SOURCE_APP_PRIVATE_KEY:
@@ -168,6 +172,13 @@ jobs:
           ci_run_id: ${{ inputs.ci_run_id }}
           observed_source_sha: ${{ steps.source_identity.outputs.source_sha }}
 
+      - name: Authenticate default Docker Hub image reads
+        id: dockerhub_read
+        uses: StreamScapeTV/ci-workflows/actions/dockerhub-read@main
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_READ_TOKEN: ${{ secrets.DOCKERHUB_READ_TOKEN }}
+
       - name: Set up fixed arm64 emulation
         id: qemu
         uses: docker/setup-qemu-action@v4
@@ -226,7 +237,7 @@ jobs:
                 "${platform_root}/tmp" \
                 "${platform_root}/xdg-cache" \
                 "${platform_root}/home"
-              printf '{}\n' > "${platform_root}/auth.json"
+              cp "${RUNNER_TEMP}/central-dockerhub-read/auth.json" "${platform_root}/auth.json"
               chmod 0600 "${platform_root}/auth.json"
               printf 'build=%s platform=%s graphroot=%s runroot=%s tmp=%s\n' \
                 "${build_id}" "${platform}" "${state_root}/graphroot" "${state_root}/runroot" "${platform_root}/tmp" \
@@ -343,11 +354,20 @@ jobs:
           fi
           printf 'Verified zero run-owned Buildah graph/run/cache/temp/layout/image residue.\n' >> "${log}"
 
+      - name: Cleanup default Docker Hub read credentials
+        id: dockerhub_read_cleanup
+        if: ${{ always() }}
+        uses: StreamScapeTV/ci-workflows/actions/dockerhub-read@main
+        with:
+          phase: cleanup
+
       - name: Scrub configured CI secrets from private log
         id: scrub
         if: always()
         shell: bash
         env:
+          CI_SECRET_DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          CI_SECRET_DOCKERHUB_READ_TOKEN: ${{ secrets.DOCKERHUB_READ_TOKEN }}
           CI_SECRET_SOURCE_TOKEN: ${{ steps.source_token.outputs.token }}
           CI_SECRET_GITHUB_TOKEN: ${{ github.token }}
           CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
@@ -360,11 +380,16 @@ jobs:
         run: |
           set -Eeuo pipefail
           python3 - <<'PY'
+          import base64
           import os
           from pathlib import Path
 
           path = Path(os.environ.get("CI_LOG", Path(os.environ["RUNNER_TEMP"]) / "central-oci-reproducibility.log"))
           data = path.read_bytes()
+          user = os.environ.get("CI_SECRET_DOCKERHUB_USERNAME", "")
+          token = os.environ.get("CI_SECRET_DOCKERHUB_READ_TOKEN", "")
+          if user and token:
+              data = data.replace(base64.b64encode((user + ":" + token).encode()), b"[REDACTED]")
           for name, value in os.environ.items():
               if not name.startswith("CI_SECRET_") or not value:
                   continue

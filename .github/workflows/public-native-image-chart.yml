@@ -38,6 +38,10 @@ name: Private native image and Helm release
         type: string
         required: true
     secrets:
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_READ_TOKEN:
+        required: false
       SOURCE_APP_ID:
         required: true
       SOURCE_APP_PRIVATE_KEY:
@@ -183,6 +187,13 @@ jobs:
           TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
 
+      - name: Authenticate default Docker Hub image reads
+        id: dockerhub_read
+        uses: StreamScapeTV/ci-workflows/actions/dockerhub-read@main
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_READ_TOKEN: ${{ secrets.DOCKERHUB_READ_TOKEN }}
+
       - name: Initialize isolated publication state
         shell: bash
         run: |
@@ -193,7 +204,7 @@ jobs:
             "${state_root}" \
             "${state_root}/packages" \
             "${state_root}/helm-repository-cache"
-          printf '{}\n' > "${state_root}/auth.json"
+          cp "${RUNNER_TEMP}/central-dockerhub-read/auth.json" "${state_root}/auth.json"
           chmod 0600 "${state_root}/auth.json"
           {
             printf 'REGISTRY_AUTH_FILE=%s\n' "${state_root}/auth.json"
@@ -408,6 +419,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           python3 - <<'PY' >> "${CI_LOG}" 2>&1
+          import base64
           import os
           from pathlib import Path
           from ci_workflows.packaging_primitives import registry_authenticate
@@ -540,6 +552,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           python3 - <<'PY' >> "${CI_LOG}" 2>&1 || true
+          import base64
           import os
           from pathlib import Path
           from ci_workflows.packaging_primitives import cleanup_packaging_state, registry_logout
@@ -566,11 +579,20 @@ jobs:
             test -z "$(git -C .ciw status --porcelain=v1 --untracked-files=all)"
           fi
 
+      - name: Cleanup default Docker Hub read credentials
+        id: dockerhub_read_cleanup
+        if: ${{ always() }}
+        uses: StreamScapeTV/ci-workflows/actions/dockerhub-read@main
+        with:
+          phase: cleanup
+
       - name: Scrub private release log
         id: scrub
         if: always()
         shell: bash
         env:
+          CI_SECRET_DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          CI_SECRET_DOCKERHUB_READ_TOKEN: ${{ secrets.DOCKERHUB_READ_TOKEN }}
           CI_SECRET_SOURCE_TOKEN: ${{ steps.source_token.outputs.token }}
           CI_SECRET_GITHUB_TOKEN: ${{ github.token }}
           CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
@@ -587,10 +609,15 @@ jobs:
         run: |
           set -Eeuo pipefail
           python3 - <<'PY'
+          import base64
           import os
           from pathlib import Path
           path = Path(os.environ["CI_LOG"])
           data = path.read_bytes()
+          user = os.environ.get("CI_SECRET_DOCKERHUB_USERNAME", "")
+          token = os.environ.get("CI_SECRET_DOCKERHUB_READ_TOKEN", "")
+          if user and token:
+              data = data.replace(base64.b64encode((user + ":" + token).encode()), b"[REDACTED]")
           for name, value in os.environ.items():
               if not name.startswith("CI_SECRET_") or not value:
                   continue
