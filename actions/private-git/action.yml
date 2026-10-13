@@ -31,9 +31,31 @@ runs:
       run: |
         set -Eeuo pipefail
         python3 - <<'PY'
-        import socket
+        import subprocess
+        import sys
+        import time
 
-        with socket.create_connection(("git.faruqi.dev", 443), timeout=15):
-            pass
-        print("private Git service tcp/443 reachable")
+        # A successful Tailscale connection does not prove that the runner's
+        # resolver has received the tailnet's private DNS configuration yet.
+        # Each probe uses a separate bounded process because getaddrinfo()
+        # may ignore the socket connection timeout entirely.
+        probe = (
+            'import socket; '
+            'connection = socket.create_connection(("git.faruqi.dev", 443), timeout=8); '
+            'connection.close()'
+        )
+        for attempt in range(4):
+            try:
+                subprocess.run(
+                    [sys.executable, '-c', probe],
+                    check=True, stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL, timeout=12,
+                )
+                print("private Git service tcp/443 reachable")
+                break
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                if attempt == 3:
+                    print("private Git service unavailable after bounded network readiness probes", file=sys.stderr)
+                    raise SystemExit(1)
+                time.sleep(3)
         PY

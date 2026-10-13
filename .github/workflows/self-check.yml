@@ -55,6 +55,7 @@ jobs:
           tests.test_python_workflow
           tests.test_google_drive_media_put
           tests.test_google_drive_retry_policy
+          tests.test_private_network_readiness
           tests.test_source_snapshot_delete
           tests.test_source_snapshot_delete_namespace
           tests.test_source_snapshot_lifecycle
