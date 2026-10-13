@@ -34,6 +34,7 @@ one semantic parent operation; it never selects runner labels or capabilities.
 | Private network access for the duration of one operation | Optional generic capability: `private_network` | Central establishes and cleans up the reviewed private network around the whole repository entrypoint. |
 | Ephemeral Git HTTPS authentication | Optional generic capability: `github_git` | Central configures Git defaults; repository scripts use ordinary Git operations without acquiring credentials. |
 | Ephemeral generic HTTPS package-registry read authentication | Optional generic capability: `registry_netrc` | Central configures the reviewed registry login in the operation environment. |
+| Reviewed Docker Hub public-image pull authorization | Optional generic capability: `dockerhub_public_pull` | Bound to an approved Linux Repository CI validation and one ephemeral Docker client auth file; never reuse Forgejo write credentials or distribute globally. |
 | Ephemeral Gradle private-Maven read authentication | Optional generic capability: `gradle_maven` | Central configures bounded Gradle properties for read-side dependency resolution. |
 | Private OCI image + Helm OCI publication authentication | Optional generic capability: `registry_oci_publish` | Only for an authorized Linux repository release, Central establishes isolated Buildah/Skopeo + Helm registry auth with the existing reviewed write credential; product scripts own image/chart coordinates, immutability checks, push/read-back commands and release semantics. |
 | Production-backup S3 read connection | Optional generic capability: `backup_s3_read` | Authorized repository release only. A private descriptor binds the exact project/run/repository/ref/source SHA/operation; Central projects only the fixed read-only S3 connection bundle into `.ci/release.sh`, disables raw periodic log checkpoints for that execution, and leaves backup/restore/database/migration/test/cleanup commands repository-owned. |
@@ -63,6 +64,7 @@ Repository CI v1 has exactly these non-host optional capability types:
 - `private_network`
 - `github_git`
 - `registry_netrc`
+- `dockerhub_public_pull`
 - `gradle_maven`
 - `registry_oci_publish`
 - `backup_s3_read`

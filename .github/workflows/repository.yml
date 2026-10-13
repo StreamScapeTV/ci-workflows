@@ -82,6 +82,10 @@ name: Repository-owned CI
         required: false
       REGISTRY_WRITE_TOKEN:
         required: false
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_READ_TOKEN:
+        required: false
       APPLE_TEAM_ID:
         required: false
       APP_STORE_CONNECT_KEY_ID:
@@ -750,7 +754,7 @@ jobs:
           trusted = value.get("trustedCapabilityGrant")
           if not isinstance(capability_types, dict) or not isinstance(trusted, dict):
               raise SystemExit("repository CI capability contract is incomplete")
-          expected = {"private_network", "github_git", "registry_netrc", "gradle_maven", "registry_oci_publish", "backup_s3_read", "protected_deployed_conformance", "apple_physical_device"}
+          expected = {"private_network", "github_git", "registry_netrc", "dockerhub_public_pull", "gradle_maven", "registry_oci_publish", "backup_s3_read", "protected_deployed_conformance", "apple_physical_device"}
           if set(capability_types) != expected:
               raise SystemExit("repository CI capability type set is not the reviewed v1 set")
           if trusted.get("source") != "Agent State project configuration":
@@ -949,6 +953,12 @@ jobs:
           ):
               enabled_capabilities.discard("apple_physical_device")
 
+          if (
+              operation not in {"build", "test", "full", "ui-test"}
+              or host_os != "linux"
+              or capability_context not in {"repository_lifecycle", "repository_parent"}
+          ):
+              enabled_capabilities.discard("dockerhub_public_pull")
           if "backup_s3_read" in enabled_capabilities:
               descriptor = state.get("repository_ci_backup_s3_read_v1")
               expected_descriptor_fields = {
@@ -1057,6 +1067,49 @@ jobs:
         env:
           TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+
+      - name: Authenticate bounded Docker Hub image pulls
+        id: dockerhub_pull_auth
+        if: ${{ steps.capabilities.outputs.dockerhub_public_pull == 'true' }}
+        shell: bash
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_READ_TOKEN: ${{ secrets.DOCKERHUB_READ_TOKEN }}
+          HOST_OS: ${{ needs.resolve_host.outputs.host_os }}
+          CI_OPERATION: ${{ inputs.operation }}
+        run: |
+          set -Eeuo pipefail
+          test "${HOST_OS}" = linux || { echo "Docker Hub pull authorization is Linux-only" >&2; exit 2; }
+          case "${CI_OPERATION}" in
+            build|test|full|ui-test) ;;
+            *) echo "Docker Hub pull authorization is validation-only" >&2; exit 2 ;;
+          esac
+          test -n "${DOCKERHUB_USERNAME}" && test -n "${DOCKERHUB_READ_TOKEN}" || {
+            echo "Docker Hub pull capability is missing its fixed credentials" >&2
+            exit 1
+          }
+          command -v docker >/dev/null 2>&1 || { echo "Docker Hub pull capability requires Docker CLI" >&2; exit 1; }
+          auth_root="${RUNNER_TEMP}/central-dockerhub-pull"
+          if test -e "${auth_root}" || test -L "${auth_root}"; then
+            echo "Docker Hub credential residue exists before setup" >&2
+            exit 1
+          fi
+          (umask 077; mkdir -m 700 -- "${auth_root}")
+          # Docker config stores base64(username:token), so mask both forms.
+          echo "::add-mask::${DOCKERHUB_READ_TOKEN}"
+          docker_auth="$(printf '%s:%s' "${DOCKERHUB_USERNAME}" "${DOCKERHUB_READ_TOKEN}" | base64 | tr -d '\r\n')"
+          echo "::add-mask::${docker_auth}"
+          unset docker_auth
+          if ! printf '%s' "${DOCKERHUB_READ_TOKEN}" | docker --config "${auth_root}" login --username "${DOCKERHUB_USERNAME}" --password-stdin docker.io >/dev/null 2>&1; then
+            echo "Docker Hub pull-only authentication failed" >&2
+            exit 1
+          fi
+          test -f "${auth_root}/config.json" && test ! -L "${auth_root}/config.json" || {
+            echo "Docker Hub credential configuration is invalid" >&2
+            exit 1
+          }
+          chmod 600 "${auth_root}/config.json"
+          printf 'DOCKER_CONFIG=%s\n' "${auth_root}" >> "${GITHUB_ENV}"
 
       - name: Configure ephemeral generic package-manager authentication
         id: registry_auth
@@ -1518,6 +1571,8 @@ jobs:
           CI_SECRET_REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           CI_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
           CI_SECRET_REGISTRY_WRITE_TOKEN: ${{ secrets.REGISTRY_WRITE_TOKEN }}
+          CI_SECRET_DOCKERHUB_USERNAME: ${{ steps.capabilities.outputs.dockerhub_public_pull == 'true' && secrets.DOCKERHUB_USERNAME || '' }}
+          CI_SECRET_DOCKERHUB_READ_TOKEN: ${{ steps.capabilities.outputs.dockerhub_public_pull == 'true' && secrets.DOCKERHUB_READ_TOKEN || '' }}
           CI_SECRET_BACKUP_S3_ENDPOINT: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_ENDPOINT || '' }}
           CI_SECRET_BACKUP_S3_BUCKET: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_BUCKET || '' }}
           CI_SECRET_BACKUP_S3_REGION: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_REGION || '' }}
@@ -1541,6 +1596,9 @@ jobs:
           protected_http_scenario="${CI_SECRET_PROTECTED_DEPLOYED_HTTP_SCENARIO:-}"
           protected_websocket_scenario="${CI_SECRET_PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO:-}"
           protected_setup_credential="${CI_SECRET_PROTECTED_DEPLOYED_SETUP_CREDENTIAL:-}"
+          if test -n "${CI_SECRET_DOCKERHUB_USERNAME:-}" && test -n "${CI_SECRET_DOCKERHUB_READ_TOKEN:-}"; then
+            export CI_SECRET_DOCKERHUB_AUTH_B64="$(printf '%s:%s' "${CI_SECRET_DOCKERHUB_USERNAME}" "${CI_SECRET_DOCKERHUB_READ_TOKEN}" | base64 | tr -d '\r\n')"
+          fi
           backup_s3_endpoint="${CI_SECRET_BACKUP_S3_ENDPOINT:-}"
           backup_s3_bucket="${CI_SECRET_BACKUP_S3_BUCKET:-}"
           backup_s3_region="${CI_SECRET_BACKUP_S3_REGION:-}"
@@ -1703,6 +1761,9 @@ jobs:
             CI_SECRET_REGISTRY_USERNAME \
             CI_SECRET_REGISTRY_READ_TOKEN \
             CI_SECRET_REGISTRY_WRITE_TOKEN \
+            CI_SECRET_DOCKERHUB_USERNAME \
+            CI_SECRET_DOCKERHUB_READ_TOKEN \
+            CI_SECRET_DOCKERHUB_AUTH_B64 \
             CI_SECRET_BACKUP_S3_ENDPOINT \
             CI_SECRET_BACKUP_S3_BUCKET \
             CI_SECRET_BACKUP_S3_REGION \
@@ -2027,6 +2088,8 @@ jobs:
           CI_SECRET_REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           CI_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
           CI_SECRET_REGISTRY_WRITE_TOKEN: ${{ secrets.REGISTRY_WRITE_TOKEN }}
+          CI_SECRET_DOCKERHUB_USERNAME: ${{ steps.capabilities.outputs.dockerhub_public_pull == 'true' && secrets.DOCKERHUB_USERNAME || '' }}
+          CI_SECRET_DOCKERHUB_READ_TOKEN: ${{ steps.capabilities.outputs.dockerhub_public_pull == 'true' && secrets.DOCKERHUB_READ_TOKEN || '' }}
           CI_SECRET_BACKUP_S3_ENDPOINT: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_ENDPOINT || '' }}
           CI_SECRET_BACKUP_S3_BUCKET: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_BUCKET || '' }}
           CI_SECRET_BACKUP_S3_REGION: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_REGION || '' }}
@@ -2079,6 +2142,11 @@ jobs:
                   raise SystemExit("repository CI text evidence escapes its Central-owned root")
               paths.append(path)
           secrets = [value.encode() for name, value in os.environ.items() if name.startswith("CI_SECRET_") and value]
+          docker_user = os.environ.get("CI_SECRET_DOCKERHUB_USERNAME", "")
+          docker_token = os.environ.get("CI_SECRET_DOCKERHUB_READ_TOKEN", "")
+          if docker_user and docker_token:
+              import base64
+              secrets.append(base64.b64encode((docker_user + ":" + docker_token).encode()))
           dynamic_secret_path = Path(os.environ.get("CI_DYNAMIC_SECRET_FILE", str(Path(os.environ["RUNNER_TEMP"]) / "central-apple-physical-device-secrets.txt")))
           if dynamic_secret_path.exists() or dynamic_secret_path.is_symlink():
               if dynamic_secret_path.is_symlink() or not dynamic_secret_path.is_file():
@@ -2568,6 +2636,7 @@ jobs:
           set -Eeuo pipefail
           rm -rf -- \
             "${RUNNER_TEMP}/central-registry-auth" \
+            "${RUNNER_TEMP}/central-dockerhub-pull" \
             "${RUNNER_TEMP}/central-oci-publish" \
             "${RUNNER_TEMP}/central-protected-deployed-conformance" \
             "${RUNNER_TEMP}/repository-ci-logs" \
@@ -2581,6 +2650,11 @@ jobs:
             "${RUNNER_TEMP}/central-apple-physical-device-context.json" \
             "${RUNNER_TEMP}/central-apple-physical-device-secrets.txt" \
             "${RUNNER_TEMP}/central-apple-physical-device-inventory.json"
+          printf 'DOCKER_CONFIG=\n' >> "${GITHUB_ENV}"
+          if test -e "${RUNNER_TEMP}/central-dockerhub-pull" || test -L "${RUNNER_TEMP}/central-dockerhub-pull"; then
+            echo "repository CI Docker Hub credential cleanup failed" >&2
+            exit 1
+          fi
           for private_device_path in \
             "${RUNNER_TEMP}/central-apple-physical-device-context.json" \
             "${RUNNER_TEMP}/central-apple-physical-device-secrets.txt" \

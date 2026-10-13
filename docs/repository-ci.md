@@ -114,6 +114,10 @@ Central sets these host values before invoking the repository entrypoint:
 
 `CI_HOST_CLASS` and `CI_HOST_OS` are informational. Repository scripts must not branch into runner-selection logic or attempt to acquire runner credentials.
 
+## Docker Hub read-only pull capability
+
+Trusted `dockerhub_public_pull` is a reviewed optional Linux Repository CI validation capability, not a caller input, release credential, or new workflow family. Central supplies isolated job-scoped `DOCKER_CONFIG` from its root `DOCKERHUB_USERNAME` / `DOCKERHUB_READ_TOKEN` secrets only after a project-specific Agent State grant for build/test/full/ui-test. Product Dockerfile/Compose build commands and immutable image digests remain repository-owned. A read-only Docker Hub token may also access account-private images: do not grant it globally or use it on unrelated repositories. Central masks raw and Docker-encoded auth material, captures scrubbed evidence, and removes the configuration on terminal cleanup. Missing or invalid credentials fail closed; Backend conformance remains a separately required real-consumer proof.
+
 ## Capability lifetime
 
 Shared capability authorization is resolved by Central before `.ci/*` execution. Long-lived operation capabilities such as `private_network`, `github_git`, `registry_netrc`, `gradle_maven`, `registry_oci_publish`, and exact-run `backup_s3_read` are established for the reviewed execution lifetime. `protected_deployed_conformance` is different by design: the ordinary tracked `full` entrypoint sees only its informational enablement bit; Central materializes the protected bundle only after that entrypoint succeeds, then executes the separately bound certifier and deterministic reset before cleanup. Product scripts never acquire Central infrastructure credentials.
