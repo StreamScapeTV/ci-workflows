@@ -458,19 +458,22 @@ The separately authorized fixed `inspection.cluster` operation uses the trusted
 Central CI GitHub Actions repository secrets. It is not part of an
 ordinary product `validation.repository` operation.
 
-- `CLUSTER_INSPECTOR_KUBECONFIG_B64`: base64-encoded kubeconfig containing the
-  existing read-only cluster address, CA and context, **without embedded token,
-  client key, client certificate, exec/auth-provider, username or password**.
-  Its selected inspector user's `user:` map must contain exactly
-  `tokenFile: __CLUSTER_INSPECTOR_TOKEN_FILE__` (literally, without quotes).
+- `CLUSTER_INSPECTOR_KUBECONFIG_B64`: the **existing** base64-encoded read-only
+  inspector kubeconfig with its original cluster address, CA, context and single
+  inline `users[].user.token` scalar. **The owner does not need to edit or
+  repack this secret** to rotate the token. For already migrated configurations,
+  the selected user's `tokenFile: __CLUSTER_INSPECTOR_TOKEN_FILE__` placeholder
+  remains supported. Alternate client keys/certificates, exec/auth-provider,
+  username/password or a caller-selected tokenFile path are rejected.
 - `CLUSTER_INSPECTOR_BEARER_TOKEN`: the raw, unencoded Kubernetes bearer token
   for that same limited read-only service account. Rotate this secret alone when
   it expires; do not repack the kubeconfig unless cluster connection details change.
 
-Central rejects a missing secret or alternate embedded authentication, places the
-bearer token in a mode-0600 file under the job's ephemeral `RUNNER_TEMP`, substitutes
-*only the absolute file path* into kubeconfig's supported `tokenFile` field, and
-removes **both files** unconditionally after the attempted inspection. Neither
+Central rejects a missing secret or alternate embedded authentication. It
+replaces the existing inline bearer token **only in the ephemeral rendered
+kubeconfig**, writes the new bearer token to a mode-0600 file under the job's
+`RUNNER_TEMP`, references *only its absolute path* using Kubernetes `tokenFile`,
+and removes **both files** unconditionally after the attempted inspection. Neither
 bearer-token bytes nor private kubeconfig content is CI output; scrubbed private
 logs remain protected. The configured kubeconfig RBAC may not read Kubernetes
 Secrets or mutate resources. A valid token does not by itself prove Tailscale

@@ -32,6 +32,10 @@ contexts:
 current-context: private
 """
 TOKEN = "synthetic-token.not-a-secret.EXAMPLE1234"
+OLD_TOKEN = "example-old-inspector-token0123456789"
+INLINE_CONFIG = CONFIG.replace(
+    "tokenFile: __CLUSTER_INSPECTOR_TOKEN_FILE__", "token: " + OLD_TOKEN
+)
 
 
 def encode(config=CONFIG):
@@ -50,6 +54,47 @@ class ClusterInspectorCredentialTests(unittest.TestCase):
             self.assertIn("tokenFile: " + str(token), config.read_text())
             for p in (config, token):
                 self.assertEqual(p.stat().st_mode & 0o777, 0o600)
+
+    def test_existing_inline_token_is_replaced_only_in_ephemeral_copy(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = mod.prepare(root, encode(INLINE_CONFIG), TOKEN)
+            rendered = config.read_text()
+            self.assertIn("tokenFile: " + str(root / mod.TOKEN_NAME), rendered)
+            self.assertNotIn(OLD_TOKEN, rendered)
+            self.assertNotIn(TOKEN, rendered)
+            self.assertEqual((root / mod.TOKEN_NAME).read_text(), TOKEN)
+            self.assertEqual(config.stat().st_mode & 0o777, 0o600)
+            self.assertEqual((root / mod.TOKEN_NAME).stat().st_mode & 0o777, 0o600)
+            # Owner's original credential secret is not rewritten or reparsed
+            # with a tokenFile placeholder, even during token rotation.
+            self.assertIn("token: " + OLD_TOKEN, INLINE_CONFIG)
+
+    def test_existing_quoted_inline_token_is_replaced_without_preserving_old_value(self):
+        for quoted in ('"' + OLD_TOKEN + '"', "'" + OLD_TOKEN + "'"):
+            with self.subTest(quote=quoted[0]), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                source = INLINE_CONFIG.replace("token: " + OLD_TOKEN, "token: " + quoted)
+                rendered = mod.prepare(root, encode(source), TOKEN).read_text()
+                self.assertNotIn(OLD_TOKEN, rendered)
+                self.assertIn("tokenFile: " + str(root / mod.TOKEN_NAME), rendered)
+
+    def test_inline_token_duplicate_alternate_auth_or_malformed_values_rejected(self):
+        for candidate in (
+            INLINE_CONFIG + "    token: extra-old-inspector-token0123456789\n",
+            INLINE_CONFIG + "  exec:\n    command: test-command\n",
+            INLINE_CONFIG + "  client-certificate-data: ZHVtbXk=\n",
+            INLINE_CONFIG.replace(OLD_TOKEN, "too-short"),
+            INLINE_CONFIG.replace(OLD_TOKEN, OLD_TOKEN + " # unsafe-comment"),
+            INLINE_CONFIG.replace(OLD_TOKEN, OLD_TOKEN + "\n    tokenFile: /tmp/other"),
+            INLINE_CONFIG + "  <<: *other-user\n",
+            INLINE_CONFIG.replace("  user:\n", "  user: &inspector\n"),
+            INLINE_CONFIG.replace("    user: inspector", "    user: *inspector"),
+        ):
+            with self.subTest(candidate=candidate[-45:]), tempfile.TemporaryDirectory() as t:
+                with self.assertRaises(mod.CredentialError):
+                    mod.prepare(Path(t), encode(candidate), TOKEN)
+                self.assertEqual(list(Path(t).iterdir()), [])
 
     def test_missing_secret_and_bad_token_fail_before_writing_files(self):
         for token in ("", "short", "abc\nunsafe" + "x" * 32, "x" * 20000, "bad unicode " + "ø" * 12):

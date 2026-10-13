@@ -18,7 +18,13 @@ TOKEN_NAME = "cluster-inspector-bearer-token"
 TOKEN_MARKER = "__CLUSTER_INSPECTOR_TOKEN_FILE__"
 MAX_CONFIG_BYTES = 96 * 1024
 MAX_TOKEN_BYTES = 16 * 1024
-TOKEN_FILE_LINE = re.compile(r"(?m)^(\s*tokenFile\s*:\s*)" + TOKEN_MARKER + r"\s*$")
+TOKEN_FILE_LINE = re.compile(r"(?m)^([ \t]+tokenFile[ \t]*:[ \t]*)" + TOKEN_MARKER + r"[ \t]*$")
+# Allow only simple, bounded, scalar inline tokens from the existing owner-owned kubeconfig.
+TOKEN_INLINE_LINE = re.compile(
+    r"(?m)^([ \t]+)token[ \t]*:[ \t]*(?:[-A-Za-z0-9._~+=/]{20,16384}|"
+    r'"[-A-Za-z0-9._~+=/]{20,16384}"|'
+    r"'[-A-Za-z0-9._~+=/]{20,16384}')[ \t]*$"
+)
 OTHER_CREDENTIALS = re.compile(
     r"(?mi)^\s*(?:token|tokenFile|client-certificate(?:-data)?|client-key(?:-data)?|"
     r"username|password|auth-provider|exec|as|as-groups)\s*:"
@@ -58,20 +64,31 @@ def _render(encoded: str, token: str, token_path: Path) -> tuple[bytes, bytes]:
     if (not isinstance(token, str) or not 20 <= len(token) <= MAX_TOKEN_BYTES
             or re.fullmatch(r"[!-~]+", token) is None):
         raise CredentialError
-    matches = list(TOKEN_FILE_LINE.finditer(config))
-    if len(matches) != 1 or config.count(TOKEN_MARKER) != 1:
+    # Existing owner-provisioned configs commonly contain one inline user token.
+    # Rotate it only in the ephemeral execution copy; never rewrite/re-encode
+    # the repository secret and never print or persist that old token value.
+    existing_file = list(TOKEN_FILE_LINE.finditer(config))
+    existing_inline = list(TOKEN_INLINE_LINE.finditer(config))
+    if len(existing_file) == 1 and not existing_inline and config.count(TOKEN_MARKER) == 1:
+        selected = existing_file[0]
+        replacement_prefix = selected.group(1)
+    elif len(existing_inline) == 1 and not existing_file and TOKEN_MARKER not in config:
+        selected = existing_inline[0]
+        replacement_prefix = selected.group(1) + "tokenFile: "
+    else:
         raise CredentialError
-    # No alternate inline/exec/client-certificate credentials can bypass the
-    # separate token's simple, inspectable lifetime/rotation contract.
-    remaining = TOKEN_FILE_LINE.sub("", config)
-    if OTHER_CREDENTIALS.search(remaining) or "<<:" in remaining:
+    # Do not admit alternate inline/exec/certificate credentials, even when a
+    # seemingly valid selected bearer token exists. Reject YAML merge shortcuts.
+    remaining = config[:selected.start()] + config[selected.end():]
+    if (OTHER_CREDENTIALS.search(remaining) or "<<:" in remaining
+            or re.search(r"(?m)(?:^|[ \t])[&*][^\s]+", remaining)):
         raise CredentialError
     # The path is a Central-generated absolute location; it is never a caller
-    # input, and the token bytes are never substituted into YAML.
+    # input, and bearer-token bytes are never substituted into YAML.
     path = str(token_path)
     if any(c in path for c in "\r\n\t\x00#'\"\\") or " " in path:
         raise CredentialError
-    rendered = TOKEN_FILE_LINE.sub(lambda m: m.group(1) + path, config)
+    rendered = config[:selected.start()] + replacement_prefix + path + config[selected.end():]
     return rendered.encode("utf-8"), token.encode("ascii")
 
 
