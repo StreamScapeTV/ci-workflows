@@ -118,6 +118,9 @@ class DockerHubPullTests(unittest.TestCase):
             self.assertIn(secret, library['on']['workflow_call']['secrets'])
             self.assertIn('secrets.' + secret, library['jobs']['readiness']['secrets'][secret])
             self.assertEqual(dispatch['jobs']['library_package_release']['secrets'][secret], '${{ secrets.' + secret + ' }}')
+        repository = yaml.safe_load((ROOT / '.github/workflows/repository.yml').read_text())
+        cleanup = next(s for s in repository['jobs']['execute']['steps'] if s.get('id') == 'dockerhub_read_cleanup')
+        self.assertIn("needs.resolve_host.outputs.host_os == 'linux'", cleanup['if'])
         text = (ROOT / '.github/workflows/repository.yml').read_text()
         self.assertIn('test "${DOCKERHUB_READ_CLEANUP_OUTCOME}" = success', text)
 

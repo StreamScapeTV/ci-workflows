@@ -2589,7 +2589,7 @@ jobs:
 
       - name: Cleanup default Docker Hub read credentials
         id: dockerhub_read_cleanup
-        if: ${{ always() }}
+        if: ${{ always() && needs.resolve_host.outputs.host_os == 'linux' }}
         uses: StreamScapeTV/ci-workflows/actions/dockerhub-read@main
         with:
           phase: cleanup
