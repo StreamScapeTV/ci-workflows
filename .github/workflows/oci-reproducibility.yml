@@ -429,6 +429,8 @@ jobs:
           status: >-
             ${{
               steps.initialize.outcome == 'success'
+              && steps.dockerhub_read.outcome == 'success'
+              && steps.dockerhub_read_cleanup.outcome == 'success'
               && steps.agent_start.outcome == 'success'
               && steps.implementation_checkout.outcome == 'success'
               && steps.implementation_identity.outcome == 'success'

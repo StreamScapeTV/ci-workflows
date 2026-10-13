@@ -305,4 +305,4 @@ jobs:
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}
-          status: ${{ steps.commands.outcome == 'success' && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && 'succeeded' || 'failed' }}
+          status: ${{ steps.dockerhub_read.outcome == 'success' && steps.dockerhub_read_cleanup.outcome == 'success' && steps.commands.outcome == 'success' && steps.scrub.outcome == 'success' && steps.drive.outcome == 'success' && 'succeeded' || 'failed' }}

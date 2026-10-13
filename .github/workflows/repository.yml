@@ -2640,6 +2640,9 @@ jobs:
           EVIDENCE_OUTCOME: ${{ steps.evidence.outcome }}
           DRIVE_OUTCOME: ${{ steps.drive.outcome }}
           EVIDENCE_DRIVE_OUTCOME: ${{ steps.evidence_drive.outcome }}
+          DOCKERHUB_READ_OUTCOME: ${{ steps.dockerhub_read.outcome }}
+          DOCKERHUB_READ_CLEANUP_OUTCOME: ${{ steps.dockerhub_read_cleanup.outcome }}
+          CI_HOST_OS: ${{ needs.resolve_host.outputs.host_os }}
           CLEANUP_OUTCOME: ${{ steps.cleanup.outcome }}
           APPLE_SIGNING_CLEANUP_OUTCOME: ${{ steps.apple_signing_cleanup.outcome }}
         run: |
@@ -2656,6 +2659,7 @@ jobs:
              && test "${EVIDENCE_OUTCOME}" = success \
              && test "${DRIVE_OUTCOME}" = success \
              && test "${EVIDENCE_DRIVE_OUTCOME}" = success \
+             && { test "${CI_HOST_OS}" != linux || { test "${DOCKERHUB_READ_OUTCOME}" = success && test "${DOCKERHUB_READ_CLEANUP_OUTCOME}" = success; }; } \
              && test "${CLEANUP_OUTCOME}" = success \
              && { test "${APPLE_SIGNING_CLEANUP_OUTCOME}" = success || test "${APPLE_SIGNING_CLEANUP_OUTCOME}" = skipped; }; then
             status=complete
@@ -2754,6 +2758,8 @@ jobs:
           ci_run_id: ${{ inputs.ci_run_id }}
           status: >-
             ${{ steps.request.outcome == 'success'
+                && (needs.resolve_host.outputs.host_os != 'linux' || steps.dockerhub_read.outcome == 'success')
+                && (needs.resolve_host.outputs.host_os != 'linux' || steps.dockerhub_read_cleanup.outcome == 'success')
                 && steps.source_identity.outcome == 'success'
                 && steps.execute_contract.outcome == 'success'
                 && steps.scrub.outcome == 'success'

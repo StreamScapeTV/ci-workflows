@@ -102,6 +102,25 @@ class DockerHubPullTests(unittest.TestCase):
         plan = yaml.safe_load((ROOT / '.github/workflows/repository-plan.yml').read_text())
         self.assertNotIn('release', plan['jobs']['execute']['secrets']['DOCKERHUB_READ_TOKEN'])
 
+    def test_cleanup_failure_cannot_report_success_to_agent_state(self):
+        import re
+        for workflow, job in [('repository', 'execute'), ('python', 'ci'), ('public-native-image-chart', 'publish'), ('oci-reproducibility', 'prove')]:
+            value = yaml.safe_load((ROOT / '.github/workflows' / (workflow + '.yml')).read_text())
+            finish = next(s for s in value['jobs'][job]['steps'] if s.get('with', {}).get('phase') == 'finish')
+            expression = finish['with']['status'].strip()[3:-2].strip()
+            for failed in ('dockerhub_read', 'dockerhub_read_cleanup'):
+                current = re.sub(r"steps\.([a-z_]+)\.outcome", lambda m: repr('failure' if m[1] == failed else 'success'), expression)
+                current = current.replace('needs.resolve_host.outputs.host_os', repr('linux')).replace('&&', ' and ').replace('||', ' or ')
+                self.assertEqual(eval(' '.join(current.split()), {'__builtins__': {}}), 'failed', (workflow, failed))
+        library = yaml.safe_load((ROOT / '.github/workflows/library-package-release.yml').read_text())
+        dispatch = yaml.safe_load((ROOT / '.github/workflows/central-ci-dispatch.yml').read_text())
+        for secret in ('DOCKERHUB_USERNAME', 'DOCKERHUB_READ_TOKEN'):
+            self.assertIn(secret, library['on']['workflow_call']['secrets'])
+            self.assertIn('secrets.' + secret, library['jobs']['readiness']['secrets'][secret])
+            self.assertEqual(dispatch['jobs']['library_package_release']['secrets'][secret], '${{ secrets.' + secret + ' }}')
+        text = (ROOT / '.github/workflows/repository.yml').read_text()
+        self.assertIn('test "${DOCKERHUB_READ_CLEANUP_OUTCOME}" = success', text)
+
     def test_private_evidence_scrubs_default_raw_and_derived_secrets(self):
         from tests.test_repository_workflow import RepositoryWorkflowTests
         harness = RepositoryWorkflowTests(methodName='test_private_agent_state_capability_grant_is_exactly_bound_and_fail_closed')
