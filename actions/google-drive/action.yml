@@ -253,6 +253,7 @@ runs:
         repository_name="${DRIVE_REPOSITORY##*/}"
         upload_path="${DRIVE_FILE_PATH}"
         temp_archive=""
+        auth_response_file=""
         headers_file="${RUNNER_TEMP}/drive-upload-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.headers"
         media_headers_file="${RUNNER_TEMP}/drive-upload-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.media.headers"
         media_response_file="${RUNNER_TEMP}/drive-upload-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.media.json"
@@ -261,6 +262,7 @@ runs:
         cleanup() {
           rm -f "${headers_file}" "${media_headers_file}" "${media_response_file}" "${existing_download_file}" "${fresh_readback_file}"
           test -z "${temp_archive}" || rm -f "${temp_archive}"
+          test -z "${auth_response_file}" || rm -f "${auth_response_file}"
         }
         trap cleanup EXIT
 
@@ -270,32 +272,65 @@ runs:
           upload_path="${temp_archive}"
         fi
 
-        # A transient DNS/transport outage may return no OAuth JSON. Never
-        # print a provider response, raw JSON traceback or credential field.
-        # An exhausted refresh is a real failed evidence upload, not success.
+        # Fixed OAuth endpoint and private response bytes. Only bounded status
+        # classifications reach logs, never credentials or provider JSON.
+        auth_response_file="$(mktemp "${RUNNER_TEMP}/drive-oauth.XXXXXX")"
         access_token=""
-        for auth_attempt in 1 2 3; do
-          token_response="$(curl --fail --silent --show-error \
+        for auth_attempt in 1 2 3 4 5 6 7 8 9 10 11; do
+          : > "${auth_response_file}"
+          auth_curl_status=0
+          auth_http_code="$(curl --silent --show-error \
             --connect-timeout 5 --max-time 15 \
-            --request POST \
+            --request POST --output "${auth_response_file}" --write-out '%{http_code}' \
             --data-urlencode "client_id=${GOOGLE_DRIVE_CLIENT_ID}" \
             --data-urlencode "client_secret=${GOOGLE_DRIVE_CLIENT_SECRET}" \
             --data-urlencode "refresh_token=${GOOGLE_DRIVE_REFRESH_TOKEN}" \
             --data-urlencode "grant_type=refresh_token" \
-            https://oauth2.googleapis.com/token 2>/dev/null)" || token_response=""
-          if test -n "${token_response}"; then
-            access_token="$(printf '%s' "${token_response}" | python3 -c \
-              'import json,sys; value=json.load(sys.stdin); token=value.get("access_token", ""); isinstance(token,str) and 20 <= len(token) <= 8192 and token.isascii() and all(33 <= ord(c) <= 126 for c in token) or sys.exit(1); print(token)' \
-              2>/dev/null)" || access_token=""
+            https://oauth2.googleapis.com/token 2>/dev/null)" || auth_curl_status=$?
+          case "${auth_http_code}" in
+            [0-9][0-9][0-9]) ;;
+            *) auth_http_code=000 ;;
+          esac
+          if test "${auth_curl_status}" -eq 0 && test "${auth_http_code}" = 200; then
+            access_token="$(python3 -c \
+              'import json,sys; value=json.load(open(sys.argv[1])); token=value.get("access_token", ""); isinstance(token,str) and 20 <= len(token) <= 8192 and token.isascii() and all(33 <= ord(c) <= 126 for c in token) or sys.exit(1); print(token)' \
+              "${auth_response_file}" 2>/dev/null)" || access_token=""
           fi
-          unset token_response
           test -z "${access_token}" || break
-          test "${auth_attempt}" -eq 3 || sleep 2
+          auth_error_code="$(python3 - "${auth_response_file}" <<'PYAUTH'
+        import json,sys
+        allowed={'invalid_grant','invalid_client','unauthorized_client','invalid_scope',
+                 'unsupported_grant_type','invalid_request','temporarily_unavailable','server_error'}
+        try:
+            value=json.load(open(sys.argv[1]))
+            code=value.get('error') if isinstance(value,dict) else None
+        except (OSError,ValueError):
+            code=None
+        print(code if isinstance(code,str) and code in allowed else 'invalid_token_response')
+        PYAUTH
+          )"
+          printf 'Google Drive OAuth exchange attempt %s/11: curl=%s http=%s category=%s\n' \
+            "${auth_attempt}" "${auth_curl_status}" "${auth_http_code}" "${auth_error_code}" >&2
+          auth_retryable=false
+          if test "${auth_curl_status}" -ne 0; then
+            auth_retryable=true
+          else
+            case "${auth_http_code}" in
+              408|429|5??) auth_retryable=true ;;
+            esac
+          fi
+          if test "${auth_retryable}" != true; then
+            echo "Google Drive credential exchange rejected; review the bounded status above" >&2
+            exit 1
+          fi
+          test "${auth_attempt}" -eq 11 || sleep 2
         done
         if test -z "${access_token}"; then
           echo "Google Drive credential exchange failed after bounded attempts" >&2
           exit 1
         fi
+        rm -f "${auth_response_file}"
+        auth_response_file=""
         echo "::add-mask::${access_token}"
 
         drive_list_url() {
