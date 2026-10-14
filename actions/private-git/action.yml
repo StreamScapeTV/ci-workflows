@@ -26,6 +26,54 @@ runs:
         oauth-secret: ${{ env.TS_OAUTH_SECRET }}
         tags: tag:github-ci
 
+    - name: Isolate owned macOS Tailscale build source
+      if: ${{ runner.environment == 'github-hosted' && runner.os == 'macOS' }}
+      shell: bash
+      run: |
+        set -Eeuo pipefail
+        python3 - <<'PYCODE'
+        import os
+        from pathlib import Path
+        import subprocess
+        import tempfile
+
+        # Upstream v4 builds on macOS in ./tailscale, then copies both clients
+        # into /usr/local/bin. Keep that build source outside product admission;
+        # installed clients, tool cache and daemon remain alive through logout.
+        workspace = Path(os.environ['GITHUB_WORKSPACE']).resolve()
+        source = workspace / 'tailscale'
+        if source.exists() or source.is_symlink():
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(source), *args],
+                    stderr=subprocess.DEVNULL, text=True, timeout=15).strip()
+            try:
+                if source.is_symlink() or not source.is_dir():
+                    raise ValueError()
+                tracked = subprocess.check_output(['git', '-C', str(workspace),
+                    'ls-files', '--', 'tailscale'], stderr=subprocess.DEVNULL,
+                    text=True, timeout=15)
+                if tracked or Path(git('rev-parse', '--show-toplevel')).resolve() != source:
+                    raise ValueError()
+                if git('remote', 'get-url', 'origin') not in (
+                    'https://github.com/tailscale/tailscale.git',
+                    'https://github.com/tailscale/tailscale'):
+                    raise ValueError()
+                if git('status', '--porcelain', '--untracked-files=all'):
+                    raise ValueError()
+                for name in ('tailscale', 'tailscaled'):
+                    installed = Path('/usr/local/bin') / name
+                    if installed.is_symlink() or not installed.is_file() or not os.access(installed, os.X_OK):
+                        raise ValueError()
+                temporary = Path(os.environ['RUNNER_TEMP']).resolve()
+                if temporary == workspace or workspace in temporary.parents:
+                    raise ValueError()
+                destination = Path(tempfile.mkdtemp(prefix='central-tailscale-build-', dir=temporary)) / 'source'
+                source.rename(destination)
+            except (ValueError, OSError, subprocess.SubprocessError):
+                raise SystemExit('Private network build-source isolation refused unsafe runtime state')
+            print('Private network build source isolated; installed clients retained')
+        PYCODE
+
     - name: Verify private Git service reachability
       shell: bash
       run: |
