@@ -698,6 +698,14 @@ jobs:
           CI_APPLE_TESTFLIGHT_ISSUER_ID: ${{ inputs.test_profile == 'testflight' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
         run: |
           set -Eeuo pipefail
+          printf '\n===== fixed Apple lane admission =====\n' >> "${CI_LOG}"
+          retain_lane_exit() {
+            local result="$?"
+            if test "${result}" -ne 0; then
+              printf 'Fixed Apple lane failed before or during product execution; exit_code=%s\n' "${result}" >> "${CI_LOG}"
+            fi
+          }
+          trap retain_lane_exit EXIT
           configure_remote_swiftpm_git_auth() {
             case "${TEST_PROFILE}" in
               candidate|screenshot-review) ;;
