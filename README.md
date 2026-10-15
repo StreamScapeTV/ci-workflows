@@ -71,3 +71,24 @@ Please read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing a change. For he
 ## License
 
 Released under the [MIT License](LICENSE). The existing copyright and license terms remain unchanged.
+
+### Local paired branch retirement
+
+For an approved terminal branch disposition when Actions must not be used, run:
+
+```sh
+python3 scripts/ci/branch_retire_local.py --repository StreamScapeTV/example --branch issue-123-fix --expected-head <exact-40-character-head>
+```
+
+This requires the existing local `gh` authentication session, `GOOGLE_DRIVE_ACCESS_TOKEN`
+and the configured canonical `GOOGLE_DRIVE_ROOT_FOLDER_ID`. Do not extract connector
+credentials or Actions secrets to populate them. Missing credentials refuse before
+remote changes. The route accepts no Drive object IDs, API endpoints or commands.
+
+It preflights the exact repository/ref Drive namespace, executes the production
+workflow's protected/default/rules/exact-head guard verbatim, verifies branch absence,
+revalidates the same-ref snapshot and moves its folder to recoverable Trash. It then
+checks both systems again. It never requests an Actions run. A failure or interrupted
+operation is incomplete: inspect authoritative current state before another invocation;
+never replace Trash with the connector's permanent delete operation. Existing product
+review, preservation and terminal-disposition requirements still apply before use.

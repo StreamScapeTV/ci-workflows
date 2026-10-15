@@ -42,6 +42,7 @@ scripts:
   apple_credential_preflight: scripts/ci/apple_credential_preflight.py
   protected_deployed_conformance: scripts/ci/protected_deployed_conformance.py
   source_snapshot_delete: scripts/ci/source_snapshot_delete.py
+  branch_retire_local: scripts/ci/branch_retire_local.py
   source_checkpoint_publish: scripts/ci/source_checkpoint_publish.py
   source_snapshot_lifecycle: scripts/ci/source_snapshot_lifecycle.py
   swiftpm_binary: scripts/ci/swiftpm_binary.py
