@@ -4,6 +4,9 @@ import importlib.util
 import io
 from pathlib import Path
 import tempfile
+import subprocess
+import sys
+import time
 import unittest
 
 import yaml
@@ -77,6 +80,61 @@ class RepositoryLogCaptureTests(unittest.TestCase):
             with self.assertRaises(capture.CaptureError):
                 capture.capture_stream(missing, source, overlap_bytes=0)
         self.assertEqual(source.tell(), len(payload))
+
+    def test_short_pipe_output_is_persisted_before_eof_and_survives_cancel(self) -> None:
+        for cancel in (False, True):
+            with self.subTest(cancel=cancel), tempfile.TemporaryDirectory() as td:
+                path = Path(td) / "private.log"
+                path.write_bytes(b"central-startup\n")
+                process = subprocess.Popen(
+                    [sys.executable, str(SCRIPT), "--log-path", str(path), "--overlap-bytes", "0"],
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                )
+                try:
+                    assert process.stdin is not None
+                    line = b"android-toolchain:jdk25:probe:start\n"
+                    process.stdin.write(line)
+                    process.stdin.flush()
+                    deadline = time.monotonic() + 3
+                    while line not in path.read_bytes() and time.monotonic() < deadline:
+                        time.sleep(0.01)
+                    self.assertIsNone(process.poll(), "capture must still await producer EOF")
+                    self.assertIn(line, path.read_bytes(), "short output must flush while pipe remains open")
+                    if cancel:
+                        process.terminate()
+                    process.stdin.close()
+                    process.wait(timeout=3)
+                    if not cancel:
+                        self.assertEqual(process.returncode, 0)
+                    self.assertIn(line, path.read_bytes())
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                    process.wait(timeout=3)
+                    for stream in (process.stdin, process.stdout, process.stderr):
+                        if stream is not None:
+                            stream.close()
+
+    def test_unbuffered_binary_stream_falls_back_to_read(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source"
+            source.write_bytes(b"short binary output\n")
+            destination = root / "private.log"
+            destination.write_bytes(b"")
+            with source.open("rb", buffering=0) as stream:
+                self.assertFalse(hasattr(stream, "read1"))
+                consumed, rollovers = capture.capture_stream(destination, stream, overlap_bytes=0)
+            self.assertEqual(consumed, source.stat().st_size)
+            self.assertEqual(rollovers, 0)
+            self.assertEqual(destination.read_bytes(), source.read_bytes())
+
+    def test_text_stream_still_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "private.log"
+            path.write_bytes(b"")
+            with self.assertRaises(capture.CaptureError):
+                capture.capture_stream(path, io.StringIO("not binary"), overlap_bytes=0)
 
     def test_workflow_preserves_product_and_capture_exit_codes(self) -> None:
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))

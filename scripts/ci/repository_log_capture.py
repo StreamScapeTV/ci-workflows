@@ -103,9 +103,11 @@ def capture_stream(
     except (CaptureError, OSError):
         failure = CaptureError("repository CI bounded log capture could not initialize")
 
+    # Buffered pipe read(n) can wait for n bytes; read1 drains available output.
+    read = getattr(source, "read1", source.read)
     try:
         while True:
-            block = source.read(READ_BYTES)
+            block = read(READ_BYTES)
             if not block:
                 break
             if not isinstance(block, bytes):
