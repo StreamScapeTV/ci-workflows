@@ -739,6 +739,48 @@ jobs:
             printf 'duration_seconds=%s\n' "$((SECONDS - started_at))" >> "${CI_LOG}"
           }
 
+          report_screenshot_failure() {
+            python3 - <<'PY_SCREENSHOT_FAILURE'
+          import os
+          from pathlib import Path
+
+          allowed = {
+              ("build", "swiftpm-binary-timeout"),
+              ("build", "swiftpm-resolution-failure"),
+              ("build", "xcodebuild-timeout"),
+              ("build", "xcodebuild-failure"),
+              ("build", "missing-test-product"),
+              ("uitest", "authentication-assertion"),
+              ("uitest", "simulator-launch-failure"),
+              ("uitest", "xctest-timeout"),
+              ("uitest", "xctest-failure"),
+              ("capture", "unclassified"),
+          }
+          markers = {
+              f"SCREENSHOT_REVIEW_FAILURE: stage={stage}; class={category}\n"
+              for stage, category in allowed
+          }
+          marker = "SCREENSHOT_REVIEW_FAILURE: stage=capture; class=unclassified\n"
+          try:
+              path = Path(os.environ.get("GITHUB_STEP_SUMMARY", ""))
+              if path.is_file() and not path.is_symlink():
+                  with path.open("rb") as source:
+                      offset = int(os.environ.get("SCREENSHOT_SUMMARY_START", "0"))
+                      if offset < 0:
+                          raise ValueError("invalid summary offset")
+                      source.seek(offset)
+                      raw = source.read(8193)
+                  if len(raw) <= 8192:
+                      received = raw.decode("utf-8")
+                      if received in markers:
+                          marker = received
+          except (OSError, UnicodeError, ValueError):
+              pass
+          # Emit only a Central-owned literal, never summary or product log bytes.
+          print(marker, end="")
+          PY_SCREENSHOT_FAILURE
+          }
+
           run_screenshot_logged() {
             local label="$1"
             local platform="$2"
@@ -753,6 +795,10 @@ jobs:
               local attempt_log="${RUNNER_TEMP}/${label}-attempt-${attempt}.log"
               : > "${attempt_log}"
               printf '\n===== %s attempt=%s =====\n' "${label}" "${attempt}" >> "${CI_LOG}"
+              local summary_start=0
+              if test -f "${GITHUB_STEP_SUMMARY:-}" && test ! -L "${GITHUB_STEP_SUMMARY}"; then
+                summary_start="$(wc -c 2>/dev/null < "${GITHUB_STEP_SUMMARY}")" || summary_start=-1
+              fi
               set +e
               "$@" >> "${attempt_log}" 2>&1
               local status=$?
@@ -774,6 +820,9 @@ jobs:
                 continue
               fi
               rm -f -- "${attempt_log}"
+              if test "${platform}" = ios; then
+                SCREENSHOT_SUMMARY_START="${summary_start}" report_screenshot_failure || true
+              fi
               printf '%s failed; inspect the private Google Drive CI log.\n' "${label}" >&2
               return "${status}"
             done
