@@ -109,7 +109,7 @@ class CancellationTests(unittest.TestCase):
         self.assertNotIn('GET', [x[0] for x in self.calls])
         self.setUp()
         self.plan = dict(ok=False, code='already_terminal')
-        self.assertTrue(self.run_cancel()['provider_terminal'])
+        self.assertTrue(self.run_cancel()['already_terminal'])
         self.assertNotIn('GET', [x[0] for x in self.calls])
 
     def test_failed_recording_or_transport_never_reports_success(self):

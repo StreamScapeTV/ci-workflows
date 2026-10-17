@@ -32,7 +32,7 @@ def cancel(control_id, rpc, github):
             and target_id != control_id, "invalid cancellation target")
     plan = rpc("get_ci_cancellation", {"p_ci_run_id": target_id})
     if plan.get("code") == "already_terminal":
-        return {"provider_terminal": True, "cancellation_requested": False}
+        return {"already_terminal": True, "cancellation_requested": False}
     target = plan.get("run", {})
     require(plan.get("ok") is True and target.get("ci_run_id") == target_id,
             "cancellation plan refused: " + str(plan.get("code", "invalid_response")))
