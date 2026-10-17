@@ -69,6 +69,14 @@ class MacosNetrcTests(unittest.TestCase):
                 else:
                     self.destination.unlink()
 
+    def test_native_home_directory_alias_is_accepted(self):
+        alias = self.root / "native-alias"
+        alias.symlink_to(self.home, target_is_directory=True)
+        netrc.install(self.auth, alias)
+        self.assertTrue(self.destination.is_symlink())
+        netrc.cleanup(self.auth)
+        self.assertFalse(os.path.lexists(self.destination))
+
     def test_changed_entry_is_preserved(self):
         for kind in ("file", "retargeted"):
             with self.subTest(kind=kind):

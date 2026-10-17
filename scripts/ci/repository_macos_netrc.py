@@ -13,7 +13,7 @@ def install(auth_root: Path, runner_home: Path) -> None:
         ["swift", "-e", "import Foundation; print(NSHomeDirectory())"],
         check=True, capture_output=True, text=True,
     ).stdout.strip()
-    if Path(native_home) != runner_home:
+    if not Path(native_home).samefile(runner_home):
         raise ValueError("runner HOME does not match native macOS home")
     source = auth_root / "home" / ".netrc"
     if source.is_symlink() or not source.is_file() or source.stat().st_mode & 0o077:
