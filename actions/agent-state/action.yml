@@ -10,7 +10,7 @@ inputs:
     description: Agent State CI run UUID
     required: true
   status:
-    description: Terminal status for finish
+    description: Terminal status for finish or fallback settlement
     required: false
     default: ""
   observed_source_sha:
@@ -160,6 +160,7 @@ runs:
               cancelled) agent_state_status=failed ;;
               *) exit 2 ;;
             esac
+            terminal_reason="provider_${TERMINAL_STATUS}"
             test "${#ERROR_SUMMARY}" -le 4096 || exit 2
             test "${#DIAGNOSTIC_KEY}" -le 512 || exit 2
             if test -n "${DIAGNOSTIC_KEY}"; then
@@ -172,10 +173,11 @@ runs:
             fi
             patch="$(jq -cn \
               --arg status "${agent_state_status}" \
+              --arg terminal_reason "${terminal_reason}" \
               --arg error_summary "${ERROR_SUMMARY}" \
               --arg diagnostic_key "${DIAGNOSTIC_KEY}" \
               --arg diagnostic_status "${DIAGNOSTIC_STATUS}" \
-              '{status:$status}
+              '{status:$status,terminal_reason:$terminal_reason}
                + (if $error_summary != "" then {error_summary:$error_summary} else {} end)
                + (if $diagnostic_key != "" then {diagnostic_key:$diagnostic_key} else {} end)
                + (if $diagnostic_status != "" then {diagnostic_status:$diagnostic_status} else {} end)')"
@@ -184,11 +186,17 @@ runs:
             ;;
           cancel-if-active)
             test "${#ERROR_SUMMARY}" -le 4096 || exit 2
-            cancellation_summary="${ERROR_SUMMARY:-Central hosted execution was cancelled before completion.}"
+            case "${TERMINAL_STATUS:-cancelled}" in
+              cancelled) terminal_reason=provider_cancelled; default_summary="Central hosted execution was cancelled before completion." ;;
+              failed) terminal_reason=provider_failed; default_summary="Central hosted execution failed before completion." ;;
+              *) exit 2 ;;
+            esac
+            cancellation_summary="${ERROR_SUMMARY:-${default_summary}}"
             response="$(rpc transition_ci_run "$(jq -cn \
               --arg id "${CI_RUN_ID}" \
               --arg error_summary "${cancellation_summary}" \
-              '{p_ci_run_id:$id,p_patch:{status:"failed",error_summary:$error_summary}}')")"
+              --arg terminal_reason "${terminal_reason}" \
+              '{p_ci_run_id:$id,p_patch:{status:"failed",terminal_reason:$terminal_reason,error_summary:$error_summary}}')")"
             if test "$(jq -r '.ok' <<<"${response}")" = true; then
               test "$(jq -r '.run.status' <<<"${response}")" = failed
               exit 0
