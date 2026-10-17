@@ -510,3 +510,21 @@ Credentials use private per-job files, remain separate from publication
 authority, and are removed during unconditional cleanup. Private evidence
 scrubbing covers the raw credentials and their derived authentication value.
 Existing private-registry publication checks and permissions still apply.
+
+### Log retention when Google Drive is unavailable
+
+Apple and generic Repository CI preserve an already-scrubbed text log on the
+existing private owning issue if its normal Drive log upload fails. The shared
+`private-log-fallback` action resolves the exact CI run's repository, issue,
+provider run/attempt and observed source before minting an issue-comment token
+scoped to that repository. It checks repository privacy and issue identity before
+transmitting the log. No personal token, native attachment API or public artifact
+is used.
+
+Logs are retained in collapsible, API-sized comment parts. Existing identical
+parts are reused, including after an uncertain POST; an unconfirmed write is not
+blindly replayed. Missing provenance, a public repository, an unsafe log path,
+non-UTF-8 data, or a log exceeding 16 MiB reports an explicit fallback failure.
+The native result and Drive failure remain failures even when retention succeeds.
+Detailed logs are never echoed into the public Central job log. The original log
+and all ordinary credentials/workspaces still follow normal cleanup.

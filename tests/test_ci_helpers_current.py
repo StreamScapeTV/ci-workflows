@@ -31,8 +31,8 @@ class CiHelperTests(_prior.CiHelperTests):
             set(inventory["workflows"]),
             {"apple", "apple_credential_preflight", "repository", "repository_plan", "apple_binary", "apple_swiftpm", "library_package_release", "android", "python", "cluster_inspector", "maven", "public_native_image_chart", "oci_reproducibility", "branch_delete", "ci_cancel", "source_snapshot_delete", "source_snapshot", "source_checkpoint_publish", "central_dispatch", "ci_log_retention", "github_issue_dependency_projection", "self_check"},
         )
-        self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git", "source_snapshot", "dockerhub_read"})
-        self.assertEqual(set(inventory["scripts"]), {"ci_cancel", "oci_reproducibility", "ci_log_reconcile", "github_issue_dependency_projection", "repository_log_checkpoint", "repository_log_capture", "repository_log_timeline", "repository_progress_relay", "repository_runtime_probe", "repository_execution_plan", "protected_deployed_conformance", "repository_apple_physical_device", "repository_macos_netrc", "apple_credential_preflight", "source_snapshot_delete", "source_snapshot_lifecycle", "source_checkpoint_publish", "swiftpm_binary"})
+        self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git", "source_snapshot", "dockerhub_read", "private_log_fallback"})
+        self.assertEqual(set(inventory["scripts"]), {"ci_cancel", "oci_reproducibility", "ci_log_reconcile", "ci_log_issue_fallback", "github_issue_dependency_projection", "repository_log_checkpoint", "repository_log_capture", "repository_log_timeline", "repository_progress_relay", "repository_runtime_probe", "repository_execution_plan", "protected_deployed_conformance", "repository_apple_physical_device", "repository_macos_netrc", "apple_credential_preflight", "source_snapshot_delete", "source_snapshot_lifecycle", "source_checkpoint_publish", "swiftpm_binary"})
         self.assertEqual(set(inventory["contracts"]), {"repository_ci_v1"})
         self.assertEqual(inventory["contracts"]["repository_ci_v1"], "contracts/repository-ci-v1.json")
         self.assertNotIn("services", inventory)
@@ -53,7 +53,7 @@ class CiHelperTests(_prior.CiHelperTests):
 
     def test_only_three_custom_actions_exist(self) -> None:
         actions = {p.name for p in (_prior.ROOT / "actions").iterdir() if p.is_dir()}
-        self.assertEqual(actions, {"agent-state", "google-drive", "private-git", "source-snapshot", "dockerhub-read"})
+        self.assertEqual(actions, {"agent-state", "google-drive", "private-git", "source-snapshot", "dockerhub-read", "private-log-fallback"})
 
     def test_workflows_use_no_reusable_prefix(self) -> None:
         names = {p.name for p in (_prior.ROOT / ".github/workflows").glob("*.yml")}

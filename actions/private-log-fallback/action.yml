@@ -1,0 +1,48 @@
+name: Preserve scrubbed CI log on its private owning issue
+description: Used only after the normal Google Drive log upload fails; preserves the failure verdict.
+inputs:
+  repository:
+    required: true
+  ref:
+    required: true
+  ci_run_id:
+    required: true
+  lane:
+    required: true
+  log_path:
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Resolve exact CI issue provenance
+      id: target
+      shell: bash
+      env:
+        LOG_REPOSITORY: ${{ inputs.repository }}
+        LOG_REF: ${{ inputs.ref }}
+        LOG_CI_RUN_ID: ${{ inputs.ci_run_id }}
+        LOG_LANE: ${{ inputs.lane }}
+      run: python3 "${{ github.action_path }}/../../scripts/ci/ci_log_issue_fallback.py" resolve
+    - name: Prepare narrowly scoped issue-comment token
+      id: token
+      uses: actions/create-github-app-token@v2
+      with:
+        app-id: ${{ env.SOURCE_APP_ID }}
+        private-key: ${{ env.SOURCE_APP_PRIVATE_KEY }}
+        owner: StreamScapeTV
+        repositories: ${{ steps.target.outputs.repository_name }}
+        permission-issues: write
+        permission-metadata: read
+    - name: Retain scrubbed log text privately
+      shell: bash
+      env:
+        GH_TOKEN: ${{ steps.token.outputs.token }}
+        LOG_PATH: ${{ inputs.log_path }}
+        LOG_LANE: ${{ inputs.lane }}
+      run: python3 "${{ github.action_path }}/../../scripts/ci/ci_log_issue_fallback.py" post
+    - name: Remove temporary fallback context
+      if: ${{ always() }}
+      shell: bash
+      env:
+        LOG_LANE: ${{ inputs.lane }}
+      run: python3 "${{ github.action_path }}/../../scripts/ci/ci_log_issue_fallback.py" cleanup
