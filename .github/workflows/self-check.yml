@@ -27,6 +27,16 @@ jobs:
           print('yaml-ok')
           PY
 
+      - name: Validate dispatcher GitHub expressions
+        shell: bash
+        run: |
+          curl --fail --silent --show-error --location --retry 3 \
+            -o "${RUNNER_TEMP}/actionlint.tar.gz" \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          printf '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  %s\n' "${RUNNER_TEMP}/actionlint.tar.gz" | sha256sum --check --strict -
+          tar -xzf "${RUNNER_TEMP}/actionlint.tar.gz" -C "${RUNNER_TEMP}" actionlint
+          "${RUNNER_TEMP}/actionlint" -shellcheck='' .github/workflows/central-ci-dispatch.yml
+
       - name: Run focused helper tests
         run: >-
           python3 -m unittest
