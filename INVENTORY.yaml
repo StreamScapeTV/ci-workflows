@@ -14,6 +14,7 @@ workflows:
   library_package_release: .github/workflows/library-package-release.yml
   public_native_image_chart: .github/workflows/public-native-image-chart.yml
   oci_reproducibility: .github/workflows/oci-reproducibility.yml
+  ci_cancel: .github/workflows/ci-cancel.yml
   branch_delete: .github/workflows/branch-delete.yml
   source_snapshot_delete: .github/workflows/source-snapshot-delete.yml
   source_snapshot: .github/workflows/source-snapshot.yml
@@ -30,6 +31,7 @@ actions:
   source_snapshot: actions/source-snapshot/action.yml
 scripts:
   oci_reproducibility: scripts/ci/oci_reproducibility.py
+  ci_cancel: scripts/ci/ci_cancel.py
   ci_log_reconcile: scripts/ci/ci_log_reconcile.py
   github_issue_dependency_projection: scripts/ci/github_issue_dependency_projection.py
   repository_log_checkpoint: scripts/ci/repository_log_checkpoint.py
