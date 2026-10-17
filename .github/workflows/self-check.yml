@@ -35,6 +35,7 @@ jobs:
           tests.test_repository_workflow
           tests.test_dockerhub_pull
           tests.test_repository_apple_physical_device
+          tests.test_repository_macos_netrc
           tests.test_apple_credential_preflight
           tests.test_protected_deployed_conformance
           tests.test_repository_host_classes
