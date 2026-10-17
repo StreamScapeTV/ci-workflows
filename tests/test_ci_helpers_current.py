@@ -281,7 +281,9 @@ class CiHelperTests(_prior.CiHelperTests):
             self.assertNotIn(f"needs.{name}.result == 'skipped'", settlement["if"])
         cancel = settlement["steps"][-1]
         self.assertEqual(cancel["with"]["phase"], "cancel-if-active")
-        self.assertIn("failed, was cancelled, or was superseded", cancel["with"]["error_summary"])
+        self.assertIn("contains(needs.*.result, 'cancelled')", cancel["with"]["status"])
+        self.assertIn("execution was cancelled", cancel["with"]["error_summary"])
+        self.assertIn("execution failed", cancel["with"]["error_summary"])
         self.assertIn("dispatch request failed", cancel["with"]["error_summary"])
 
     def test_retired_legacy_profile_pairs_fail_closed_with_repository_replacements(self) -> None:
@@ -378,8 +380,8 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertIn("cancel-if-active", action["inputs"]["phase"]["description"])
         self.assertIn('[[ "${OBSERVED_SOURCE_SHA}" =~ ^[0-9A-Fa-f]{40}$ ]] || exit 2', text)
         self.assertIn("p_patch:{observed_source_sha:$sha}", text)
-        self.assertIn('p_patch:{status:"failed",error_summary:$error_summary}', text)
-        self.assertIn('cancellation_summary="${ERROR_SUMMARY:-Central hosted execution was cancelled before completion.}"', text)
+        self.assertIn('p_patch:{status:"failed",terminal_reason:$terminal_reason,error_summary:$error_summary}', text)
+        self.assertIn('cancellation_summary="${ERROR_SUMMARY:-${default_summary}}"', text)
         self.assertIn("already_terminal", text)
         self.assertIn("succeeded|failed) exit 0", text)
         self.assertIn('cancelled) agent_state_status=failed', text)
