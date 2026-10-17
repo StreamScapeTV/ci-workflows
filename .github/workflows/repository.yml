@@ -2540,6 +2540,21 @@ jobs:
           file_name: ${{ github.run_id }}-${{ github.run_attempt }}-repository-${{ inputs.operation }}-${{ needs.resolve_host.outputs.host_os }}.txt
           mime_type: text/plain
 
+      - name: Preserve log on private owning issue after Drive failure
+        if: ${{ always() && steps.drive.outcome == 'failure' && steps.scrub.outcome == 'success' && (inputs.ci_run_id != '' || inputs.trusted_capability_ci_run_id != '') }}
+        uses: StreamScapeTV/ci-workflows/actions/private-log-fallback@main
+        env:
+          SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
+          SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          ci_run_id: ${{ inputs.ci_run_id || inputs.trusted_capability_ci_run_id }}
+          lane: repository-${{ inputs.operation }}-${{ needs.resolve_host.outputs.host_os }}
+          log_path: ${{ runner.temp }}/central-repository-ci.log
+
       - name: Upload bounded repository CI evidence to Google Drive
         id: evidence_drive
         if: ${{ always() && steps.evidence.outcome == 'success' && (inputs.ci_run_id != '' || inputs.upload_private_log) }}

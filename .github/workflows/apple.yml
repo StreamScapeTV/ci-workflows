@@ -1481,6 +1481,21 @@ jobs:
           file_name: ${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.lane }}.txt
           mime_type: text/plain
 
+      - name: Preserve log on private owning issue after Drive failure
+        if: ${{ always() && steps.drive.outcome == 'failure' && steps.scrub.outcome == 'success' && inputs.ci_run_id != '' }}
+        uses: StreamScapeTV/ci-workflows/actions/private-log-fallback@main
+        env:
+          SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
+          SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          repository: ${{ inputs.repository || github.repository }}
+          ref: ${{ inputs.ref || github.ref_name }}
+          ci_run_id: ${{ inputs.ci_run_id }}
+          lane: ${{ matrix.lane }}
+          log_path: ${{ runner.temp }}/central-ci-${{ matrix.lane }}.log
+
   finish:
     needs:
       - plan

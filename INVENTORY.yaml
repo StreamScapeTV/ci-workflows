@@ -27,12 +27,14 @@ actions:
   agent_state: actions/agent-state/action.yml
   google_drive: actions/google-drive/action.yml
   private_git: actions/private-git/action.yml
+  private_log_fallback: actions/private-log-fallback/action.yml
   dockerhub_read: actions/dockerhub-read/action.yml
   source_snapshot: actions/source-snapshot/action.yml
 scripts:
   oci_reproducibility: scripts/ci/oci_reproducibility.py
   ci_cancel: scripts/ci/ci_cancel.py
   ci_log_reconcile: scripts/ci/ci_log_reconcile.py
+  ci_log_issue_fallback: scripts/ci/ci_log_issue_fallback.py
   github_issue_dependency_projection: scripts/ci/github_issue_dependency_projection.py
   repository_log_checkpoint: scripts/ci/repository_log_checkpoint.py
   repository_log_capture: scripts/ci/repository_log_capture.py
