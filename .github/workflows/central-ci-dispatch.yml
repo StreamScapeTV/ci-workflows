@@ -990,6 +990,22 @@ jobs:
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
 
+  ci_cancel:
+    needs: request
+    if: ${{ needs.request.outputs.workflow_key == 'maintenance.ci-cancel' && needs.request.outputs.test_profile == 'cancel' }}
+    concurrency:
+      group: central-ci-cancel-${{ inputs.ci_run_id }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: write
+    uses: ./.github/workflows/ci-cancel.yml
+    with:
+      ci_run_id: ${{ inputs.ci_run_id }}
+    secrets:
+      AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+      AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+
   branch_delete:
     needs: request
     if: ${{ needs.request.outputs.workflow_key == 'maintenance.branch-delete' && needs.request.outputs.test_profile == 'delete' }}
@@ -1407,6 +1423,7 @@ jobs:
       - library_package_release
       - public_native_image_chart
       - oci_reproducibility
+      - ci_cancel
       - branch_delete
       - source_checkpoint_publish
       - source_snapshot
@@ -1443,6 +1460,8 @@ jobs:
           needs.public_native_image_chart.result == 'failure' ||
           needs.oci_reproducibility.result == 'cancelled' ||
           needs.oci_reproducibility.result == 'failure' ||
+          needs.ci_cancel.result == 'cancelled' ||
+          needs.ci_cancel.result == 'failure' ||
           needs.branch_delete.result == 'cancelled' ||
           needs.branch_delete.result == 'failure' ||
           needs.source_checkpoint_publish.result == 'cancelled' ||

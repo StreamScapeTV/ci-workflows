@@ -28,9 +28,26 @@ Immutable tags, releases, physical-device work, cluster inspections and source
 maintenance never join this cancelling lane. Same-ref physical-device requests
 retain non-cancelling serialization. GitHub concurrency itself does not guarantee
 strict ordering by original Agent State request creation time; Agent State and
-the broker retain admission and terminal-settlement authority, and a cancelled
-job is not a successful product test. The current issue's real-consumer
+Central retain admission and terminal-settlement authority; the broker only
+forwards requests. A cancelled job is not a successful product test. The current issue's real-consumer
 cancellation proof is distinct from static source validation.
+
+## Explicit stale cancellation
+
+Agent State authorizes exact stale cancellation through `request_ci_cancellation`
+and creates the real maintenance execution. The existing broker forwards its
+normal dispatch unchanged. Central's fixed cancellation workflow reads the
+backend-authorized target and checks its exact current GitHub attempt before
+requesting normal cancellation. No broker release or additional credential is
+required.
+
+The maintenance execution tracks its own GitHub run and result. Its success can
+mean only that GitHub accepted cancellation; the target remains nonterminal
+until its own normal cleanup and terminal settlement, or exact terminal provider
+race evidence. Failed or unknown delivery never establishes target completion.
+Tag/release, physical-device and maintenance operations cannot be selected as
+ordinary cancellation targets. Existing backend stale thresholds and claim,
+source, provider and actor fences remain authoritative.
 
 ## Tracked multi-OS execution plan
 

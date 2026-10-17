@@ -35,13 +35,14 @@ jobs:
             https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
           printf '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  %s\n' "${RUNNER_TEMP}/actionlint.tar.gz" | sha256sum --check --strict -
           tar -xzf "${RUNNER_TEMP}/actionlint.tar.gz" -C "${RUNNER_TEMP}" actionlint
-          "${RUNNER_TEMP}/actionlint" -shellcheck='' .github/workflows/central-ci-dispatch.yml
+          "${RUNNER_TEMP}/actionlint" -shellcheck='' .github/workflows/central-ci-dispatch.yml .github/workflows/ci-cancel.yml
 
       - name: Run focused helper tests
         run: >-
           python3 -m unittest
           tests.test_ci_helpers_current
           tests.test_agent_state_settlement
+          tests.test_ci_cancel
           tests.test_bash_portability
           tests.test_repository_workflow
           tests.test_dockerhub_pull
