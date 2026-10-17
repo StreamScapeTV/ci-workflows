@@ -1167,6 +1167,14 @@ jobs:
             printf 'git_config=%s\n' "${git_config}"
           } >> "${GITHUB_OUTPUT}"
 
+      - name: Expose isolated netrc to native macOS package resolution
+        if: >-
+          ${{ steps.capabilities.outputs.auth_enabled == 'true'
+              && needs.resolve_host.outputs.host_os == 'macos'
+              && inputs.operation != 'device-test' }}
+        shell: bash
+        run: python3 central-ci/scripts/ci/repository_macos_netrc.py install
+
       - name: Resolve bounded Gradle cache identity
         id: gradle_cache_identity
         if: >-
@@ -2600,6 +2608,10 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          native_netrc_cleanup_status=0
+          if test -f "${RUNNER_TEMP}/central-registry-auth/native-netrc.json"; then
+            python3 central-ci/scripts/ci/repository_macos_netrc.py cleanup || native_netrc_cleanup_status=$?
+          fi
           rm -rf -- \
             "${RUNNER_TEMP}/central-registry-auth" \
             "${RUNNER_TEMP}/central-oci-publish" \
@@ -2627,6 +2639,7 @@ jobs:
               exit 1
             fi
           done
+          exit "${native_netrc_cleanup_status}"
 
       - name: Finalize cleanup settlement timeline
         if: ${{ always() }}
