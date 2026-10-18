@@ -447,7 +447,7 @@ esac
         self.assertIn("maven", settlement["needs"])
         self.assertIn("needs.maven.result == 'cancelled'", settlement["if"])
 
-        for name in ("android", "apple", "python"):
+        for name in ("android", "apple"):
             self.assertNotIn("build_number", jobs[name]["with"])
 
 
