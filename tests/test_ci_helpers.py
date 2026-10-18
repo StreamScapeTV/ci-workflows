@@ -19,7 +19,7 @@ class CiHelperTests(unittest.TestCase):
         inventory = yaml.safe_load((ROOT / "INVENTORY.yaml").read_text())
         self.assertEqual(
             set(inventory["workflows"]),
-            {"apple", "android", "python", "node", "flutter", "maven", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "central_dispatch", "self_check"},
+            {"apple", "android", "node", "flutter", "maven", "container_service", "public_native_image_chart", "oci_reproducibility", "branch_delete", "central_dispatch", "self_check"},
         )
         self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git"})
         self.assertEqual(set(inventory["scripts"]), {"oci_reproducibility"})
@@ -33,7 +33,7 @@ class CiHelperTests(unittest.TestCase):
         self.assertEqual(len(names), 13)
         self.assertNotIn("broker.yml", names)
         self.assertFalse(any(name.startswith("reusable-") for name in names))
-        for name in ("apple.yml", "android.yml", "python.yml", "node.yml", "flutter.yml", "maven.yml", "container-service.yml", "branch-delete.yml"):
+        for name in ("apple.yml", "android.yml", "node.yml", "flutter.yml", "maven.yml", "container-service.yml", "branch-delete.yml"):
             self.assertIn(name, names)
 
     def test_only_three_custom_actions_exist(self) -> None:
@@ -123,8 +123,8 @@ class CiHelperTests(unittest.TestCase):
         self.assertNotIn("tailscale/github-action@v4", android)
 
     def test_agent_state_workflows_use_private_drive_logs_without_public_command_tee(self) -> None:
-        plain_text_logs = {"android", "python"}
-        for name in ("apple", "android", "python"):
+        plain_text_logs = {"android"}
+        for name in ("apple", "android"):
             text = (ROOT / ".github/workflows" / f"{name}.yml").read_text()
             self.assertIn("GOOGLE_DRIVE_CI_LOGS_FOLDER_ID", text)
             self.assertIn("actions/google-drive@", text)
@@ -148,43 +148,6 @@ class CiHelperTests(unittest.TestCase):
             self.assertNotIn("r2-upload", text)
             self.assertNotIn("tee -a", text)
 
-    def test_python_records_source_sha_and_uploads_readable_log_before_finish(self) -> None:
-        workflow = yaml.safe_load((ROOT / ".github/workflows/python.yml").read_text())
-        self.assertEqual(
-            set(workflow["on"]["workflow_call"]["inputs"]),
-            {"repository", "ref", "test_profile", "ci_run_id", "upload_private_log"},
-        )
-        steps = workflow["jobs"]["ci"]["steps"]
-        names = [step.get("name") for step in steps]
-        by_name = {step.get("name"): step for step in steps if step.get("name")}
-        identity = by_name["Resolve observed source SHA"]
-        observe = by_name["Record observed source SHA"]
-        commands = by_name["Run fixed Python profile"]
-        scrub = by_name["Scrub configured CI secrets from private log"]
-        drive = by_name["Upload CI log to Google Drive"]
-        finish = by_name["Finish Agent State run"]
-
-        self.assertEqual(identity["if"], "${{ inputs.ci_run_id != '' }}")
-        self.assertIn('source_sha="$(git rev-parse HEAD)"', identity["run"])
-        self.assertNotIn("github.sha", identity["run"])
-        self.assertEqual(observe["if"], "${{ inputs.ci_run_id != '' }}")
-        self.assertEqual(observe["uses"], "StreamScapeTV/ci-workflows/actions/agent-state@main")
-        self.assertEqual(observe["with"]["phase"], "observe-source")
-        self.assertEqual(observe["with"]["observed_source_sha"], "${{ steps.source_identity.outputs.source_sha }}")
-        for profile in ("compile)", "unit)"):
-            self.assertIn(profile, commands["run"])
-        self.assertEqual(drive["with"]["file_name"], "${{ github.run_id }}-${{ github.run_attempt }}.txt")
-        self.assertEqual(drive["with"]["mime_type"], "text/plain")
-        self.assertNotIn("gzip", drive["with"])
-        self.assertIn("steps.drive.outcome == 'success'", finish["with"]["status"])
-        self.assertLess(names.index("Check out source"), names.index("Resolve observed source SHA"))
-        self.assertLess(names.index("Resolve observed source SHA"), names.index("Record observed source SHA"))
-        self.assertLess(names.index("Record observed source SHA"), names.index("Run fixed Python profile"))
-        self.assertLess(names.index("Run fixed Python profile"), names.index("Scrub configured CI secrets from private log"))
-        self.assertLess(names.index("Scrub configured CI secrets from private log"), names.index("Upload CI log to Google Drive"))
-        self.assertLess(names.index("Upload CI log to Google Drive"), names.index("Finish Agent State run"))
-        self.assertEqual(scrub["if"], "${{ always() }}")
-        self.assertEqual(finish["if"], "${{ always() && inputs.ci_run_id != '' }}")
 
     def test_central_dispatch_passes_the_human_ref_directly(self) -> None:
         text = (ROOT / ".github/workflows/central-ci-dispatch.yml").read_text()
@@ -198,7 +161,6 @@ class CiHelperTests(unittest.TestCase):
             "apple",
             "apple_release",
             "android",
-            "python",
             "node",
             "flutter",
             "maven",
@@ -534,7 +496,7 @@ class CiHelperTests(unittest.TestCase):
 
     def test_fixed_profiles_replace_arbitrary_command_transport(self) -> None:
         forbidden = ("prepare_command", "build_command", "test_command", "release_command", "bash -lc")
-        for name in ("apple", "android", "python"):
+        for name in ("apple", "android"):
             text = (ROOT / ".github/workflows" / f"{name}.yml").read_text()
             for value in forbidden:
                 self.assertNotIn(value, text)

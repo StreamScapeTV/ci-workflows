@@ -29,7 +29,7 @@ class CiHelperTests(_prior.CiHelperTests):
         inventory = yaml.safe_load((_prior.ROOT / "INVENTORY.yaml").read_text())
         self.assertEqual(
             set(inventory["workflows"]),
-            {"apple", "apple_credential_preflight", "repository", "repository_plan", "apple_binary", "apple_swiftpm", "library_package_release", "android", "python", "cluster_inspector", "maven", "public_native_image_chart", "oci_reproducibility", "branch_delete", "ci_cancel", "source_snapshot_delete", "source_snapshot", "source_checkpoint_publish", "central_dispatch", "ci_log_retention", "github_issue_dependency_projection", "self_check"},
+            {"apple", "apple_credential_preflight", "repository", "repository_plan", "apple_binary", "apple_swiftpm", "library_package_release", "android", "cluster_inspector", "maven", "public_native_image_chart", "oci_reproducibility", "branch_delete", "ci_cancel", "source_snapshot_delete", "source_snapshot", "source_checkpoint_publish", "central_dispatch", "ci_log_retention", "github_issue_dependency_projection", "self_check"},
         )
         self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git", "source_snapshot", "dockerhub_read", "private_log_fallback"})
         self.assertEqual(set(inventory["scripts"]), {"ci_cancel", "oci_reproducibility", "ci_log_reconcile", "ci_log_issue_fallback", "github_issue_dependency_projection", "repository_log_checkpoint", "repository_log_capture", "repository_log_timeline", "repository_progress_relay", "repository_runtime_probe", "repository_execution_plan", "protected_deployed_conformance", "repository_apple_physical_device", "repository_macos_netrc", "apple_credential_preflight", "source_snapshot_delete", "source_snapshot_lifecycle", "source_checkpoint_publish", "swiftpm_binary"})
@@ -57,7 +57,7 @@ class CiHelperTests(_prior.CiHelperTests):
 
     def test_workflows_use_no_reusable_prefix(self) -> None:
         names = {p.name for p in (_prior.ROOT / ".github/workflows").glob("*.yml")}
-        self.assertEqual(len(names), 22)
+        self.assertEqual(len(names), 21)
         self.assertIn("apple-credential-preflight.yml", names)
         self.assertNotIn("broker.yml", names)
         self.assertFalse(any(name.startswith("reusable-") for name in names))
@@ -78,7 +78,6 @@ class CiHelperTests(_prior.CiHelperTests):
             "apple.yml": ("execute",),
             "repository.yml": ("execute",),
             "android.yml": ("ci",),
-            "python.yml": ("ci",),
             "maven.yml": ("publish",),
             "apple-binary.yml": ("publish",),
             "apple-swiftpm.yml": ("publish",),
@@ -128,7 +127,6 @@ class CiHelperTests(_prior.CiHelperTests):
             "repository",
             "apple",
             "android",
-            "python",
             "cluster_inspector",
             "public_native_image_chart",
             "oci_reproducibility",
@@ -225,7 +223,6 @@ class CiHelperTests(_prior.CiHelperTests):
         branch_b = resolve_lane(ref="feature/new-head")
         different_profile = resolve_lane(profile="full")
         different_workflow = resolve_lane(workflow_key="validation.apple", profile="candidate")
-        retained_python = resolve_lane(workflow_key="validation.python", profile="backend-postgres")
         retained_android = resolve_lane(workflow_key="validation.android", profile="screenshot-review")
         tag = resolve_lane(ref="1.2.3", is_tag="true")
         physical = resolve_lane(workflow_key="validation.android", profile="physical-performance")
@@ -242,7 +239,7 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertEqual(branch_a["concurrency_key"], duplicate_a["concurrency_key"])
         self.assertEqual(branch_a["cancel_in_progress"], "true")
         self.assertNotEqual(branch_a["concurrency_key"], branch_b["concurrency_key"])
-        for val in (different_profile, different_workflow, retained_python, retained_android):
+        for val in (different_profile, different_workflow, retained_android):
             self.assertEqual(branch_a["concurrency_key"], val["concurrency_key"])
             self.assertEqual(val["cancel_in_progress"], "true")
         for val in (tag, physical, device, inspector, maintenance, publication, reproducibility):
@@ -418,11 +415,6 @@ class CiHelperTests(_prior.CiHelperTests):
             text = (_prior.ROOT / ".github/workflows" / f"{name}.yml").read_text()
             self.assertIn("actions/cache/restore@v4", text, name)
             self.assertIn("actions/cache/save@v4", text, name)
-
-        for name in ("python",):
-            text = (_prior.ROOT / ".github/workflows" / f"{name}.yml").read_text()
-            self.assertNotIn("actions/cache/restore@v4", text, name)
-            self.assertNotIn("actions/cache/save@v4", text, name)
 
         apple = (_prior.ROOT / ".github/workflows/apple.yml").read_text()
         self.assertNotIn("dependency-cache", apple)
@@ -610,19 +602,6 @@ resolve_existing_file
         self.assertNotEqual(ambiguous.returncode, 0)
         self.assertIn("refusing ambiguous migration", ambiguous.stderr)
 
-    def test_python_records_source_sha_and_uploads_readable_log_before_finish(self) -> None:
-        workflow = yaml.safe_load((_prior.ROOT / ".github/workflows/python.yml").read_text())
-        steps = workflow["jobs"]["ci"]["steps"]
-        names = [step.get("name") for step in steps]
-        by_name = {step.get("name"): step for step in steps if step.get("name")}
-        commands = by_name["Run fixed Python profile"]["run"]
-        self.assertIn('test "$TEST_PROFILE" = backend-postgres', commands)
-        for retired in ("compile)", "unit)", "valkey)", "backend-full)", "release-gates)"):
-            self.assertNotIn(retired, commands)
-        self.assertIn("run_backend_postgres", commands)
-        self.assertLess(names.index("Record observed source SHA"), names.index("Run fixed Python profile"))
-        self.assertLess(names.index("Run fixed Python profile"), names.index("Scrub configured CI secrets from private log"))
-        self.assertLess(names.index("Upload CI log to Google Drive"), names.index("Finish Agent State run"))
 
     def test_android_dependency_cache_uses_github_default_branch_writer_policy(self) -> None:
         workflow = yaml.safe_load((_prior.ROOT / ".github/workflows/android.yml").read_text())
@@ -657,23 +636,32 @@ resolve_existing_file
         for kept in (
             "validation.android/screenshot-review", "validation.android/physical-performance",
             "validation.apple/candidate", "validation.apple/screenshot-review",
-            "validation.python/backend-postgres",
         ):
             self.assertIn(kept, script)
         for message in (
             "retired Android validation profile",
             "retired Apple validation profile",
-            "retired Python validation profile",
         ):
             self.assertIn(message, script)
 
     def test_persistent_dependency_cache_is_limited_to_remaining_legacy_native_lanes(self) -> None:
         apple = (_prior.ROOT / ".github/workflows/apple.yml").read_text()
         android = (_prior.ROOT / ".github/workflows/android.yml").read_text()
-        python = (_prior.ROOT / ".github/workflows/python.yml").read_text()
         self.assertIn("actions/cache/restore@v4", apple)
         self.assertIn("actions/cache/save@v4", apple)
         self.assertIn("actions/cache/restore@v4", android)
         self.assertNotIn("actions/cache/save@v4", android)
-        self.assertNotIn("actions/cache/restore@v4", python)
-        self.assertNotIn("actions/cache/save@v4", python)
+
+    def test_python_lane_is_retired_with_actionable_generic_replacement(self) -> None:
+        root = _prior.ROOT
+        workflow = yaml.safe_load((root / ".github/workflows/central-ci-dispatch.yml").read_text())
+        self.assertNotIn("python", workflow["jobs"])
+        self.assertNotIn("python", workflow["jobs"]["settle_cancelled"]["needs"])
+        self.assertFalse((root / ".github/workflows/python.yml").exists())
+        rejection = next(step for step in workflow["jobs"]["request"]["steps"]
+                         if step.get("name") == "Reject retired legacy validation workflow")
+        self.assertIn("validation.python", rejection["if"])
+        result = subprocess.run(["bash", "-c", rejection["run"]], text=True, capture_output=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("validation.repository", result.stderr)
+        self.assertIn(".ci entrypoint", result.stderr)
