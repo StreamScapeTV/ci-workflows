@@ -95,6 +95,7 @@ class ClusterInspectorWorkflowTests(unittest.TestCase):
         self.assertEqual(connect["if"], hosted)
         self.assertEqual(connect["uses"], "tailscale/github-action@v4")
         self.assertEqual(connect["with"]["tags"], "tag:github-ci")
+        self.assertEqual(connect["with"]["args"], "--accept-routes")
         self.assertEqual(connect["with"]["oauth-client-id"], "${{ secrets.TS_OAUTH_CLIENT_ID }}")
         self.assertEqual(connect["with"]["oauth-secret"], "${{ secrets.TS_OAUTH_SECRET }}")
 
