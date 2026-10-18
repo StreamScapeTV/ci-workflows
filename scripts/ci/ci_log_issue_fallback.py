@@ -8,6 +8,8 @@ import json
 import os
 from pathlib import Path
 import re
+import socket
+import ssl
 import time
 import urllib.error
 import urllib.request
@@ -27,12 +29,30 @@ def request(url, token, payload=None, *, state=False):
     headers.update({'apikey': token, 'Content-Profile': 'agent_api', 'Accept-Profile': 'agent_api'}
                    if state else {'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json'})
     data = json.dumps(payload).encode() if payload is not None else None
-    try:
-        with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=headers), timeout=30) as response:
-            return json.load(response)
-    except (OSError, ValueError) as error:
-        code = error.code if isinstance(error, urllib.error.HTTPError) else 'transport'
-        raise FallbackError('request_failed_' + str(code)) from None
+    # Only provenance/read calls are replayable. A comment POST keeps the
+    # existing exact-part readback path after any uncertain delivery.
+    read_only = state or payload is None
+    family = 'Agent State lookup' if state else 'GitHub read' if read_only else 'GitHub comment POST'
+    for attempt in range(11 if read_only else 1):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=headers), timeout=30) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as error:
+            category = 'http_' + str(error.code)
+            retryable = error.code == 429 or 500 <= error.code <= 599
+        except OSError as error:
+            reason = error.reason if isinstance(error, urllib.error.URLError) else error
+            category = ('dns_resolution_failed' if isinstance(reason, socket.gaierror)
+                        else 'timeout' if isinstance(reason, TimeoutError)
+                        else 'tls_certificate_failed' if isinstance(reason, ssl.SSLCertVerificationError)
+                        else 'transport')
+            retryable = category != 'tls_certificate_failed'
+        except ValueError:
+            category, retryable = 'invalid_json_response', False
+        if read_only and retryable and attempt < 10:
+            time.sleep(2)
+            continue
+        raise FallbackError(f'{family}: request_failed_{category} after {attempt + 1} attempt(s)') from None
 
 
 def resolve(env, call=request):

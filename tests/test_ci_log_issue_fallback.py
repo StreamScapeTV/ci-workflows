@@ -1,4 +1,8 @@
 import copy
+import io
+import socket
+import urllib.error
+from unittest.mock import patch
 import importlib.util
 import json
 from pathlib import Path
@@ -112,6 +116,43 @@ class FallbackTests(unittest.TestCase):
             changed=copy.deepcopy(run);run[key]=value
             with self.assertRaisesRegex(mod.FallbackError,'provenance'):mod.resolve(env,call)
             run=changed
+
+    def test_read_transport_retry_recovers_without_exposing_endpoint_or_token(self):
+        failure = urllib.error.URLError(socket.gaierror(-2, 'synthetic DNS error'))
+        with patch.object(mod.urllib.request, 'urlopen', side_effect=[failure, io.BytesIO(b'{"ok":true}')]) as http, \
+                patch.object(mod.time, 'sleep') as pause:
+            self.assertEqual(mod.request('https://example.invalid/rpc/get_ci_run', 'synthetic-token', {}, state=True), {'ok': True})
+            self.assertEqual(http.call_count, 2)
+            pause.assert_called_once_with(2)
+
+    def test_read_retry_budget_and_authoritative_failures(self):
+        cases = [
+            (urllib.error.URLError(socket.gaierror(-2, 'private endpoint')), 11, 'dns_resolution_failed'),
+            (urllib.error.HTTPError('private endpoint', 503, 'unavailable', {}, None), 11, 'http_503'),
+            (urllib.error.HTTPError('private endpoint', 403, 'denied', {}, None), 1, 'http_403'),
+        ]
+        for failure, count, category in cases:
+            with self.subTest(category=category), \
+                    patch.object(mod.urllib.request, 'urlopen', side_effect=failure) as http, \
+                    patch.object(mod.time, 'sleep'):
+                with self.assertRaisesRegex(mod.FallbackError, category) as caught:
+                    mod.request('https://example.invalid', 'synthetic-token')
+                self.assertEqual(http.call_count, count)
+                self.assertNotIn('private', str(caught.exception))
+                self.assertNotIn('synthetic-token', str(caught.exception))
+
+    def test_malformed_json_is_not_retried(self):
+        with patch.object(mod.urllib.request, 'urlopen', return_value=io.BytesIO(b'private malformed body')) as http:
+            with self.assertRaisesRegex(mod.FallbackError, 'invalid_json_response') as caught:
+                mod.request('https://example.invalid', 'synthetic-token')
+            self.assertEqual(http.call_count, 1)
+            self.assertNotIn('private malformed body', str(caught.exception))
+
+    def test_comment_transport_is_attempted_once_even_for_transient_failure(self):
+        with patch.object(mod.urllib.request, 'urlopen', side_effect=TimeoutError()) as http:
+            with self.assertRaisesRegex(mod.FallbackError, 'GitHub comment POST.*timeout.*1 attempt'):
+                mod.request('https://example.invalid', 'synthetic-token', {'body': 'log'})
+            self.assertEqual(http.call_count, 1)
 
     def test_workflows_only_fallback_after_failed_drive_and_successful_scrub(self):
         import yaml
