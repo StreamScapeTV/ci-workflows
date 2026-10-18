@@ -130,6 +130,8 @@ class FallbackTests(unittest.TestCase):
             (urllib.error.URLError(socket.gaierror(-2, 'private endpoint')), 11, 'dns_resolution_failed'),
             (urllib.error.HTTPError('private endpoint', 503, 'unavailable', {}, None), 11, 'http_503'),
             (urllib.error.HTTPError('private endpoint', 403, 'denied', {}, None), 1, 'http_403'),
+            (mod.ssl.SSLError('private TLS detail'), 1, 'tls_failed'),
+            (urllib.error.URLError(mod.ssl.SSLError('private TLS detail')), 1, 'tls_failed'),
         ]
         for failure, count, category in cases:
             with self.subTest(category=category), \

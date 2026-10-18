@@ -45,8 +45,9 @@ def request(url, token, payload=None, *, state=False):
             category = ('dns_resolution_failed' if isinstance(reason, socket.gaierror)
                         else 'timeout' if isinstance(reason, TimeoutError)
                         else 'tls_certificate_failed' if isinstance(reason, ssl.SSLCertVerificationError)
+                        else 'tls_failed' if isinstance(reason, ssl.SSLError)
                         else 'transport')
-            retryable = category != 'tls_certificate_failed'
+            retryable = category not in {'tls_certificate_failed', 'tls_failed'}
         except ValueError:
             category, retryable = 'invalid_json_response', False
         if read_only and retryable and attempt < 10:
