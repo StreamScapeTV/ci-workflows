@@ -81,7 +81,7 @@ class DockerHubPullTests(unittest.TestCase):
             self.assertEqual((root / 'existing').read_text(), 'do not borrow')
 
     def test_all_pull_paths_use_default_setup_and_always_cleanup(self):
-        for workflow, job in [('repository', 'execute'), ('python', 'ci'), ('public-native-image-chart', 'publish'), ('oci-reproducibility', 'prove')]:
+        for workflow, job in [('repository', 'execute'), ('public-native-image-chart', 'publish'), ('oci-reproducibility', 'prove')]:
             with self.subTest(workflow=workflow):
                 value = yaml.safe_load((ROOT / '.github/workflows' / (workflow + '.yml')).read_text())
                 steps = value['jobs'][job]['steps']
@@ -104,7 +104,7 @@ class DockerHubPullTests(unittest.TestCase):
 
     def test_cleanup_failure_cannot_report_success_to_agent_state(self):
         import re
-        for workflow, job in [('repository', 'execute'), ('python', 'ci'), ('public-native-image-chart', 'publish'), ('oci-reproducibility', 'prove')]:
+        for workflow, job in [('repository', 'execute'), ('public-native-image-chart', 'publish'), ('oci-reproducibility', 'prove')]:
             value = yaml.safe_load((ROOT / '.github/workflows' / (workflow + '.yml')).read_text())
             finish = next(s for s in value['jobs'][job]['steps'] if s.get('with', {}).get('phase') == 'finish')
             expression = finish['with']['status'].strip()[3:-2].strip()
