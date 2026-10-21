@@ -608,6 +608,22 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertNotEqual(missing.returncode, 0)
         self.assertIn("omit a required field", missing.stderr)
 
+    def test_mixed_native_selector_list_survives_dispatch_and_normalization(self):
+        selectors = ["example.WholeSuite", "example.SharedSuite#firstMethod",
+                     "example.SharedSuite#secondMethod", "example.OtherSuite#thirdMethod",
+                     "SwiftTests/FeatureTests/testCase"]
+        # Central transports native syntax as data; repositories own framework parsing.
+        for target, host in (("instrumentation", "linux"), ("jvm", "linux"), ("ios", "macos")):
+            semantic = {"product_target": target, "test_selectors": selectors}
+            dispatched = self.run_dispatch_request("test", {"host_os": host,
+                "semantic_inputs": json.dumps(semantic)})
+            self.assertEqual(dispatched.returncode, 0, dispatched.stderr)
+            result, output = self.run_repository_request(operation="test", host_os=host, semantic=semantic)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            normalized = json.loads(next(line.split("=", 1)[1] for line in output.splitlines()
+                if line.startswith("semantic_inputs_json=")))
+            self.assertEqual(normalized["inputs"]["test_selectors"], selectors)
+
     def test_dispatch_validates_scalar_transport_and_nested_semantic_json(self) -> None:
         valid = self.run_dispatch_request(
             "test",
