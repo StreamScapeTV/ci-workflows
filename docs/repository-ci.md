@@ -528,3 +528,18 @@ non-UTF-8 data, or a log exceeding 16 MiB reports an explicit fallback failure.
 The native result and Drive failure remain failures even when retention succeeds.
 Detailed logs are never echoed into the public Central job log. The original log
 and all ordinary credentials/workspaces still follow normal cleanup.
+
+### Native test selector lists
+
+`test_selectors` is a JSON list of literal native selectors. It can mix whole
+classes with several methods from the same or different classes:
+
+```json
+{"test_selectors":["example.WholeSuite","example.SharedSuite#firstMethod","example.SharedSuite#secondMethod","example.OtherSuite#thirdMethod"]}
+```
+
+Central preserves the list and its order in `CI_INPUTS_JSON`; the repository's
+fixed `.ci/test.sh` selects the native CLI arguments. Central does not parse
+framework-specific class/method relationships or create one job per selector.
+The native runner controls execution parallelism. Existing bounds remain:
+64 entries, 240 characters per entry, and 2048 bytes for semantic inputs.

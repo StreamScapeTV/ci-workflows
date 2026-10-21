@@ -165,7 +165,7 @@
         "type": "string-list",
         "maxItems": 64,
         "itemMaxLength": 240,
-        "itemPattern": "^[A-Za-z0-9_.$/:+-]{1,240}$",
+        "itemPattern": "^[A-Za-z0-9_.$/:+#-]{1,240}$",
         "rejectLeadingDash": true
       },
       "ui_mode": {
