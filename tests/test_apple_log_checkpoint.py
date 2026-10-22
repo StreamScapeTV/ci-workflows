@@ -55,7 +55,7 @@ class AppleLogCheckpointTests(unittest.TestCase):
                 script = prefix + '\nwhile ! test -f "$RUNNER_TEMP/started"; do sleep .01; done\n'
                 script += 'exit ' + str(status) + '\n'
                 result = subprocess.run(['bash', '-c', script], cwd=root, env={**os.environ,
-                    'CI_LOG': str(root / 'log'), 'RUNNER_TEMP': td, 'CHECKPOINT_ENABLED': 'true',
+                    'CENTRAL_APPLE_HELPERS': str(root / 'central-ci'), 'CI_LOG': str(root / 'log'), 'RUNNER_TEMP': td, 'CHECKPOINT_ENABLED': 'true',
                     'CHECKPOINT_FILE_ID': 'fixedPrivateFile', 'CHECKPOINT_SEED_SHA256': '0' * 64,
                     'CHECKPOINT_GOOGLE_DRIVE_CLIENT_ID': 'fixture-client',
                     'CHECKPOINT_GOOGLE_DRIVE_CLIENT_SECRET': 'fixture-secret',

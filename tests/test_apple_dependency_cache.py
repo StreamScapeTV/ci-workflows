@@ -64,7 +64,7 @@ class AppleDependencyCacheTests(unittest.TestCase):
                 identity = next(s for s in steps if s.get('id') == 'apple_default_cache')
                 restore = next(s for s in steps if s.get('id') == 'apple_default_cache_restore')
                 save = next(s for s in steps if s.get('name') == 'Save native Apple binary artifacts')
-                self.assertEqual(identity['run'], 'python3 ' + ('../' if name == 'repository.yml' else '') + 'central-ci/scripts/ci/apple_dependency_cache.py')
+                self.assertEqual(identity['run'], ('python3 ../central-ci/scripts/ci/apple_dependency_cache.py' if name == 'repository.yml' else 'python3 "${CENTRAL_APPLE_HELPERS}/scripts/ci/apple_dependency_cache.py"'))
                 if name == 'repository.yml':
                     self.assertEqual(identity['working-directory'], 'source')
                 self.assertEqual(restore['with'], save['with'])
