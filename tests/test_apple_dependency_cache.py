@@ -64,13 +64,36 @@ class AppleDependencyCacheTests(unittest.TestCase):
                 identity = next(s for s in steps if s.get('id') == 'apple_default_cache')
                 restore = next(s for s in steps if s.get('id') == 'apple_default_cache_restore')
                 save = next(s for s in steps if s.get('name') == 'Save native Apple binary artifacts')
-                self.assertEqual(identity['run'], 'python3 central-ci/scripts/ci/apple_dependency_cache.py')
+                self.assertEqual(identity['run'], 'python3 ' + ('../' if name == 'repository.yml' else '') + 'central-ci/scripts/ci/apple_dependency_cache.py')
+                if name == 'repository.yml':
+                    self.assertEqual(identity['working-directory'], 'source')
                 self.assertEqual(restore['with'], save['with'])
                 self.assertIn(f'steps.{command_step}.outcome', save['if'])
                 self.assertIn('github.event.repository.default_branch', save['if'])
                 self.assertIn("github.event_name != 'pull_request'", save['if'])
                 self.assertNotIn('bootstrap-streamscape-media', identity['run'])
                 self.assertNotIn('Vendor/', restore['with']['path'])
+
+    def test_generic_cache_helper_runs_from_the_actual_nested_checkout(self):
+        with tempfile.TemporaryDirectory() as d:
+            workspace = Path(d)
+            source = workspace / 'source'
+            source.mkdir()
+            subprocess.run(['git', 'init', '-q', str(source)], check=True)
+            (source / 'Package.swift').write_text('// swift-tools-version: 6.0')
+            subprocess.run(['git', 'add', '.'], cwd=source, check=True)
+            helper = workspace / 'central-ci/scripts/ci/apple_dependency_cache.py'
+            helper.parent.mkdir(parents=True)
+            helper.write_bytes((ROOT / 'scripts/ci/apple_dependency_cache.py').read_bytes())
+            output = workspace / 'outputs'
+            workflow = yaml.safe_load((ROOT / '.github/workflows/repository.yml').read_text())
+            step = next(s for j in workflow['jobs'].values() for s in j.get('steps', []) if s.get('id') == 'apple_default_cache')
+            result = subprocess.run(['bash', '-c', step['run']], cwd=workspace / step['working-directory'],
+                                    env={**os.environ, 'SOURCE_REPOSITORY': 'fixture/app', 'GITHUB_OUTPUT': str(output)},
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('enabled=true', output.read_text())
+            self.assertIn('key=apple-binary-artifacts-v1-', output.read_text())
 
     def test_key_has_no_source_sha_and_paths_exclude_authentication_and_build_products(self):
         text = (ROOT / 'scripts/ci/apple_dependency_cache.py').read_text()
