@@ -18,6 +18,12 @@ runs:
           exit 1
         }
 
+    - name: Save hosted macOS DNS settings
+      id: runner_dns
+      if: ${{ runner.environment == 'github-hosted' && runner.os == 'macOS' }}
+      shell: bash
+      run: python3 "${GITHUB_ACTION_PATH}/macos_dns.py" capture
+
     - name: Connect to private Git service
       if: ${{ runner.environment == 'github-hosted' }}
       uses: tailscale/github-action@v4
@@ -25,6 +31,14 @@ runs:
         oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
         oauth-secret: ${{ env.TS_OAUTH_SECRET }}
         tags: tag:github-ci
+        args: ${{ runner.os == 'macOS' && '--accept-dns=false' || '' }}
+
+    - name: Restore hosted macOS DNS settings
+      if: ${{ always() && runner.environment == 'github-hosted' && runner.os == 'macOS' && steps.runner_dns.outcome == 'success' }}
+      shell: bash
+      env:
+        DNS_STATE: ${{ steps.runner_dns.outputs.state_path }}
+      run: python3 "${GITHUB_ACTION_PATH}/macos_dns.py" restore
 
     - name: Isolate owned macOS Tailscale build source
       if: ${{ runner.environment == 'github-hosted' && runner.os == 'macOS' }}
@@ -84,7 +98,7 @@ runs:
         import time
 
         # A successful Tailscale connection does not prove that the runner's
-        # resolver has received the tailnet's private DNS configuration yet.
+        # resolver and private route are ready yet.
         # Each probe uses a separate bounded process because getaddrinfo()
         # may ignore the socket connection timeout entirely.
         probe = (

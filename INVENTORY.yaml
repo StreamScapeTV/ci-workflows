@@ -30,6 +30,7 @@ actions:
   dockerhub_read: actions/dockerhub-read/action.yml
   source_snapshot: actions/source-snapshot/action.yml
 scripts:
+  hosted_macos_dns: actions/private-git/macos_dns.py
   apple_dependency_cache: scripts/ci/apple_dependency_cache.py
   oci_reproducibility: scripts/ci/oci_reproducibility.py
   ci_cancel: scripts/ci/ci_cancel.py
