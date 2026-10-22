@@ -60,6 +60,44 @@ class AppleWorkflowTests(unittest.TestCase):
             self.assertIn("screenshot-review", commands["env"][name])
         self.assertIn("Upload screenshot-review candidate evidence by route", self.execute_steps)
 
+    def test_helper_isolation_preserves_real_product_cleanliness(self):
+        isolation = self.execute_steps['Isolate Central Apple helpers from product source']['run']
+        command = self.execute_steps['Run fixed Apple lane']['run']
+        guard = command[command.index('workspace_dirty="$(git status'):]
+        guard = guard.split('export PYTHONDONTWRITEBYTECODE=1', 1)[0]
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            product = root / 'product'; product.mkdir()
+            runner = root / 'runner'; runner.mkdir()
+            subprocess.run(['git', 'init', '-q', str(product)], check=True)
+            (product / 'tracked').write_text('original')
+            subprocess.run(['git', 'add', '.'], cwd=product, check=True)
+            subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test',
+                            'commit', '-qm', 'fixture'], cwd=product, check=True)
+            helpers = product / 'central-ci'; helpers.mkdir()
+            (helpers / 'helper').write_text('central')
+            env = {**os.environ, 'GITHUB_WORKSPACE': str(product), 'RUNNER_TEMP': str(runner),
+                   'GITHUB_ENV': str(root / 'env')}
+            before = subprocess.run(['bash', '-c', guard], cwd=product, env=env, capture_output=True)
+            self.assertNotEqual(before.returncode, 0)
+            subprocess.run(['bash', '-e', '-c', isolation], cwd=product, env=env, check=True)
+            clean = subprocess.run(['bash', '-c', guard], cwd=product, env=env, capture_output=True)
+            self.assertEqual(clean.returncode, 0, clean.stderr)
+            self.assertTrue(Path((root / 'env').read_text().strip().split('=', 1)[1], 'helper').is_file())
+            for kind in ('untracked', 'modified', 'symlink'):
+                with self.subTest(kind=kind):
+                    dirty = product / ('tracked' if kind == 'modified' else 'dirty')
+                    if kind == 'symlink':
+                        dirty.symlink_to(runner)
+                    else:
+                        dirty.write_text('dirty')
+                    result = subprocess.run(['bash', '-c', guard], cwd=product, env=env, capture_output=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    if kind == 'modified':
+                        dirty.write_text('original')
+                    else:
+                        dirty.unlink()
+
     def failure_report(self, payload: bytes | None, *, symlink: bool = False) -> str:
         run = self.execute_steps["Run fixed Apple lane"]["run"]
         parser = run.split("python3 - <<'PY_SCREENSHOT_FAILURE'\n", 1)[1].split(

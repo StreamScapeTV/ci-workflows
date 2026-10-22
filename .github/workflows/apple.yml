@@ -310,13 +310,21 @@ jobs:
           path: central-ci
           persist-credentials: false
 
+      - name: Isolate Central Apple helpers from product source
+        if: ${{ inputs.test_profile == 'candidate' || inputs.test_profile == 'screenshot-review' || inputs.test_profile == 'testflight' || inputs.ci_run_id != '' || inputs.upload_private_log }}
+        shell: bash
+        run: |
+          helper_root="$(mktemp -d "${RUNNER_TEMP}/central-apple-helpers.XXXXXX")"
+          mv "${GITHUB_WORKSPACE}/central-ci" "${helper_root}/source"
+          echo "CENTRAL_APPLE_HELPERS=${helper_root}/source" >> "${GITHUB_ENV}"
+
       - name: Resolve native Apple dependency cache
         id: apple_default_cache
         if: ${{ inputs.test_profile == 'candidate' || inputs.test_profile == 'screenshot-review' || inputs.test_profile == 'testflight' }}
         shell: bash
         env:
           SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
-        run: python3 central-ci/scripts/ci/apple_dependency_cache.py
+        run: python3 "${CENTRAL_APPLE_HELPERS}/scripts/ci/apple_dependency_cache.py"
 
       - name: Restore native Apple binary artifacts
         id: apple_default_cache_restore
@@ -382,7 +390,7 @@ jobs:
           CI_APPLE_DISTRIBUTION_P12_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_P12_PASSWORD }}
         run: |
           set -Eeuo pipefail
-          python3 central-ci/scripts/ci/apple_credential_preflight.py distribution-setup
+          python3 "${CENTRAL_APPLE_HELPERS}/scripts/ci/apple_credential_preflight.py" distribution-setup
 
       - name: Prepare fixed TestFlight release context
         id: testflight_prepare
@@ -615,7 +623,7 @@ jobs:
             GOOGLE_DRIVE_CLIENT_ID="${CHECKPOINT_GOOGLE_DRIVE_CLIENT_ID}" \
             GOOGLE_DRIVE_CLIENT_SECRET="${CHECKPOINT_GOOGLE_DRIVE_CLIENT_SECRET}" \
             GOOGLE_DRIVE_REFRESH_TOKEN="${CHECKPOINT_GOOGLE_DRIVE_REFRESH_TOKEN}" \
-            python3 central-ci/scripts/ci/repository_log_checkpoint.py \
+            python3 "${CENTRAL_APPLE_HELPERS}/scripts/ci/repository_log_checkpoint.py" \
               --log-path "${CI_LOG}" \
               --file-id "${CHECKPOINT_FILE_ID}" \
               --seed-sha256 "${CHECKPOINT_SEED_SHA256}" \
@@ -1013,7 +1021,7 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          python3 central-ci/scripts/ci/apple_credential_preflight.py distribution-cleanup
+          python3 "${CENTRAL_APPLE_HELPERS}/scripts/ci/apple_credential_preflight.py" distribution-cleanup
 
       - name: Check out Apple development branch for isolated bump staging
         id: mobile_bump_stage_checkout
