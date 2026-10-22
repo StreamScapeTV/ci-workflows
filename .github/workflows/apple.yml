@@ -301,200 +301,37 @@ jobs:
           ci_run_id: ${{ inputs.ci_run_id }}
           observed_source_sha: ${{ steps.source_identity.outputs.source_sha }}
 
-      - name: Resolve Apple default-branch dependency cache scope
+      - name: Check out Central Apple helpers
+        if: ${{ inputs.test_profile == 'candidate' || inputs.test_profile == 'screenshot-review' || inputs.test_profile == 'testflight' || inputs.ci_run_id != '' || inputs.upload_private_log }}
+        uses: actions/checkout@v4
+        with:
+          repository: StreamScapeTV/ci-workflows
+          ref: ${{ github.sha }}
+          path: central-ci
+          persist-credentials: false
+
+      - name: Resolve native Apple dependency cache
         id: apple_default_cache
-        if: >-
-          ${{ inputs.test_profile == 'candidate' }}
+        if: ${{ inputs.test_profile == 'candidate' || inputs.test_profile == 'screenshot-review' || inputs.test_profile == 'testflight' }}
         shell: bash
         env:
-          REQUEST_REPOSITORY: ${{ inputs.repository }}
-          REQUEST_REF: ${{ inputs.ref }}
-          REQUEST_IS_TAG: ${{ inputs.source_is_tag }}
-          CALLER_REPOSITORY: ${{ github.repository }}
-          CALLER_REF: ${{ github.ref }}
-          SOURCE_TOKEN: ${{ steps.source.outputs.token }}
-        run: |
-          set -Eeuo pipefail
-          source_repository="${REQUEST_REPOSITORY:-${CALLER_REPOSITORY}}"
-          source_ref="${REQUEST_REF:-${CALLER_REF}}"
-          source_is_tag="${REQUEST_IS_TAG}"
-          case "${source_ref}" in
-            refs/heads/*) source_ref="${source_ref#refs/heads/}" ;;
-            refs/tags/*) source_is_tag=true ;;
-          esac
-          source_is_pr=false
-          case "${REQUEST_REF}" in
-            refs/pull/*) source_is_pr=true ;;
-          esac
-          checkout_branch="$(git symbolic-ref --quiet --short HEAD || true)"
+          SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
+        run: python3 central-ci/scripts/ci/apple_dependency_cache.py
 
-          restore_eligible=false
-          if test "${source_repository}" = "StreamScapeTV/iptv-apple" &&
-            test "${source_is_tag}" != "true"; then
-            restore_eligible=true
-          fi
-
-          fingerprint_ready=false
-          if test -f scripts/bootstrap-streamscape-media-binary.sh &&
-            test -f streamscapetv.xcodeproj/project.pbxproj; then
-            fingerprint_ready=true
-          fi
-
-          default_branch=""
-          if test "${restore_eligible}" = "true" &&
-            test "${fingerprint_ready}" = "true" &&
-            test -n "${SOURCE_TOKEN}"; then
-            repository_json="$(curl --fail --silent --show-error --header "Authorization: Bearer ${SOURCE_TOKEN}" --header 'Accept: application/vnd.github+json' --header 'X-GitHub-Api-Version: 2022-11-28' "https://api.github.com/repos/${source_repository}" || true)"
-            if test -n "${repository_json}"; then
-              default_branch="$(printf '%s' "${repository_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("default_branch", ""))' 2>/dev/null || true)"
-            fi
-          fi
-
-          restore_enabled=false
-          if test "${restore_eligible}" = "true" &&
-            test "${fingerprint_ready}" = "true" &&
-            test -n "${default_branch}"; then
-            restore_enabled=true
-          fi
-
-          save_enabled=false
-          if test "${restore_enabled}" = "true" &&
-            test "${source_ref}" = "${default_branch}" &&
-            test "${checkout_branch}" = "${default_branch}" &&
-            test "${source_is_pr}" != "true"; then
-            save_enabled=true
-          fi
-
-          swiftpm_clones_dir="${RUNNER_TEMP}/streamscapetv-swiftpm-clones"
-          mkdir -p "${swiftpm_clones_dir}"
-          {
-            printf 'restore_eligible=%s\n' "${restore_eligible}"
-            printf 'restore_enabled=%s\n' "${restore_enabled}"
-            printf 'save_enabled=%s\n' "${save_enabled}"
-            printf 'default_branch=%s\n' "${default_branch}"
-            printf 'swiftpm_clones_dir=%s\n' "${swiftpm_clones_dir}"
-          } >> "${GITHUB_OUTPUT}"
-          {
-            printf 'SWIFTPM_CLONES_DIR=%s\n' "${swiftpm_clones_dir}"
-            printf 'APPLE_DEFAULT_CACHE_ENABLED=%s\n' "${restore_enabled}"
-          } >> "${GITHUB_ENV}"
-
-          if test "${restore_enabled}" = "true"; then
-            dependency_fingerprint="$(python3 - \
-              scripts/bootstrap-streamscape-media-binary.sh \
-              streamscapetv.xcodeproj/project.pbxproj <<'PY_APPLE_DEPENDENCY_FINGERPRINT'
-          from __future__ import annotations
-
-          from pathlib import Path
-          import hashlib
-          import re
-          import sys
-
-          bootstrap_path = Path(sys.argv[1])
-          project_path = Path(sys.argv[2])
-          bootstrap = bootstrap_path.read_text(encoding="utf-8")
-          project = project_path.read_text(encoding="utf-8")
-
-          def section_body(name: str) -> str:
-              match = re.search(
-                  rf"/\* Begin {re.escape(name)} section \*/(?P<body>.*?)/\* End {re.escape(name)} section \*/",
-                  project,
-                  flags=re.S,
-              )
-              return match.group("body") if match is not None else ""
-
-          def object_blocks(section: str) -> list[str]:
-              blocks: list[str] = []
-              current: list[str] = []
-              depth = 0
-              for line in section.splitlines():
-                  if depth == 0:
-                      if "= {" not in line:
-                          continue
-                      current = [line]
-                      depth = line.count("{") - line.count("}")
-                  else:
-                      current.append(line)
-                      depth += line.count("{") - line.count("}")
-                  if current and depth == 0:
-                      blocks.append("\n".join(current))
-                      current = []
-              if current or depth != 0:
-                  raise SystemExit("Apple Swift package reference section is malformed")
-              return blocks
-
-          records: list[str] = []
-          for name in (
-              "RELEASE_REPOSITORY",
-              "RELEASE_TAG",
-              "RELEASE_COMMIT",
-              "ASSET_NAME",
-              "ASSET_SHA256",
-          ):
-              match = re.search(rf"(?m)^{re.escape(name)}=(?P<value>.+?)\s*$", bootstrap)
-              if match is None:
-                  raise SystemExit(f"Apple Streamscape Media bootstrap is missing {name}")
-              records.append(f"media:{name}={match.group('value').strip()}")
-
-          for block in object_blocks(section_body("XCLocalSwiftPackageReference")):
-              path_match = re.search(r"(?m)^\s*relativePath\s*=\s*([^;]+);\s*$", block)
-              if path_match is None:
-                  raise SystemExit("Apple local Swift package reference has no relativePath")
-              path_value = " ".join(path_match.group(1).split())
-              records.append(f"local:{path_value}")
-
-          for block in object_blocks(section_body("XCRemoteSwiftPackageReference")):
-              fields = {
-                  key: " ".join(value.split())
-                  for key, value in re.findall(
-                      r"(?m)^\s*([A-Za-z][A-Za-z0-9_]*)\s*=\s*([^;]+);\s*$",
-                      block,
-                  )
-                  if key != "isa"
-              }
-              repository_url = fields.get("repositoryURL")
-              if not repository_url:
-                  raise SystemExit("Apple remote Swift package reference has no repositoryURL")
-              records.append(
-                  "remote:" + "|".join(f"{key}={fields[key]}" for key in sorted(fields))
-              )
-
-          digest = hashlib.sha256()
-          for record in sorted(records):
-              digest.update(b"\0package\0")
-              digest.update(record.encode("utf-8"))
-          print(digest.hexdigest())
-          PY_APPLE_DEPENDENCY_FINGERPRINT
-            )"
-            xcode_fingerprint="$(xcodebuild -version | /usr/bin/shasum -a 256 | awk '{print $1}')"
-            architecture="$(uname -m)"
-            cache_key="iptv-apple-default-deps-v4-${architecture}-${xcode_fingerprint}-${dependency_fingerprint}"
-            printf 'key=%s\n' "${cache_key}" >> "${GITHUB_OUTPUT}"
-          fi
-
-      - name: Restore Apple default-branch dependency cache
+      - name: Restore native Apple binary artifacts
         id: apple_default_cache_restore
-        if: ${{ steps.apple_default_cache.outputs.restore_enabled == 'true' }}
+        if: ${{ steps.apple_default_cache.outputs.enabled == 'true' }}
         uses: actions/cache/restore@v4
         with:
-          path: |
-            Vendor/StreamscapeMediaApple
-            ${{ steps.apple_default_cache.outputs.swiftpm_clones_dir }}
+          path: ${{ steps.apple_default_cache.outputs.path }}
           key: ${{ steps.apple_default_cache.outputs.key }}
 
-      - name: Record Apple default-branch cache restore
-        if: ${{ steps.apple_default_cache.outputs.restore_enabled == 'true' }}
+      - name: Record native Apple dependency cache
+        if: ${{ steps.apple_default_cache.outputs.enabled == 'true' }}
         shell: bash
         env:
           CACHE_HIT: ${{ steps.apple_default_cache_restore.outputs.cache-hit }}
-          DEFAULT_BRANCH: ${{ steps.apple_default_cache.outputs.default_branch }}
-        run: |
-          set -Eeuo pipefail
-          {
-            printf '\n===== apple-default-cache =====\n'
-            printf 'default_branch=%s\n' "${DEFAULT_BRANCH}"
-            printf 'cache_hit=%s\n' "${CACHE_HIT:-false}"
-          } >> "${CI_LOG}"
+        run: printf '\n===== apple-binary-cache =====\ncache_hit=%s\n' "${CACHE_HIT:-false}" >> "${CI_LOG}"
 
       - name: Connect to private Git service for Apple dependency materialization
         if: >-
@@ -535,15 +372,6 @@ jobs:
             echo 'prepare-media failed; inspect the private Google Drive CI log.' >&2
             exit 1
           fi
-
-      - name: Check out Central Apple helpers
-        if: ${{ inputs.test_profile == 'testflight' || inputs.ci_run_id != '' || inputs.upload_private_log }}
-        uses: actions/checkout@v4
-        with:
-          repository: StreamScapeTV/ci-workflows
-          ref: ${{ github.sha }}
-          path: central-ci
-          persist-credentials: false
 
       - name: Prepare ephemeral Apple Distribution signing identity
         if: ${{ inputs.test_profile == 'testflight' }}
@@ -998,11 +826,6 @@ jobs:
               ;;
           esac
 
-          swiftpm_xcode_args=()
-          if test "${APPLE_DEFAULT_CACHE_ENABLED:-false}" = true; then
-            swiftpm_xcode_args=(-clonedSourcePackagesDirPath "${SWIFTPM_CLONES_DIR}")
-          fi
-
           candidate_test_args=()
           if test "${TEST_PROFILE}" = candidate; then
             while IFS= read -r selector; do
@@ -1024,7 +847,6 @@ jobs:
               run_logged macos-candidate-tests xcodebuild test \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
-                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
                 -destination 'platform=macOS' \
                 CODE_SIGNING_ALLOWED=NO \
                 "${candidate_test_args[@]+"${candidate_test_args[@]}"}"
@@ -1033,7 +855,6 @@ jobs:
               run_logged ios-build xcodebuild build \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
-                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
                 -destination 'generic/platform=iOS Simulator' \
                 CODE_SIGNING_ALLOWED=NO
               ;;
@@ -1041,7 +862,6 @@ jobs:
               run_logged tvos-build xcodebuild build \
                 -workspace streamscapetv.xcworkspace \
                 -scheme streamscapetv \
-                "${swiftpm_xcode_args[@]+"${swiftpm_xcode_args[@]}"}" \
                 -destination 'generic/platform=tvOS Simulator' \
                 CODE_SIGNING_ALLOWED=NO
               ;;
@@ -1469,37 +1289,17 @@ jobs:
           echo "TestFlight publication succeeded, but the development build-number advance is incomplete. Rerun the same tag after correcting the bump failure; the product release wrapper must reconcile the already-accepted version/build without re-uploading it." >&2
           exit 1
 
-      - name: Record Apple default-branch cache contents
-        id: apple_default_cache_contents
-        if: ${{ matrix.cache_save && steps.apple_default_cache.outputs.save_enabled == 'true' && steps.commands.outcome == 'success' }}
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          size_bytes() {
-            local path="$1"
-            if test -e "${path}"; then
-              /usr/bin/du -sk "${path}" | awk '{print $1 * 1024}'
-            else
-              printf '0\n'
-            fi
-          }
-          media_bytes="$(size_bytes Vendor/StreamscapeMediaApple)"
-          swiftpm_bytes="$(size_bytes "${SWIFTPM_CLONES_DIR}")"
-          {
-            printf 'media_bytes=%s\n' "${media_bytes}"
-            printf 'swiftpm_clone_bytes=%s\n' "${swiftpm_bytes}"
-            printf 'total_cache_bytes=%s\n' "$((media_bytes + swiftpm_bytes))"
-          } >> "${CI_LOG}"
-
-      - name: Save Apple default-branch dependency cache
-        id: apple_default_cache_save
-        if: ${{ matrix.cache_save && steps.apple_default_cache.outputs.save_enabled == 'true' && steps.commands.outcome == 'success' && steps.apple_default_cache_restore.outputs.cache-hit != 'true' }}
+      - name: Save native Apple binary artifacts
+        if: >-
+          ${{ steps.apple_default_cache.outputs.enabled == 'true'
+              && steps.apple_default_cache_restore.outputs.cache-hit != 'true'
+              && steps.commands.outcome == 'success'
+              && github.event_name != 'pull_request'
+              && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
         uses: actions/cache/save@v4
         with:
-          path: |
-            Vendor/StreamscapeMediaApple
-            ${{ steps.apple_default_cache.outputs.swiftpm_clones_dir }}
-          key: ${{ steps.apple_default_cache_restore.outputs.cache-primary-key }}
+          path: ${{ steps.apple_default_cache.outputs.path }}
+          key: ${{ steps.apple_default_cache.outputs.key }}
 
       - name: Scrub configured CI secrets from private log
         id: scrub

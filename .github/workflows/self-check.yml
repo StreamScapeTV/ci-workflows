@@ -68,6 +68,7 @@ jobs:
           tests.test_oci_reproducibility
           tests.test_apple_workflow
           tests.test_apple_log_checkpoint
+          tests.test_apple_dependency_cache
           tests.test_google_drive_media_put
           tests.test_google_drive_retry_policy
           tests.test_google_drive_oauth_exchange

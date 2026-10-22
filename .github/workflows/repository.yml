@@ -1175,6 +1175,29 @@ jobs:
         shell: bash
         run: python3 central-ci/scripts/ci/repository_macos_netrc.py install
 
+      - name: Resolve native Apple dependency cache
+        id: apple_default_cache
+        if: ${{ needs.resolve_host.outputs.host_os == 'macos' && runner.environment == 'github-hosted' }}
+        shell: bash
+        env:
+          SOURCE_REPOSITORY: ${{ inputs.repository }}
+        run: python3 central-ci/scripts/ci/apple_dependency_cache.py
+
+      - name: Restore native Apple binary artifacts
+        id: apple_default_cache_restore
+        if: ${{ steps.apple_default_cache.outputs.enabled == 'true' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ steps.apple_default_cache.outputs.path }}
+          key: ${{ steps.apple_default_cache.outputs.key }}
+
+      - name: Record native Apple dependency cache
+        if: ${{ steps.apple_default_cache.outputs.enabled == 'true' }}
+        shell: bash
+        env:
+          CACHE_HIT: ${{ steps.apple_default_cache_restore.outputs.cache-hit }}
+        run: printf '\n===== apple-binary-cache =====\ncache_hit=%s\n' "${CACHE_HIT:-false}" >> "${CI_LOG}"
+
       - name: Resolve bounded Gradle cache identity
         id: gradle_cache_identity
         if: >-
@@ -1869,6 +1892,18 @@ jobs:
         run: |
           set -Eeuo pipefail
           python3 central-ci/scripts/ci/repository_apple_physical_device.py cleanup
+
+      - name: Save native Apple binary artifacts
+        if: >-
+          ${{ steps.apple_default_cache.outputs.enabled == 'true'
+              && steps.apple_default_cache_restore.outputs.cache-hit != 'true'
+              && steps.execute_contract.outcome == 'success'
+              && github.event_name != 'pull_request'
+              && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.apple_default_cache.outputs.path }}
+          key: ${{ steps.apple_default_cache.outputs.key }}
 
       - name: Prepare bounded Gradle cache save
         id: gradle_cache_save_prepare
