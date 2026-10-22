@@ -1181,7 +1181,8 @@ jobs:
         shell: bash
         env:
           SOURCE_REPOSITORY: ${{ inputs.repository }}
-        run: python3 central-ci/scripts/ci/apple_dependency_cache.py
+        working-directory: source
+        run: python3 ../central-ci/scripts/ci/apple_dependency_cache.py
 
       - name: Restore native Apple binary artifacts
         id: apple_default_cache_restore
