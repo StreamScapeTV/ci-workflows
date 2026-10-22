@@ -21,7 +21,7 @@ def fingerprint(root: Path) -> str | None:
                 match = re.search(r'/\* Begin ' + section + r' section \*/(.*?)/\* End ' + section + r' section \*/', text, re.S)
                 if match:
                     records.append((name + ':' + section, ' '.join(match.group(1).split()).encode()))
-        elif path.name in ('Package.resolved', 'Package.swift'):
+        elif path.name in ('Package.resolved', 'Package.swift') or (path.name.startswith('Package@swift-') and path.suffix == '.swift'):
             records.append((name, path.read_bytes()))
     if not records:
         return None

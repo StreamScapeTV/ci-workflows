@@ -49,6 +49,12 @@ class AppleDependencyCacheTests(unittest.TestCase):
             self.assertEqual(before, cache.fingerprint(root))
             lock.write_text('{"pins":["two"]}')
             self.assertNotEqual(before, cache.fingerprint(root))
+            variant = root / 'Package@swift-6.0.swift'
+            variant.write_text('version specific dependency')
+            subprocess.run(['git', 'add', str(variant)], cwd=root, check=True)
+            variant_before = cache.fingerprint(root)
+            variant.write_text('updated dependency')
+            self.assertNotEqual(variant_before, cache.fingerprint(root))
 
     def test_native_and_generic_paths_share_artifact_only_cache_and_trusted_writer(self):
         for name, command_step in [('apple.yml', 'commands'), ('repository.yml', 'execute_contract')]:
