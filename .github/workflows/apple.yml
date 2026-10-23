@@ -734,7 +734,8 @@ jobs:
               fi
               if test "${platform}" = ios &&
                 test "${attempt}" -eq 1 &&
-                grep -Eq 'Failed to get background assertion for target app|DebuggerLLDB\.DebuggerVersionStore\.StoreError' "${attempt_log}"; then
+                grep -Eq 'Failed to get background assertion for target app|DebuggerLLDB\.DebuggerVersionStore\.StoreError' "${attempt_log}" &&
+                ! grep -Eq 'Test (Case|Suite) .* (started|failed)|SCREENSHOT_REVIEW_AUTH_FAILURE:|(^|[[:space:]])(fatal )?error:|\*\* BUILD FAILED \*\*' "${attempt_log}"; then
                 printf 'Known transient hosted iOS simulator launch failure detected; retrying the fixed product wrapper once with a fresh product-owned simulator.\n' >> "${CI_LOG}"
                 rm -f -- "${attempt_log}"
                 rm -rf -- "${CI_APPLE_SCREENSHOT_OUTPUT_DIR}"
