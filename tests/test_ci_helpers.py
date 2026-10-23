@@ -146,13 +146,6 @@ class CiHelperTests(unittest.TestCase):
             self.assertIn("inspect the private Google Drive CI log", text)
             self.assertNotIn("R2_", text)
             self.assertNotIn("r2-upload", text)
-            # A tee whose stdout is redirected to the private attempt file is
-            # not a public command tee; the actual shell path is exercised in
-            # test_apple_log_checkpoint. Reject every other tee -a occurrence.
-            private_tee = '\"$@\" 2>&1 | tee -a \"${CI_LOG}\" >> \"${attempt_log}\"'
-            if name == "apple":
-                self.assertEqual(text.count(private_tee), 1)
-                text = text.replace(private_tee, "private log stream")
             self.assertNotIn("tee -a", text)
 
 
