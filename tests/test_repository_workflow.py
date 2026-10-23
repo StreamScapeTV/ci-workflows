@@ -548,6 +548,25 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertNotEqual(invalid_host.returncode, 0)
         self.assertIn("host_os must be linux or macos", invalid_host.stderr)
 
+    def test_ui_modes_are_repository_owned_and_passed_unchanged(self) -> None:
+        for mode in ("screenshots", "account-smoke", "navigation", "smoke", "full-ordinary"):
+            result, output = self.run_repository_request(
+                operation="ui-test", host_os="macos",
+                semantic={"product_target": "ios", "ui_mode": mode},
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            normalized = json.loads(next(
+                line.split("=", 1)[1] for line in output.splitlines()
+                if line.startswith("semantic_inputs_json=")
+            ))
+            self.assertEqual(normalized["inputs"]["ui_mode"], mode)
+        for mode in (True, [], "", "x" * 65, "mode;command"):
+            result, _ = self.run_repository_request(
+                operation="ui-test", host_os="macos",
+                semantic={"product_target": "ios", "ui_mode": mode},
+            )
+            self.assertNotEqual(result.returncode, 0, mode)
+
     def test_release_configuration_semantic_stays_generic_and_unsigned(self) -> None:
         fields = self.contract["semanticInputs"]["fields"]
         self.assertEqual(

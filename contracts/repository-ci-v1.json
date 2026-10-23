@@ -169,11 +169,9 @@
         "rejectLeadingDash": true
       },
       "ui_mode": {
-        "type": "enum",
-        "values": [
-          "smoke",
-          "full-ordinary"
-        ]
+        "type": "string",
+        "maxLength": 64,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
       },
       "build_configuration": {
         "type": "enum",
