@@ -221,6 +221,46 @@ class AppleWorkflowTests(unittest.TestCase):
             self.assertIn("native-executed", (root / "private.log").read_text())
             self.assertIn("class=unclassified", result.stdout)
 
+    def test_only_pretest_simulator_failures_retry_and_never_more_than_once(self) -> None:
+        run = self.execute_steps["Run fixed Apple lane"]["run"]
+        start = run.index("report_screenshot_failure() {")
+        functions = run[start:run.index('case "${TEST_PROFILE}" in', start)]
+        warning = "DebuggerLLDB.DebuggerVersionStore.StoreError error 0."
+        cases = (
+            ("ios", warning, True, 2, 0),
+            ("ios", warning, False, 2, 17),
+            ("tvos", warning, True, 1, 17),
+            ("ios", warning + "\nSCREENSHOT_REVIEW_AUTH_FAILURE:unavailable", True, 1, 17),
+            ("ios", warning + "\nTest Case '-[AppTests testLogin]' started.", True, 1, 17),
+            ("ios", warning + "\nTest Case '-[AppTests testLogin]' failed.", True, 1, 17),
+            ("ios", warning + "\nerror: Could not resolve package dependencies", True, 1, 17),
+            ("ios", warning + "\n** BUILD FAILED **", True, 1, 17),
+            ("ios", "ordinary capture failure", True, 1, 17),
+        )
+        for platform, diagnostic, recover, attempts, status in cases:
+            with self.subTest(platform=platform, diagnostic=diagnostic), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                wrapper = root / "wrapper.sh"
+                wrapper.write_text(
+                    'echo attempt >> "$RUNNER_TEMP/attempts"\n'
+                    + ('test ! -e "$RUNNER_TEMP/first" || exit 0\n' if recover else '')
+                    + 'touch "$RUNNER_TEMP/first"\n'
+                    + "cat <<'DIAGNOSTIC'\n" + diagnostic + "\nDIAGNOSTIC\nexit 17\n"
+                )
+                result = subprocess.run(
+                    ["bash", "-c", functions + f'\nrun_screenshot_logged fixed {platform} bash "{wrapper}"\n'],
+                    env={**os.environ, "RUNNER_TEMP": td, "CI_LOG": str(root / "private.log"),
+                         "GITHUB_STEP_SUMMARY": str(root / "summary"),
+                         "CI_APPLE_SCREENSHOT_OUTPUT_DIR": str(root / "output"),
+                         "CI_APPLE_SCREENSHOT_PACKAGE_PATH": str(root / "package.zip")},
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode, status, result.stderr)
+                self.assertEqual(len((root / "attempts").read_text().splitlines()), attempts)
+                self.assertIn(diagnostic, (root / "private.log").read_text())
+                self.assertNotIn(diagnostic, result.stdout + result.stderr)
+                self.assertFalse(list(root.glob("*-attempt-*.log")))
+
     def test_testflight_remains_separately_authorized_release(self) -> None:
         job = self.dispatch["jobs"]["apple_release"]
         self.assertIn("release.apple", job["if"])
