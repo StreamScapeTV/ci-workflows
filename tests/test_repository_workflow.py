@@ -1210,7 +1210,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
     def test_private_agent_state_capability_grant_is_exactly_bound_and_fail_closed(self) -> None:
         self.assertEqual(
             set(self.contract["capabilityTypes"]),
-            {"private_network", "github_git", "registry_netrc", "gradle_maven", "registry_oci_publish", "backup_s3_read", "protected_deployed_conformance", "apple_physical_device"},
+            {"private_network", "github_git", "registry_netrc", "gradle_maven", "registry_oci_publish", "backup_s3_read", "protected_deployed_conformance", "apple_physical_device", "integration_test_fixtures"},
         )
         backup_contract = self.contract["trustedCapabilityGrant"]["capabilityConfiguration"]["backup_s3_read"]
         self.assertEqual(backup_contract["projectStateKey"], "repository_ci_backup_s3_read_v1")

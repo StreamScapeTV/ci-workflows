@@ -39,6 +39,7 @@ scripts:
   github_issue_dependency_projection: scripts/ci/github_issue_dependency_projection.py
   repository_log_checkpoint: scripts/ci/repository_log_checkpoint.py
   repository_log_capture: scripts/ci/repository_log_capture.py
+  repository_test_fixtures: scripts/ci/repository_test_fixtures.py
   repository_log_timeline: scripts/ci/repository_log_timeline.py
   repository_progress_relay: scripts/ci/repository_progress_relay.py
   repository_runtime_probe: scripts/ci/repository_runtime_probe.py
