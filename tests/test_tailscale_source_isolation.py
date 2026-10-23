@@ -56,7 +56,7 @@ class TailscaleSourceIsolationTests(unittest.TestCase):
         workflow=yaml.safe_load((ROOT/'.github/workflows/apple.yml').read_text())
         steps=next(job['steps'] for job in workflow['jobs'].values() if any(s.get('name')=='Run fixed Apple lane' for s in job.get('steps',[])))
         code=next(s['run'] for s in steps if s.get('name')=='Run fixed Apple lane')
-        prefix=code.split('configure_remote_swiftpm_git_auth() {',1)[0]
+        prefix=code.split('run_logged() {',1)[0]
         with tempfile.TemporaryDirectory() as d:
             log=Path(d)/'lane.log';log.touch()
             result=subprocess.run(['bash','-c',prefix+'\nexit 23\n'],env={**os.environ,'CI_LOG':str(log)},capture_output=True,text=True)

@@ -101,8 +101,7 @@ class AndroidScreenshotReviewTests(unittest.TestCase):
         step = next(step for step in self.dispatch["jobs"]["request"]["steps"] if step.get("name") == "Validate retained specialist validation request")
         script = step["run"]
         self.assertIn('Android screenshot-review is fixed to iptv-android', script)
-        self.assertIn('Apple screenshot-review is fixed to iptv-apple', script)
-        self.assertIn("Apple screenshot-review is fixed to iptv-apple and accepts no semantic inputs", script)
+        self.assertNotIn("validation.apple", script)
         self.assertIn("Android screenshot-review accepts only test_selectors", script)
         self.assertIn("Android screenshot-review accepts zero through 20 canonical screen ids", script)
         self.assertIn("mobile.* or tv.* ids", script)

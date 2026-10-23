@@ -40,7 +40,7 @@ class AppleLogCheckpointTests(unittest.TestCase):
         self.assertIn("steps.log_seed.outcome == 'success'", COMMAND['env']['CHECKPOINT_ENABLED'])
 
     def test_lane_exit_joins_checkpoint_and_preserves_success_or_failure(self):
-        prefix = COMMAND['run'].split('configure_remote_swiftpm_git_auth() {', 1)[0]
+        prefix = COMMAND['run'].split('run_logged() {', 1)[0]
         for status in (0, 23):
             with self.subTest(status=status), tempfile.TemporaryDirectory() as td:
                 root = Path(td)
@@ -63,27 +63,3 @@ class AppleLogCheckpointTests(unittest.TestCase):
                     capture_output=True, text=True, timeout=10)
                 self.assertEqual(result.returncode, status, result.stderr)
                 self.assertNotIn('fixture-secret', result.stdout + result.stderr)
-
-    def test_screenshot_attempt_streams_before_command_finishes_and_retains_status(self):
-        run = COMMAND['run']
-        functions = run[run.index('report_screenshot_failure() {'):run.index('case "${TEST_PROFILE}" in', run.index('report_screenshot_failure() {'))]
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td); log = root / 'main.log'; log.touch()
-            script = functions + '\nrun_screenshot_logged fixed tvos bash -c \'echo live-diagnostic; touch "$RUNNER_TEMP/writing"; sleep 1; exit 17\'\n'
-            process = subprocess.Popen(['bash', '-c', script], env={**os.environ,
-                'CI_LOG': str(log), 'RUNNER_TEMP': td, 'GITHUB_STEP_SUMMARY': str(root / 'summary')},
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            try:
-                deadline = time.monotonic() + 5
-                while 'live-diagnostic' not in log.read_text() and time.monotonic() < deadline:
-                    time.sleep(.01)
-                self.assertIn('live-diagnostic', log.read_text())
-                self.assertIsNone(process.poll(), 'diagnostic must be readable during execution')
-                stdout, stderr = process.communicate(timeout=5)
-                self.assertNotIn('live-diagnostic', stdout + stderr)
-                self.assertEqual(process.returncode, 17)
-                self.assertEqual(log.read_text().count('live-diagnostic'), 1)
-                self.assertFalse(list(root.glob('*attempt*.log')))
-            finally:
-                if process.poll() is None:
-                    process.kill(); process.communicate()

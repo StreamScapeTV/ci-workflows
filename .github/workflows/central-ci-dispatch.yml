@@ -87,7 +87,6 @@ jobs:
           # across generic test/full and retained screenshot lanes.
           ordinary_profiles = {
               "validation.repository": frozenset(("build", "test", "full", "ui-test")),
-              "validation.apple": frozenset(("screenshot-review",)),
               "validation.android": frozenset(("screenshot-review",)),
           }
           cancel_in_progress = (
@@ -118,7 +117,8 @@ jobs:
             steps.claim.outputs.workflow_key == 'validation.node' ||
             steps.claim.outputs.workflow_key == 'validation.flutter' ||
             steps.claim.outputs.workflow_key == 'validation.container-service' ||
-            steps.claim.outputs.workflow_key == 'validation.python'
+            steps.claim.outputs.workflow_key == 'validation.python' ||
+            steps.claim.outputs.workflow_key == 'validation.apple'
           }}
         shell: bash
         run: |
@@ -127,7 +127,7 @@ jobs:
 
       - name: Validate retained legacy validation profile
         if: >-
-          ${{ steps.claim.outputs.workflow_key == 'validation.android' || steps.claim.outputs.workflow_key == 'validation.apple' }}
+          ${{ steps.claim.outputs.workflow_key == 'validation.android' }}
         shell: bash
         env:
           WORKFLOW_KEY: ${{ steps.claim.outputs.workflow_key }}
@@ -135,14 +135,10 @@ jobs:
         run: |
           set -Eeuo pipefail
           case "${WORKFLOW_KEY}/${TEST_PROFILE}" in
-            validation.android/screenshot-review|validation.android/physical-performance|validation.apple/screenshot-review)
+            validation.android/screenshot-review|validation.android/physical-performance)
               ;;
             validation.android/*)
               echo "retired Android validation profile; use validation.repository for ordinary build/test/full/UI work" >&2
-              exit 2
-              ;;
-            validation.apple/*)
-              echo "retired Apple validation profile; use validation.repository or the separately authorized release/package route" >&2
               exit 2
               ;;
           esac
@@ -281,7 +277,7 @@ jobs:
           PY_TAG_RELEASE
 
       - name: Validate retained specialist validation request
-        if: ${{ steps.claim.outputs.workflow_key == 'validation.android' || steps.claim.outputs.workflow_key == 'validation.apple' }}
+        if: ${{ steps.claim.outputs.workflow_key == 'validation.android' }}
         shell: bash
         env:
           WORKFLOW_KEY: ${{ steps.claim.outputs.workflow_key }}
@@ -310,8 +306,6 @@ jobs:
               if not isinstance(selectors,list) or len(selectors)>20: raise SystemExit("Android screenshot-review accepts zero through 20 canonical screen ids")
               if any(not isinstance(v,str) or re.fullmatch(r"[a-z0-9][a-z0-9.-]{0,127}",v) is None or not v.startswith(("mobile.","tv.")) for v in selectors): raise SystemExit("Android screenshot-review selectors must be bounded mobile.* or tv.* ids")
               if len(selectors)!=len(set(selectors)): raise SystemExit("Android screenshot-review selectors must be unique")
-          elif (workflow,profile)==("validation.apple","screenshot-review"):
-              if repository!="StreamScapeTV/iptv-apple" or inputs: raise SystemExit("Apple screenshot-review is fixed to iptv-apple and accepts no semantic inputs")
           else:
               raise SystemExit("unsupported specialist validation profile")
           PY_SPECIALIST_VALIDATION
@@ -718,21 +712,6 @@ jobs:
       APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
-
-  apple:
-    needs: request
-    if: ${{ needs.request.outputs.workflow_key == 'validation.apple' }}
-    concurrency:
-      group: central-ci-${{ needs.request.outputs.validation_concurrency_key }}
-      cancel-in-progress: ${{ needs.request.outputs.validation_cancel_in_progress == 'true' }}
-    uses: ./.github/workflows/apple.yml
-    with:
-      repository: ${{ needs.request.outputs.repository }}
-      ref: ${{ needs.request.outputs.ref }}
-      source_is_tag: ${{ needs.request.outputs.is_tag == 'true' }}
-      test_profile: ${{ needs.request.outputs.test_profile }}
-      ci_run_id: ${{ inputs.ci_run_id }}
-    secrets: inherit
 
   apple_release:
     needs: request
@@ -1392,7 +1371,6 @@ jobs:
       - request
       - repository
       - repository_release
-      - apple
       - apple_release
       - android
       - android_release
@@ -1416,8 +1394,6 @@ jobs:
           needs.repository.result == 'failure' ||
           needs.repository_release.result == 'cancelled' ||
           needs.repository_release.result == 'failure' ||
-          needs.apple.result == 'cancelled' ||
-          needs.apple.result == 'failure' ||
           needs.apple_release.result == 'cancelled' ||
           needs.apple_release.result == 'failure' ||
           needs.android.result == 'cancelled' ||
