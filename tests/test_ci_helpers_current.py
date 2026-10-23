@@ -222,7 +222,7 @@ class CiHelperTests(_prior.CiHelperTests):
         duplicate_a = resolve_lane()
         branch_b = resolve_lane(ref="feature/new-head")
         different_profile = resolve_lane(profile="full")
-        different_workflow = resolve_lane(workflow_key="validation.apple", profile="candidate")
+        different_workflow = resolve_lane(workflow_key="validation.apple", profile="screenshot-review")
         retained_android = resolve_lane(workflow_key="validation.android", profile="screenshot-review")
         tag = resolve_lane(ref="1.2.3", is_tag="true")
         physical = resolve_lane(workflow_key="validation.android", profile="physical-performance")
@@ -635,7 +635,7 @@ resolve_existing_file
         script = step["run"]
         for kept in (
             "validation.android/screenshot-review", "validation.android/physical-performance",
-            "validation.apple/candidate", "validation.apple/screenshot-review",
+            "validation.apple/screenshot-review",
         ):
             self.assertIn(kept, script)
         for message in (
