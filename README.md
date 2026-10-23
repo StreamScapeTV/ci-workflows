@@ -71,3 +71,10 @@ Please read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing a change. For he
 ## License
 
 Released under the [MIT License](LICENSE). The existing copyright and license terms remain unchanged.
+
+The trusted `integration_test_fixtures` capability gives authorized Repository CI
+`test`, `full` and `ui-test` entrypoints the existing fixed test-account/source
+bundle through `CI_TEST_FIXTURE_FILE`, a private temporary JSON file. Product
+`.ci` scripts own provider validation, capture and packaging. Missing grants expose
+no file; Central always removes it during cleanup. This does not migrate or
+retire the existing screenshot routes by itself.

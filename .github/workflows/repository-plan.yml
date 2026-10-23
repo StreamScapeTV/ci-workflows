@@ -44,6 +44,22 @@ name: Repository-owned CI execution plan
         required: false
         default: false
     secrets:
+      STREAMSCAPE_API_BASE:
+        required: false
+      STREAMSCAPE_EMAIL:
+        required: false
+      STREAMSCAPE_PASSWORD:
+        required: false
+      STREAMSCAPE_DEMO_EMAIL:
+        required: false
+      STREAMSCAPE_DEMO_PASSWORD:
+        required: false
+      XTREAM_URL:
+        required: false
+      XTREAM_USERNAME:
+        required: false
+      XTREAM_PASSWORD:
+        required: false
       DOCKERHUB_USERNAME:
         required: false
       DOCKERHUB_READ_TOKEN:
@@ -248,6 +264,14 @@ jobs:
       ci_run_id: ""
       upload_private_log: ${{ inputs.ci_run_id != '' || inputs.upload_private_log }}
     secrets:
+      STREAMSCAPE_API_BASE: ${{ secrets.STREAMSCAPE_API_BASE }}
+      STREAMSCAPE_EMAIL: ${{ secrets.STREAMSCAPE_EMAIL }}
+      STREAMSCAPE_PASSWORD: ${{ secrets.STREAMSCAPE_PASSWORD }}
+      STREAMSCAPE_DEMO_EMAIL: ${{ secrets.STREAMSCAPE_DEMO_EMAIL }}
+      STREAMSCAPE_DEMO_PASSWORD: ${{ secrets.STREAMSCAPE_DEMO_PASSWORD }}
+      XTREAM_URL: ${{ secrets.XTREAM_URL }}
+      XTREAM_USERNAME: ${{ secrets.XTREAM_USERNAME }}
+      XTREAM_PASSWORD: ${{ secrets.XTREAM_PASSWORD }}
       SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
       SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
       DOCKERHUB_USERNAME: ${{ matrix.host_os == 'linux' && secrets.DOCKERHUB_USERNAME || '' }}

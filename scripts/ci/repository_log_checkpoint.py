@@ -53,7 +53,10 @@ def _scrub_values(environ: Mapping[str, str]) -> tuple[bytes, ...]:
         if not name.startswith("CI_SECRET_") or not value:
             continue
         raw = value.encode()
-        for candidate in (raw, raw.replace(b"\n", b"\\n")):
+        candidates = [raw, raw.replace(b"\n", b"\\n")]
+        if name.startswith("CI_SECRET_FIXTURE_"):
+            candidates.append(json.dumps(value)[1:-1].encode())
+        for candidate in candidates:
             if candidate and candidate not in seen:
                 seen.add(candidate)
                 values.append(candidate)

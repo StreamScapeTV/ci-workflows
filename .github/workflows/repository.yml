@@ -56,6 +56,22 @@ name: Repository-owned CI
         required: false
         default: false
     secrets:
+      STREAMSCAPE_API_BASE:
+        required: false
+      STREAMSCAPE_EMAIL:
+        required: false
+      STREAMSCAPE_PASSWORD:
+        required: false
+      STREAMSCAPE_DEMO_EMAIL:
+        required: false
+      STREAMSCAPE_DEMO_PASSWORD:
+        required: false
+      XTREAM_URL:
+        required: false
+      XTREAM_USERNAME:
+        required: false
+      XTREAM_PASSWORD:
+        required: false
       DOCKERHUB_USERNAME:
         required: false
       DOCKERHUB_READ_TOKEN:
@@ -754,7 +770,7 @@ jobs:
           trusted = value.get("trustedCapabilityGrant")
           if not isinstance(capability_types, dict) or not isinstance(trusted, dict):
               raise SystemExit("repository CI capability contract is incomplete")
-          expected = {"private_network", "github_git", "registry_netrc", "gradle_maven", "registry_oci_publish", "backup_s3_read", "protected_deployed_conformance", "apple_physical_device"}
+          expected = {"private_network", "github_git", "registry_netrc", "gradle_maven", "registry_oci_publish", "backup_s3_read", "protected_deployed_conformance", "apple_physical_device", "integration_test_fixtures"}
           if set(capability_types) != expected:
               raise SystemExit("repository CI capability type set is not the reviewed v1 set")
           if trusted.get("source") != "Agent State project configuration":
@@ -953,6 +969,12 @@ jobs:
           ):
               enabled_capabilities.discard("apple_physical_device")
 
+          if (
+              operation not in {"test", "full", "ui-test"}
+              or capability_context not in {"repository_lifecycle", "repository_parent"}
+          ):
+              enabled_capabilities.discard("integration_test_fixtures")
+
           if "backup_s3_read" in enabled_capabilities:
               descriptor = state.get("repository_ci_backup_s3_read_v1")
               expected_descriptor_fields = {
@@ -1054,6 +1076,23 @@ jobs:
               ;;
           esac
 
+
+      - name: Materialize reviewed integration-test fixtures
+        if: ${{ steps.capabilities.outputs.integration_test_fixtures == 'true' }}
+        shell: bash
+        env:
+          STREAMSCAPE_API_BASE: ${{ secrets.STREAMSCAPE_API_BASE }}
+          STREAMSCAPE_EMAIL: ${{ secrets.STREAMSCAPE_EMAIL }}
+          STREAMSCAPE_PASSWORD: ${{ secrets.STREAMSCAPE_PASSWORD }}
+          STREAMSCAPE_DEMO_EMAIL: ${{ secrets.STREAMSCAPE_DEMO_EMAIL }}
+          STREAMSCAPE_DEMO_PASSWORD: ${{ secrets.STREAMSCAPE_DEMO_PASSWORD }}
+          XTREAM_URL: ${{ secrets.XTREAM_URL }}
+          XTREAM_USERNAME: ${{ secrets.XTREAM_USERNAME }}
+          XTREAM_PASSWORD: ${{ secrets.XTREAM_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          python3 central-ci/scripts/ci/repository_test_fixtures.py
+          printf 'CI_TEST_FIXTURE_FILE=%s\n' "${RUNNER_TEMP}/central-test-fixtures.json" >> "${GITHUB_ENV}"
 
       - name: Connect reviewed private network capability
         if: ${{ steps.capabilities.outputs.private_network == 'true' }}
@@ -1563,6 +1602,14 @@ jobs:
           CI_SECRET_DOCKERHUB_READ_TOKEN: ${{ needs.resolve_host.outputs.host_os == 'linux' && secrets.DOCKERHUB_READ_TOKEN || '' }}
           CI_SECRET_REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           CI_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
+          CI_SECRET_FIXTURE_STREAMSCAPE_API_BASE: ${{ steps.capabilities.outputs.integration_test_fixtures == 'true' && secrets.STREAMSCAPE_API_BASE || '' }}
+          CI_SECRET_FIXTURE_STREAMSCAPE_EMAIL: ${{ steps.capabilities.outputs.integration_test_fixtures == 'true' && secrets.STREAMSCAPE_EMAIL || '' }}
+          CI_SECRET_FIXTURE_STREAMSCAPE_PASSWORD: ${{ steps.capabilities.outputs.integration_test_fixtures == 'true' && secrets.STREAMSCAPE_PASSWORD || '' }}
+          CI_SECRET_FIXTURE_STREAMSCAPE_DEMO_EMAIL: ${{ steps.capabilities.outputs.integration_test_fixtures == 'true' && secrets.STREAMSCAPE_DEMO_EMAIL || '' }}
+          CI_SECRET_FIXTURE_STREAMSCAPE_DEMO_PASSWORD: ${{ steps.capabilities.outputs.integration_test_fixtures == 'true' && secrets.STREAMSCAPE_DEMO_PASSWORD || '' }}
+          CI_SECRET_FIXTURE_XTREAM_URL: ${{ steps.capabilities.outputs.integration_test_fixtures == 'true' && secrets.XTREAM_URL || '' }}
+          CI_SECRET_FIXTURE_XTREAM_USERNAME: ${{ steps.capabilities.outputs.integration_test_fixtures == 'true' && secrets.XTREAM_USERNAME || '' }}
+          CI_SECRET_FIXTURE_XTREAM_PASSWORD: ${{ steps.capabilities.outputs.integration_test_fixtures == 'true' && secrets.XTREAM_PASSWORD || '' }}
           CI_SECRET_REGISTRY_WRITE_TOKEN: ${{ secrets.REGISTRY_WRITE_TOKEN }}
           CI_SECRET_BACKUP_S3_ENDPOINT: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_ENDPOINT || '' }}
           CI_SECRET_BACKUP_S3_BUCKET: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_BUCKET || '' }}
@@ -1754,6 +1801,14 @@ jobs:
             CI_SECRET_DOCKERHUB_AUTH_B64 \
             CI_SECRET_REGISTRY_USERNAME \
             CI_SECRET_REGISTRY_READ_TOKEN \
+            CI_SECRET_FIXTURE_STREAMSCAPE_API_BASE \
+            CI_SECRET_FIXTURE_STREAMSCAPE_EMAIL \
+            CI_SECRET_FIXTURE_STREAMSCAPE_PASSWORD \
+            CI_SECRET_FIXTURE_STREAMSCAPE_DEMO_EMAIL \
+            CI_SECRET_FIXTURE_STREAMSCAPE_DEMO_PASSWORD \
+            CI_SECRET_FIXTURE_XTREAM_URL \
+            CI_SECRET_FIXTURE_XTREAM_USERNAME \
+            CI_SECRET_FIXTURE_XTREAM_PASSWORD \
             CI_SECRET_REGISTRY_WRITE_TOKEN \
             CI_SECRET_BACKUP_S3_ENDPOINT \
             CI_SECRET_BACKUP_S3_BUCKET \
@@ -2092,6 +2147,14 @@ jobs:
           CI_SECRET_DOCKERHUB_READ_TOKEN: ${{ needs.resolve_host.outputs.host_os == 'linux' && secrets.DOCKERHUB_READ_TOKEN || '' }}
           CI_SECRET_REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           CI_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
+          CI_SECRET_FIXTURE_STREAMSCAPE_API_BASE: ${{ steps.capabilities.outputs.integration_test_fixtures == 'true' && secrets.STREAMSCAPE_API_BASE || '' }}
+          CI_SECRET_FIXTURE_STREAMSCAPE_EMAIL: ${{ steps.capabilities.outputs.integration_test_fixtures == 'true' && secrets.STREAMSCAPE_EMAIL || '' }}
+          CI_SECRET_FIXTURE_STREAMSCAPE_PASSWORD: ${{ steps.capabilities.outputs.integration_test_fixtures == 'true' && secrets.STREAMSCAPE_PASSWORD || '' }}
+          CI_SECRET_FIXTURE_STREAMSCAPE_DEMO_EMAIL: ${{ steps.capabilities.outputs.integration_test_fixtures == 'true' && secrets.STREAMSCAPE_DEMO_EMAIL || '' }}
+          CI_SECRET_FIXTURE_STREAMSCAPE_DEMO_PASSWORD: ${{ steps.capabilities.outputs.integration_test_fixtures == 'true' && secrets.STREAMSCAPE_DEMO_PASSWORD || '' }}
+          CI_SECRET_FIXTURE_XTREAM_URL: ${{ steps.capabilities.outputs.integration_test_fixtures == 'true' && secrets.XTREAM_URL || '' }}
+          CI_SECRET_FIXTURE_XTREAM_USERNAME: ${{ steps.capabilities.outputs.integration_test_fixtures == 'true' && secrets.XTREAM_USERNAME || '' }}
+          CI_SECRET_FIXTURE_XTREAM_PASSWORD: ${{ steps.capabilities.outputs.integration_test_fixtures == 'true' && secrets.XTREAM_PASSWORD || '' }}
           CI_SECRET_REGISTRY_WRITE_TOKEN: ${{ secrets.REGISTRY_WRITE_TOKEN }}
           CI_SECRET_BACKUP_S3_ENDPOINT: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_ENDPOINT || '' }}
           CI_SECRET_BACKUP_S3_BUCKET: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_BUCKET || '' }}
@@ -2145,6 +2208,9 @@ jobs:
                   raise SystemExit("repository CI text evidence escapes its Central-owned root")
               paths.append(path)
           secrets = [value.encode() for name, value in os.environ.items() if name.startswith("CI_SECRET_") and value]
+          secrets.extend(json.dumps(value)[1:-1].encode()
+                         for name, value in os.environ.items()
+                         if name.startswith("CI_SECRET_FIXTURE_") and value)
           import base64
           user = os.environ.get("CI_SECRET_DOCKERHUB_USERNAME", "")
           token = os.environ.get("CI_SECRET_DOCKERHUB_READ_TOKEN", "")
@@ -2670,6 +2736,7 @@ jobs:
             "${RUNNER_TEMP}/repository-ci-logs" \
             "${RUNNER_TEMP}/repository-ci-artifacts"
           rm -f -- \
+            "${RUNNER_TEMP}/central-test-fixtures.json" \
             "${RUNNER_TEMP}/central-repository-ci-log-checkpoint-seed.txt" \
             "${RUNNER_TEMP}/central-repository-ci-log-checkpoint-status.json" \
             "${RUNNER_TEMP}/central-protected-deployed-project-state.json" \

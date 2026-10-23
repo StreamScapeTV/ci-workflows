@@ -263,7 +263,8 @@
     "registry_oci_publish": "Configure isolated authenticated OCI image and Helm registry publication state for an authorized repository release without exposing the write credential to repository code.",
     "backup_s3_read": "Expose one fixed read-only S3-compatible production-backup connection bundle only to an exact authorized repository release; restore, database, migration, health, smoke, and cleanup commands remain repository-owned.",
     "protected_deployed_conformance": "Materialize one fixed protected deployed-conformance bundle from Central secrets and a trusted Agent State descriptor, execute one tracked no-argv Python certifier after repository full validation, and require bounded deterministic reset/readback before cleanup.",
-    "apple_physical_device": "Authorize one exact-source, time-bounded iOS/iPhone physical-device execution on the reviewed high-capacity macOS host; Central discovers/fences the attached device and exposes only an ephemeral private device-context file to the fixed repository device-test entrypoint."
+    "apple_physical_device": "Authorize one exact-source, time-bounded iOS/iPhone physical-device execution on the reviewed high-capacity macOS host; Central discovers/fences the attached device and exposes only an ephemeral private device-context file to the fixed repository device-test entrypoint.",
+    "integration_test_fixtures": "Materialize the fixed integration-test credential bundle in CI_TEST_FIXTURE_FILE for authorized test/full/ui-test execution; provider semantics and capture remain repository-owned."
   },
   "infrastructure": {
     "githubHost": "github.com"
