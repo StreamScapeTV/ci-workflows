@@ -210,8 +210,8 @@ def preflight(
     candidates = current + legacy
     state["prior_archive_file_ids"] = sorted({value["id"] for value in candidates})
     if not manifests:
-        if candidates:
-            raise SourceSnapshotLifecycleError("canonical source archive exists without one manifest identity")
+        # An interrupted manifest upload can leave archive-only state. The normal
+        # fresh upload/readback replaces the pair before prune removes these IDs.
         state_path.write_text(json.dumps(state, sort_keys=True, separators=(",", ":")) + "\n")
         return state
     if len(manifests) != 1:
@@ -234,10 +234,10 @@ def preflight(
     if archive_name not in {archive_filename, "source.zip"}:
         raise SourceSnapshotLifecycleError("canonical source snapshot manifest archive filename is outside current/legacy names")
     matching = [value for value in candidates if value.get("id") == archive_id and value.get("name") == archive_name]
-    if len(matching) != 1:
-        raise SourceSnapshotLifecycleError("canonical source snapshot manifest archive object is not present in the exact ref folder")
+    # A missing declared archive is likewise repairable by a fresh publication.
+    # Never reuse another object's identity to pretend the old pair is complete.
     declared_size = manifest.get("archive_size_bytes", manifest.get("source_zip_size_bytes"))
-    if isinstance(declared_size, int) and matching[0].get("size") not in (None, str(declared_size)):
+    if matching and isinstance(declared_size, int) and matching[0].get("size") not in (None, str(declared_size)):
         raise SourceSnapshotLifecycleError("canonical source snapshot archive size metadata does not match manifest")
     state["manifest_file_id"] = manifest_file["id"]
     state["previous_archive_file_id"] = archive_id

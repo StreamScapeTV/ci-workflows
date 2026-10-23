@@ -60,6 +60,53 @@ class FakeDrive:
 
 
 class SourceSnapshotLifecycleTests(unittest.TestCase):
+    def _prune(self, drive: FakeDrive, state: Path, manifest: Path) -> int:
+        return prune(
+            drive,
+            root_folder_id="root_folder_12345",
+            repository="StreamScapeTV/example",
+            ref="main",
+            is_tag=False,
+            archive_filename="example-main.zip",
+            repository_folder_id="repo_folder_12345",
+            state_path=state,
+            manifest_path=manifest,
+        )
+
+    def test_retry_after_interrupted_manifest_upload_prunes_orphans_only_after_publication(self) -> None:
+        drive = FakeDrive()
+        del drive.files[drive.manifest_id]
+        with tempfile.TemporaryDirectory() as td:
+            state, manifest = Path(td) / "state.json", Path(td) / "manifest.json"
+            self._preflight(drive, state)
+            self._write_new_manifest(drive, manifest, "interrupted_archive_12345")
+            # Manifest upload did not commit (as in the recorded HTTP 410).
+            self.assertEqual(drive.deleted, [])
+            self._preflight(drive, state)
+            self.assertEqual(drive.deleted, [])
+            self.assertEqual(set(json.loads(state.read_text())["prior_archive_file_ids"]),
+                             {"old_archive_12345", "interrupted_archive_12345"})
+            self._write_new_manifest(drive, manifest)
+            drive.files[drive.manifest_id] = {
+                "id": drive.manifest_id, "name": "manifest.json", "mimeType": "application/json",
+            }
+            self.assertEqual(self._prune(drive, state, manifest), 2)
+            self.assertEqual([f["id"] for f in drive.exact_files(drive.folder_id, "example-main.zip")],
+                             ["new_archive_12345"])
+            self._preflight(drive, state)  # subsequent requests see a coherent pair
+
+    def test_manifest_without_archive_is_repaired_without_deleting_manifest(self) -> None:
+        drive = FakeDrive()
+        del drive.files["old_archive_12345"]
+        with tempfile.TemporaryDirectory() as td:
+            state, manifest = Path(td) / "state.json", Path(td) / "manifest.json"
+            self._preflight(drive, state)
+            self.assertEqual(drive.deleted, [])
+            self._write_new_manifest(drive, manifest)
+            self.assertEqual(self._prune(drive, state, manifest), 0)
+            self.assertIn(drive.manifest_id, drive.files)
+            self._preflight(drive, state)
+
     def _preflight(self, drive: FakeDrive, state: Path) -> None:
         preflight(
             drive,
