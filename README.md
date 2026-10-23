@@ -33,7 +33,7 @@ The default route for ordinary build/test/full/UI work is:
 
 Some separately governed paths remain because they have a genuinely different trust, platform, or release boundary:
 
-- **Specialized evidence:** Apple candidate/screenshot review and other currently authorized native/device-validation exceptions, until live consumers migrate safely.
+- **Specialized evidence:** Apple/Android screenshot review and other currently authorized native/device-validation exceptions, until live consumers migrate safely.
 - **Release/publication:** tag-controlled image, chart, library, and app distribution paths, with publication-specific permissions and readback.
 - **Infrastructure:** source snapshot/checkpoint publication, branch maintenance, approved inspection, and private evidence retention.
 - **Repository self-validation:** workflow tests and runner-image checks, independent of a product's `.ci/` scripts.

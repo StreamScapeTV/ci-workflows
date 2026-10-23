@@ -20,31 +20,35 @@ class AppleWorkflowTests(unittest.TestCase):
         cls.plan_steps = {s.get("name"): s for s in cls.workflow["jobs"]["plan"]["steps"] if s.get("name")}
         cls.execute_steps = {s.get("name"): s for s in cls.workflow["jobs"]["execute"]["steps"] if s.get("name")}
 
-    def test_validation_surface_keeps_only_candidate_and_screenshot(self) -> None:
+    def test_validation_surface_keeps_only_screenshot_and_release(self) -> None:
         inputs = self.workflow["on"]["workflow_call"]["inputs"]
         self.assertNotIn("test_platform", inputs)
         self.assertNotIn("native_component", inputs)
         plan = self.plan_steps["Resolve fixed Apple execution lanes"]["run"]
-        for kept in ("candidate)", "screenshot-review)", "testflight)"):
+        for kept in ("screenshot-review)", "testflight)"):
             self.assertIn(kept, plan)
         for retired in (
-            "targeted-tests", "native-component", "release-build", "swift-package",
+            "candidate)", "targeted-tests", "native-component", "release-build", "swift-package",
             "simulator)", "macos-test", "ios-targeted", "tvos-targeted",
         ):
             self.assertNotIn(retired, self.source)
 
-    def test_candidate_is_fixed_platform_builds_plus_macos_selected_tests(self) -> None:
+    def test_retired_candidate_is_rejected_before_execution(self) -> None:
         plan = self.plan_steps["Resolve fixed Apple execution lanes"]["run"]
-        self.assertIn('"lane":"ios-build"', plan)
-        self.assertIn('"lane":"tvos-build"', plan)
-        self.assertIn('"lane":"macos-candidate-tests"', plan)
-        self.assertIn("candidate requires 1 through 20 unique string selectors", plan)
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "outputs"
+            result = subprocess.run(
+                ["bash", "-c", plan], capture_output=True, text=True,
+                env={**os.environ, "TEST_PROFILE": "candidate", "SOURCE_IS_TAG": "false",
+                     "RELEASE_VERSION": "", "BUILD_NUMBER": "", "GITHUB_OUTPUT": str(output)},
+            )
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIn("Unsupported retained Apple test_profile", result.stderr)
+            self.assertFalse(output.exists())
+        self.assertNotIn("test_selectors", self.workflow["on"]["workflow_call"]["inputs"])
         commands = self.execute_steps["Run fixed Apple lane"]["run"]
-        self.assertIn("macos-candidate-tests)", commands)
-        self.assertIn("-only-testing:${selector}", commands)
-        self.assertIn("ios-build)", commands)
-        self.assertIn("tvos-build)", commands)
-        self.assertEqual(self.workflow["jobs"]["execute"]["runs-on"], "macos-latest")
+        for retired in ("macos-candidate-tests", "ios-build)", "tvos-build)", "candidate_test_args"):
+            self.assertNotIn(retired, commands)
 
     def test_screenshot_review_keeps_fixed_two_lane_evidence_path(self) -> None:
         plan = self.plan_steps["Resolve fixed Apple execution lanes"]["run"]
@@ -294,11 +298,11 @@ class AppleWorkflowTests(unittest.TestCase):
     def test_dispatch_apple_validation_is_keep_list_only(self) -> None:
         request = {s.get("name"): s for s in self.dispatch["jobs"]["request"]["steps"] if s.get("name")}
         keep = request["Validate retained legacy validation profile"]["run"]
-        self.assertIn("validation.apple/candidate", keep)
+        self.assertNotIn("validation.apple/candidate", keep)
         self.assertIn("validation.apple/screenshot-review", keep)
         self.assertIn("retired Apple validation profile", keep)
         job = self.dispatch["jobs"]["apple"]
-        self.assertEqual(set(job["with"]), {"repository", "ref", "source_is_tag", "test_profile", "test_selectors", "ci_run_id"})
+        self.assertEqual(set(job["with"]), {"repository", "ref", "source_is_tag", "test_profile", "ci_run_id"})
 
 
 if __name__ == "__main__":

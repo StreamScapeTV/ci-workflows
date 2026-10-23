@@ -84,10 +84,10 @@ jobs:
               raise SystemExit("Central validation concurrency source kind is invalid")
 
           # Ordinary validations of the same moving branch replace one another,
-          # across generic test/full and existing bounded candidate lanes.
+          # across generic test/full and retained screenshot lanes.
           ordinary_profiles = {
               "validation.repository": frozenset(("build", "test", "full", "ui-test")),
-              "validation.apple": frozenset(("candidate", "screenshot-review")),
+              "validation.apple": frozenset(("screenshot-review",)),
               "validation.android": frozenset(("screenshot-review",)),
           }
           cancel_in_progress = (
@@ -135,7 +135,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           case "${WORKFLOW_KEY}/${TEST_PROFILE}" in
-            validation.android/screenshot-review|validation.android/physical-performance|validation.apple/candidate|validation.apple/screenshot-review)
+            validation.android/screenshot-review|validation.android/physical-performance|validation.apple/screenshot-review)
               ;;
             validation.android/*)
               echo "retired Android validation profile; use validation.repository for ordinary build/test/full/UI work" >&2
@@ -312,15 +312,6 @@ jobs:
               if len(selectors)!=len(set(selectors)): raise SystemExit("Android screenshot-review selectors must be unique")
           elif (workflow,profile)==("validation.apple","screenshot-review"):
               if repository!="StreamScapeTV/iptv-apple" or inputs: raise SystemExit("Apple screenshot-review is fixed to iptv-apple and accepts no semantic inputs")
-          elif (workflow,profile)==("validation.apple","candidate"):
-              if set(inputs)!={"test_selectors"}: raise SystemExit("Apple candidate requires exactly test_selectors")
-              raw=inputs["test_selectors"]
-              if not isinstance(raw,str) or len(raw)>2048: raise SystemExit("Apple candidate selectors must be one bounded JSON-array string")
-              try: selectors=json.loads(raw)
-              except json.JSONDecodeError as exc: raise SystemExit("Apple candidate selectors must be valid JSON") from exc
-              pat=re.compile(r"[A-Za-z0-9_.$/-]{1,240}")
-              if not isinstance(selectors,list) or not 1<=len(selectors)<=20 or any(not isinstance(v,str) or not pat.fullmatch(v) or v.startswith("-") or "/" not in v for v in selectors) or len(selectors)!=len(set(selectors)):
-                  raise SystemExit("Apple candidate requires 1 through 20 unique bounded test selectors")
           else:
               raise SystemExit("unsupported specialist validation profile")
           PY_SPECIALIST_VALIDATION
@@ -739,7 +730,6 @@ jobs:
       ref: ${{ needs.request.outputs.ref }}
       source_is_tag: ${{ needs.request.outputs.is_tag == 'true' }}
       test_profile: ${{ needs.request.outputs.test_profile }}
-      test_selectors: ${{ fromJSON(needs.request.outputs.inputs_json).test_selectors || '[]' }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
 
