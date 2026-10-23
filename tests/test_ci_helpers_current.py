@@ -125,7 +125,6 @@ class CiHelperTests(_prior.CiHelperTests):
         request = jobs["request"]
         validation_jobs = (
             "repository",
-            "apple",
             "android",
             "cluster_inspector",
             "public_native_image_chart",
@@ -222,7 +221,7 @@ class CiHelperTests(_prior.CiHelperTests):
         duplicate_a = resolve_lane()
         branch_b = resolve_lane(ref="feature/new-head")
         different_profile = resolve_lane(profile="full")
-        different_workflow = resolve_lane(workflow_key="validation.apple", profile="screenshot-review")
+        different_workflow = resolve_lane(workflow_key="validation.repository", profile="ui-test")
         retained_android = resolve_lane(workflow_key="validation.android", profile="screenshot-review")
         tag = resolve_lane(ref="1.2.3", is_tag="true")
         physical = resolve_lane(workflow_key="validation.android", profile="physical-performance")
@@ -263,7 +262,7 @@ class CiHelperTests(_prior.CiHelperTests):
         snapshot = jobs["source_snapshot"]["concurrency"]
         self.assertEqual(snapshot["group"], "central-ci-snapshot-${{ inputs.active_key }}")
         self.assertTrue(snapshot["cancel-in-progress"])
-        self.assertNotEqual(snapshot["group"], jobs["apple"]["concurrency"]["group"])
+        self.assertNotEqual(snapshot["group"], jobs["repository"]["concurrency"]["group"])
 
         settlement = jobs["settle_cancelled"]
         self.assertNotIn("concurrency", settlement)
@@ -635,12 +634,10 @@ resolve_existing_file
         script = step["run"]
         for kept in (
             "validation.android/screenshot-review", "validation.android/physical-performance",
-            "validation.apple/screenshot-review",
         ):
             self.assertIn(kept, script)
         for message in (
             "retired Android validation profile",
-            "retired Apple validation profile",
         ):
             self.assertIn(message, script)
 
