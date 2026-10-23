@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import os
 from pathlib import Path
 import tempfile
 import subprocess
@@ -23,6 +24,39 @@ _spec.loader.exec_module(capture)
 
 
 class RepositoryLogCaptureTests(unittest.TestCase):
+    def test_actual_executor_preserves_early_failure_and_success_through_log_capture(self) -> None:
+        workflow = yaml.safe_load(WORKFLOW.read_text())
+        step = next(s for s in workflow["jobs"]["execute"]["steps"]
+                    if s.get("name") == "Execute fixed repository-owned entrypoint")
+        for body, status in (("exit 17", 17), ('set -u; echo "$UNSET_PRODUCT_VALUE"', 1), ("exit 0", 0)):
+            with self.subTest(body=body), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                (root / "central-ci").symlink_to(ROOT, target_is_directory=True)
+                (root / "source/.ci").mkdir(parents=True)
+                product = root / "source/.ci/test-ui.sh"
+                product.write_text("#!/bin/bash\necho product-start\n" + body + "\n")
+                product.chmod(0o700)
+                log = root / "private.log"
+                log.write_text("source-admitted\n")
+                (root / "logs").mkdir()
+                (root / "artifacts").mkdir()
+                env = {**os.environ, **{key: "" for key in step["env"]},
+                       "OPERATION": "ui-test", "HOST_OS": "linux", "HOST_CLASS": "hosted",
+                       "ENTRYPOINT": ".ci/test-ui.sh", "NORMALIZED_INPUTS": "{}",
+                       "AUTH_ENABLED": "false", "CHECKPOINT_ENABLED": "false",
+                       "RUNNER_TEMP": td, "GITHUB_WORKSPACE": td,
+                       "CI_LOG": str(log), "CI_LOG_DIR": str(root / "logs"),
+                       "CI_ARTIFACT_DIR": str(root / "artifacts"),
+                       "CI_PROGRESS_FILE": str(root / "progress"),
+                       "GITHUB_OUTPUT": str(root / "outputs")}
+                env.pop("UNSET_PRODUCT_VALUE", None)
+                result = subprocess.run(["bash", "-c", step["run"]], cwd=root, env=env,
+                                        capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, status, result.stderr)
+                self.assertIn(f"exit_code={status}\n", (root / "outputs").read_text())
+                self.assertIn("capture_exit_code=0\n", (root / "outputs").read_text())
+                self.assertIn("product-start", log.read_text())
+
     def capture(self, payload: bytes, *, overlap_bytes: int = 0) -> bytes:
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "central-repository-ci.log"
