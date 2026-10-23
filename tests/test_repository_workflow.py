@@ -549,12 +549,17 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertIn("host_os must be linux or macos", invalid_host.stderr)
 
     def test_ui_modes_are_repository_owned_and_passed_unchanged(self) -> None:
-        for mode in ("screenshots", "account-smoke", "navigation", "smoke", "full-ordinary"):
+        for mode in ("screenshots", "account-smoke", "navigation", "smoke", "full-ordinary", "x" * 64):
             result, output = self.run_repository_request(
                 operation="ui-test", host_os="macos",
                 semantic={"product_target": "ios", "ui_mode": mode},
             )
             self.assertEqual(result.returncode, 0, result.stderr)
+            dispatched = self.run_dispatch_request("ui-test", {
+                "host_os": "macos",
+                "semantic_inputs": json.dumps({"product_target": "ios", "ui_mode": mode}),
+            })
+            self.assertEqual(dispatched.returncode, 0, dispatched.stderr)
             normalized = json.loads(next(
                 line.split("=", 1)[1] for line in output.splitlines()
                 if line.startswith("semantic_inputs_json=")
@@ -566,6 +571,11 @@ class RepositoryWorkflowTests(unittest.TestCase):
                 semantic={"product_target": "ios", "ui_mode": mode},
             )
             self.assertNotEqual(result.returncode, 0, mode)
+            dispatched = self.run_dispatch_request("ui-test", {
+                "host_os": "macos",
+                "semantic_inputs": json.dumps({"product_target": "ios", "ui_mode": mode}),
+            })
+            self.assertNotEqual(dispatched.returncode, 0, mode)
 
     def test_release_configuration_semantic_stays_generic_and_unsigned(self) -> None:
         fields = self.contract["semanticInputs"]["fields"]
