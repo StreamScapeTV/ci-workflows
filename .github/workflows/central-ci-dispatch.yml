@@ -397,8 +397,9 @@ jobs:
 
           ui_mode = semantic.get("ui_mode")
           if ui_mode is not None:
-              if profile != "ui-test" or ui_mode not in {"smoke", "full-ordinary"}:
-                  raise SystemExit("validation.repository ui_mode must be smoke or full-ordinary for ui-test")
+              if (profile != "ui-test" or not isinstance(ui_mode, str)
+                  or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", ui_mode) is None):
+                  raise SystemExit("validation.repository ui_mode must be a product-owned identifier for ui-test")
 
           device_platform = semantic.get("device_platform")
           if profile == "device-test":
