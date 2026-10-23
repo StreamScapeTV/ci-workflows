@@ -6,9 +6,11 @@ import stat
 import subprocess
 import tempfile
 import unittest
+import zipfile
 
 import yaml
 from tests import test_repository_workflow as workflow_tests
+from tests import test_repository_log_checkpoint as checkpoint_tests
 
 ROOT = Path(__file__).resolve().parents[1]
 FIELDS = (
@@ -77,6 +79,30 @@ class RepositoryTestFixtureTests(unittest.TestCase):
                                     text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse(path.exists())
+
+    def test_delivered_json_is_scrubbed_from_checkpoints_and_final_evidence(self):
+        secret = 'synthetic-"quoted"\\slash-ü\nnext'
+        encoded = json.dumps(secret)[1:-1].encode()
+        with self.harness.evidence_fixture() as (root, env):
+            env['STREAMSCAPE_PASSWORD'] = secret
+            env['CI_SECRET_FIXTURE_STREAMSCAPE_PASSWORD'] = secret
+            subprocess.run(['python3', str(ROOT / 'scripts/ci/repository_test_fixtures.py')],
+                           env=env, check=True, capture_output=True)
+            delivered = (root / 'central-test-fixtures.json').read_bytes()
+            self.assertIn(encoded, delivered)
+            log = Path(env['CI_LOG'])
+            log.write_bytes(delivered)
+            scrubbed = checkpoint_tests.mod.scrubbed_snapshot(log, env)
+            self.assertNotIn(encoded, scrubbed)
+            self.assertIn(b'[REDACTED]', scrubbed)
+            (root / 'artifacts' / 'fixture.json').write_bytes(delivered)
+            result = self.harness.execute_evidence_fixture(env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn(encoded, log.read_bytes())
+            with zipfile.ZipFile(root / 'central-repository-ci-evidence.zip') as archive:
+                self.assertFalse(any(name.endswith('fixture.json') for name in archive.namelist()))
+                for name in archive.namelist():
+                    self.assertNotIn(encoded, archive.read(name), name)
 
     def test_fixture_requirements_remain_product_owned(self):
         with tempfile.TemporaryDirectory() as td:

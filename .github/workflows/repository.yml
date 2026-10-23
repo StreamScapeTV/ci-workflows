@@ -2208,6 +2208,9 @@ jobs:
                   raise SystemExit("repository CI text evidence escapes its Central-owned root")
               paths.append(path)
           secrets = [value.encode() for name, value in os.environ.items() if name.startswith("CI_SECRET_") and value]
+          secrets.extend(json.dumps(value)[1:-1].encode()
+                         for name, value in os.environ.items()
+                         if name.startswith("CI_SECRET_FIXTURE_") and value)
           import base64
           user = os.environ.get("CI_SECRET_DOCKERHUB_USERNAME", "")
           token = os.environ.get("CI_SECRET_DOCKERHUB_READ_TOKEN", "")
