@@ -88,7 +88,6 @@ jobs:
           ordinary_profiles = {
               "validation.repository": frozenset(("build", "test", "full", "ui-test")),
               "validation.apple": frozenset(("screenshot-review",)),
-              "validation.android": frozenset(("screenshot-review",)),
           }
           cancel_in_progress = (
               is_tag == "false" and profile in ordinary_profiles.get(workflow, ())
@@ -135,7 +134,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           case "${WORKFLOW_KEY}/${TEST_PROFILE}" in
-            validation.android/screenshot-review|validation.android/physical-performance|validation.apple/screenshot-review)
+            validation.android/physical-performance|validation.apple/screenshot-review)
               ;;
             validation.android/*)
               echo "retired Android validation profile; use validation.repository for ordinary build/test/full/UI work" >&2
@@ -300,16 +299,6 @@ jobs:
           if not isinstance(inputs,dict): raise SystemExit("specialist validation inputs must be one JSON object")
           if (workflow,profile)==("validation.android","physical-performance"):
               if repository!="StreamScapeTV/iptv-android" or inputs: raise SystemExit("Android physical-performance is fixed to iptv-android and accepts no semantic inputs")
-          elif (workflow,profile)==("validation.android","screenshot-review"):
-              if repository!="StreamScapeTV/iptv-android": raise SystemExit("Android screenshot-review is fixed to iptv-android")
-              if set(inputs)-{"test_selectors"}: raise SystemExit("Android screenshot-review accepts only test_selectors")
-              raw=inputs.get("test_selectors","[]")
-              if not isinstance(raw,str) or len(raw)>2048: raise SystemExit("Android screenshot-review selectors must be one bounded JSON-array string")
-              try: selectors=json.loads(raw)
-              except json.JSONDecodeError as exc: raise SystemExit("Android screenshot-review selectors must be valid JSON") from exc
-              if not isinstance(selectors,list) or len(selectors)>20: raise SystemExit("Android screenshot-review accepts zero through 20 canonical screen ids")
-              if any(not isinstance(v,str) or re.fullmatch(r"[a-z0-9][a-z0-9.-]{0,127}",v) is None or not v.startswith(("mobile.","tv.")) for v in selectors): raise SystemExit("Android screenshot-review selectors must be bounded mobile.* or tv.* ids")
-              if len(selectors)!=len(set(selectors)): raise SystemExit("Android screenshot-review selectors must be unique")
           elif (workflow,profile)==("validation.apple","screenshot-review"):
               if repository!="StreamScapeTV/iptv-apple" or inputs: raise SystemExit("Apple screenshot-review is fixed to iptv-apple and accepts no semantic inputs")
           else:
