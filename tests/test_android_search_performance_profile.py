@@ -20,7 +20,7 @@ class AndroidRetainedReleaseContractTests(unittest.TestCase):
         jobs = self.workflow["jobs"]
         self.assertEqual(
             set(jobs),
-            {"screenshot_plan", "screenshot_cache", "screenshot", "screenshot_finish", "physical_performance", "ci"},
+            {"physical_performance", "ci"},
         )
         self.assertEqual(jobs["ci"]["if"], "${{ inputs.test_profile == 'play' }}")
         for retired in (
@@ -67,7 +67,7 @@ class AndroidRetainedReleaseContractTests(unittest.TestCase):
     def test_dispatch_validation_android_is_specialist_only(self) -> None:
         request = {s.get("name"): s for s in self.dispatch["jobs"]["request"]["steps"] if s.get("name")}
         keep = request["Validate retained legacy validation profile"]["run"]
-        self.assertIn("validation.android/screenshot-review", keep)
+        self.assertNotIn("validation.android/screenshot-review", keep)
         self.assertIn("validation.android/physical-performance", keep)
         self.assertIn("retired Android validation profile", keep)
         validation_job = self.dispatch["jobs"]["android"]

@@ -223,7 +223,6 @@ class CiHelperTests(_prior.CiHelperTests):
         branch_b = resolve_lane(ref="feature/new-head")
         different_profile = resolve_lane(profile="full")
         different_workflow = resolve_lane(workflow_key="validation.apple", profile="screenshot-review")
-        retained_android = resolve_lane(workflow_key="validation.android", profile="screenshot-review")
         tag = resolve_lane(ref="1.2.3", is_tag="true")
         physical = resolve_lane(workflow_key="validation.android", profile="physical-performance")
         device = resolve_lane(workflow_key="validation.repository", profile="device-test")
@@ -239,7 +238,7 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertEqual(branch_a["concurrency_key"], duplicate_a["concurrency_key"])
         self.assertEqual(branch_a["cancel_in_progress"], "true")
         self.assertNotEqual(branch_a["concurrency_key"], branch_b["concurrency_key"])
-        for val in (different_profile, different_workflow, retained_android):
+        for val in (different_profile, different_workflow):
             self.assertEqual(branch_a["concurrency_key"], val["concurrency_key"])
             self.assertEqual(val["cancel_in_progress"], "true")
         for val in (tag, physical, device, inspector, maintenance, publication, reproducibility):
@@ -617,10 +616,10 @@ resolve_existing_file
 
     def test_android_owner_profiles_and_gitops_retirement_are_explicit(self) -> None:
         android = (_prior.ROOT / ".github/workflows/android.yml").read_text()
-        for kept in ("screenshot-review", "physical-performance", "run-android-play-release.sh"):
+        for kept in ("physical-performance", "run-android-play-release.sh"):
             self.assertIn(kept, android)
         for retired in (
-            "targeted-tests", "targeted-unit", "search-performance", "test_filter",
+            "screenshot-review", "targeted-tests", "targeted-unit", "search-performance", "test_filter",
             "test_platform", "room_schema",
         ):
             self.assertNotIn(retired, android)
@@ -634,10 +633,11 @@ resolve_existing_file
         )
         script = step["run"]
         for kept in (
-            "validation.android/screenshot-review", "validation.android/physical-performance",
+            "validation.android/physical-performance",
             "validation.apple/screenshot-review",
         ):
             self.assertIn(kept, script)
+        self.assertNotIn("validation.android/screenshot-review", script)
         for message in (
             "retired Android validation profile",
             "retired Apple validation profile",
