@@ -1,5 +1,5 @@
 # LEGACY_MIGRATION_RESIDUE: Concrete consumer identity below is retained only for still-live compatibility; do not add new identity-coupled behavior, and remove it only after the private migration ledger proves zero callers.
-name: Apple CI
+name: Apple TestFlight
 
 "on":
   workflow_call:
@@ -62,22 +62,6 @@ name: Apple CI
         required: false
       CIW_MAVEN_PACKAGE_READ_TOKEN:
         required: false
-      STREAMSCAPE_API_BASE:
-        required: false
-      STREAMSCAPE_EMAIL:
-        required: false
-      STREAMSCAPE_PASSWORD:
-        required: false
-      STREAMSCAPE_DEMO_EMAIL:
-        required: false
-      STREAMSCAPE_DEMO_PASSWORD:
-        required: false
-      XTREAM_URL:
-        required: false
-      XTREAM_USERNAME:
-        required: false
-      XTREAM_PASSWORD:
-        required: false
       APPLE_TEAM_ID:
         required: false
       APP_STORE_CONNECT_KEY_ID:
@@ -100,7 +84,6 @@ jobs:
     timeout-minutes: 10
     outputs:
       matrix: ${{ steps.profile.outputs.matrix }}
-      screenshot_source_sha: ${{ steps.screenshot_source.outputs.source_sha }}
     steps:
       - name: Mark Agent State run as running
         if: ${{ inputs.ci_run_id != '' }}
@@ -133,11 +116,6 @@ jobs:
             test -z "${RELEASE_VERSION:-}" || { echo "release_version is accepted only by testflight" >&2; exit 2; }
           fi
           case "${TEST_PROFILE}" in
-            screenshot-review)
-              test "${SOURCE_REPOSITORY}" = StreamScapeTV/iptv-apple || { echo "screenshot-review is bounded to StreamScapeTV/iptv-apple" >&2; exit 2; }
-              test -z "${BUILD_NUMBER:-}" || { echo "screenshot-review does not accept build_number" >&2; exit 2; }
-              matrix='{"include":[{"lane":"screenshot-ios","cache_save":false},{"lane":"screenshot-tvos","cache_save":false}]}'
-              ;;
             testflight)
               matrix='{"include":[{"lane":"testflight","cache_save":false}]}'
               ;;
@@ -145,70 +123,6 @@ jobs:
           esac
           printf 'matrix=%s
           ' "${matrix}" >> "${GITHUB_OUTPUT}"
-
-      - name: Prepare screenshot-review source token
-        id: screenshot_source_token
-        if: ${{ inputs.test_profile == 'screenshot-review' }}
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ secrets.SOURCE_APP_ID }}
-          private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-          owner: StreamScapeTV
-
-      - name: Resolve screenshot-review source identity
-        id: screenshot_source
-        if: ${{ inputs.test_profile == 'screenshot-review' }}
-        shell: bash
-        env:
-          SOURCE_REF: ${{ inputs.ref }}
-          SOURCE_TOKEN: ${{ steps.screenshot_source_token.outputs.token }}
-        run: |
-          set -Eeuo pipefail
-          test -n "${SOURCE_REF}" || {
-            echo "screenshot-review requires an explicit product source ref" >&2
-            exit 2
-          }
-          test -n "${SOURCE_TOKEN}" || {
-            echo "screenshot-review source identity requires the fixed source token" >&2
-            exit 2
-          }
-          case "${SOURCE_REF}" in
-            refs/heads/*) source_ref="${SOURCE_REF#refs/heads/}" ;;
-            refs/tags/*|refs/pull/*)
-              echo "screenshot-review accepts a product branch ref, not a tag or pull ref" >&2
-              exit 2
-              ;;
-            *) source_ref="${SOURCE_REF}" ;;
-          esac
-          encoded_ref="$(SOURCE_REF_VALUE="${source_ref}" python3 - <<'PY_SCREENSHOT_REF'
-          import os
-          import urllib.parse
-
-          print(urllib.parse.quote(os.environ["SOURCE_REF_VALUE"], safe=""))
-          PY_SCREENSHOT_REF
-          )"
-          response="$(curl --fail --silent --show-error \
-            --header "Authorization: Bearer ${SOURCE_TOKEN}" \
-            --header 'Accept: application/vnd.github+json' \
-            --header 'X-GitHub-Api-Version: 2022-11-28' \
-            "https://api.github.com/repos/StreamScapeTV/iptv-apple/commits/${encoded_ref}")"
-          source_sha="$(printf '%s' "${response}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("sha", ""))')"
-          [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]] || {
-            echo "screenshot-review source ref did not resolve to one exact lowercase commit SHA" >&2
-            exit 2
-          }
-          printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
-
-      - name: Record screenshot-review source SHA
-        if: ${{ inputs.test_profile == 'screenshot-review' && inputs.ci_run_id != '' }}
-        uses: StreamScapeTV/ci-workflows/actions/agent-state@main
-        env:
-          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-        with:
-          phase: observe-source
-          ci_run_id: ${{ inputs.ci_run_id }}
-          observed_source_sha: ${{ steps.screenshot_source.outputs.source_sha }}
 
   execute:
     needs: plan
@@ -243,7 +157,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.repository || github.repository }}
-          ref: ${{ inputs.test_profile == 'screenshot-review' && needs.plan.outputs.screenshot_source_sha || inputs.source_is_tag && format('refs/tags/{0}', inputs.ref) || inputs.ref || github.sha }}
+          ref: ${{ inputs.source_is_tag && format('refs/tags/{0}', inputs.ref) || inputs.ref || github.sha }}
           token: ${{ steps.source.outputs.token || github.token }}
           fetch-depth: 1
           persist-credentials: false
@@ -253,25 +167,14 @@ jobs:
         shell: bash
         env:
           TEST_PROFILE: ${{ inputs.test_profile }}
-          EXPECTED_SCREENSHOT_SOURCE_SHA: ${{ needs.plan.outputs.screenshot_source_sha }}
         run: |
           set -Eeuo pipefail
           source_sha="$(git rev-parse HEAD)"
           [[ "${source_sha}" =~ ^[0-9A-Fa-f]{40}$ ]] || exit 2
-          if test "${TEST_PROFILE}" = screenshot-review; then
-            test -n "${EXPECTED_SCREENSHOT_SOURCE_SHA}" || {
-              echo "screenshot-review has no plan-pinned source SHA" >&2
-              exit 2
-            }
-            test "${source_sha}" = "${EXPECTED_SCREENSHOT_SOURCE_SHA}" || {
-              echo "screenshot-review checkout moved from the plan-pinned product source SHA" >&2
-              exit 1
-            }
-          fi
           printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
 
       - name: Record observed source SHA
-        if: ${{ inputs.ci_run_id != '' && inputs.test_profile != 'screenshot-review' }}
+        if: ${{ inputs.ci_run_id != '' }}
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
         env:
           AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
@@ -282,7 +185,7 @@ jobs:
           observed_source_sha: ${{ steps.source_identity.outputs.source_sha }}
 
       - name: Check out Central Apple helpers
-        if: ${{ inputs.test_profile == 'screenshot-review' || inputs.test_profile == 'testflight' || inputs.ci_run_id != '' || inputs.upload_private_log }}
+        if: ${{ inputs.test_profile == 'testflight' || inputs.ci_run_id != '' || inputs.upload_private_log }}
         uses: actions/checkout@v4
         with:
           repository: StreamScapeTV/ci-workflows
@@ -291,7 +194,7 @@ jobs:
           persist-credentials: false
 
       - name: Isolate Central Apple helpers from product source
-        if: ${{ inputs.test_profile == 'screenshot-review' || inputs.test_profile == 'testflight' || inputs.ci_run_id != '' || inputs.upload_private_log }}
+        if: ${{ inputs.test_profile == 'testflight' || inputs.ci_run_id != '' || inputs.upload_private_log }}
         shell: bash
         run: |
           helper_root="$(mktemp -d "${RUNNER_TEMP}/central-apple-helpers.XXXXXX")"
@@ -300,7 +203,7 @@ jobs:
 
       - name: Resolve native Apple dependency cache
         id: apple_default_cache
-        if: ${{ inputs.test_profile == 'screenshot-review' || inputs.test_profile == 'testflight' }}
+        if: ${{ inputs.test_profile == 'testflight' }}
         shell: bash
         env:
           SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
@@ -543,14 +446,6 @@ jobs:
           CI_SECRET_TAILSCALE_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
           CI_SECRET_FORGEJO_PACKAGE_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
           CI_SECRET_FORGEJO_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
-          CI_SECRET_SCREENSHOT_STREAMSCAPE_API_BASE: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_API_BASE || '' }}
-          CI_SECRET_SCREENSHOT_STREAMSCAPE_EMAIL: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_EMAIL || '' }}
-          CI_SECRET_SCREENSHOT_STREAMSCAPE_PASSWORD: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_PASSWORD || '' }}
-          CI_SECRET_SCREENSHOT_STREAMSCAPE_DEMO_EMAIL: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_DEMO_EMAIL || '' }}
-          CI_SECRET_SCREENSHOT_STREAMSCAPE_DEMO_PASSWORD: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_DEMO_PASSWORD || '' }}
-          CI_SECRET_SCREENSHOT_XTREAM_URL: ${{ inputs.test_profile == 'screenshot-review' && secrets.XTREAM_URL || '' }}
-          CI_SECRET_SCREENSHOT_XTREAM_USERNAME: ${{ inputs.test_profile == 'screenshot-review' && secrets.XTREAM_USERNAME || '' }}
-          CI_SECRET_SCREENSHOT_XTREAM_PASSWORD: ${{ inputs.test_profile == 'screenshot-review' && secrets.XTREAM_PASSWORD || '' }}
           CI_SECRET_APPLE_TEAM_ID: ${{ inputs.test_profile == 'testflight' && secrets.APPLE_TEAM_ID || '' }}
           CI_SECRET_APP_STORE_CONNECT_KEY_ID: ${{ inputs.test_profile == 'testflight' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
           CI_SECRET_APP_STORE_CONNECT_ISSUER_ID: ${{ inputs.test_profile == 'testflight' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
@@ -560,14 +455,6 @@ jobs:
           SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
           OBSERVED_SOURCE_SHA: ${{ steps.source_identity.outputs.source_sha }}
           GH_TOKEN: ${{ steps.source.outputs.token || github.token }}
-          STREAMSCAPE_API_BASE: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_API_BASE || '' }}
-          STREAMSCAPE_EMAIL: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_EMAIL || '' }}
-          STREAMSCAPE_PASSWORD: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_PASSWORD || '' }}
-          STREAMSCAPE_DEMO_EMAIL: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_DEMO_EMAIL || '' }}
-          STREAMSCAPE_DEMO_PASSWORD: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_DEMO_PASSWORD || '' }}
-          XTREAM_URL: ${{ inputs.test_profile == 'screenshot-review' && secrets.XTREAM_URL || '' }}
-          XTREAM_USERNAME: ${{ inputs.test_profile == 'screenshot-review' && secrets.XTREAM_USERNAME || '' }}
-          XTREAM_PASSWORD: ${{ inputs.test_profile == 'screenshot-review' && secrets.XTREAM_PASSWORD || '' }}
           CI_APPLE_TESTFLIGHT_SOURCE_IS_TAG: ${{ env.CI_APPLE_TESTFLIGHT_SOURCE_IS_TAG }}
           CI_APPLE_TESTFLIGHT_RELEASE_VERSION: ${{ env.CI_APPLE_TESTFLIGHT_RELEASE_VERSION }}
           CI_APPLE_TESTFLIGHT_TEAM_ID: ${{ inputs.test_profile == 'testflight' && secrets.APPLE_TEAM_ID || '' }}
@@ -609,26 +496,6 @@ jobs:
               --status-path "${RUNNER_TEMP}/central-apple-log-checkpoint-status.json" &
             checkpoint_pid=$!
           fi
-          configure_remote_swiftpm_git_auth() {
-            case "${TEST_PROFILE}" in
-              screenshot-review) ;;
-              *) return 0 ;;
-            esac
-            test ! -f scripts/bootstrap-streamscape-media-binary.sh || return 0
-            test -n "${GH_TOKEN}" || {
-              echo "Remote SwiftPM Apple execution requires the fixed GitHub source token" >&2
-              return 1
-            }
-            local auth_value
-            auth_value="$(printf 'x-access-token:%s' "${GH_TOKEN}" | base64 | tr -d '\n')"
-            test -n "${auth_value}"
-            printf '::add-mask::%s\n' "${auth_value}"
-            export GIT_CONFIG_COUNT=1
-            export GIT_CONFIG_KEY_0='http.https://github.com/StreamScapeTV/streamscape-media.git.extraheader'
-            export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth_value}"
-          }
-          configure_remote_swiftpm_git_auth
-
           run_logged() {
             local label="$1"
             shift
@@ -642,146 +509,7 @@ jobs:
             printf 'duration_seconds=%s\n' "$((SECONDS - started_at))" >> "${CI_LOG}"
           }
 
-          report_screenshot_failure() {
-            python3 - <<'PY_SCREENSHOT_FAILURE'
-          import os
-          from pathlib import Path
-
-          allowed = {
-              ("build", "swiftpm-binary-timeout"),
-              ("build", "swiftpm-resolution-failure"),
-              ("build", "xcodebuild-timeout"),
-              ("build", "xcodebuild-failure"),
-              ("build", "missing-test-product"),
-              ("uitest", "authentication-assertion"),
-              ("uitest", "simulator-launch-failure"),
-              ("uitest", "xctest-timeout"),
-              ("uitest", "xctest-failure"),
-              ("capture", "unclassified"),
-          }
-          markers = {
-              f"SCREENSHOT_REVIEW_FAILURE: stage={stage}; class={category}\n"
-              for stage, category in allowed
-          }
-          marker = "SCREENSHOT_REVIEW_FAILURE: stage=capture; class=unclassified\n"
-          try:
-              path = Path(os.environ.get("GITHUB_STEP_SUMMARY", ""))
-              if path.is_file() and not path.is_symlink():
-                  with path.open("rb") as source:
-                      offset = int(os.environ.get("SCREENSHOT_SUMMARY_START", "0"))
-                      if offset < 0:
-                          raise ValueError("invalid summary offset")
-                      source.seek(offset)
-                      raw = source.read(8193)
-                  if len(raw) <= 8192:
-                      received = raw.decode("utf-8")
-                      if received in markers:
-                          marker = received
-          except (OSError, UnicodeError, ValueError):
-              pass
-          # Emit only a Central-owned literal, never summary or product log bytes.
-          print(marker, end="")
-          PY_SCREENSHOT_FAILURE
-          }
-
-          run_screenshot_logged() {
-            local label="$1"
-            local platform="$2"
-            shift 2
-            local max_attempts=1
-            if test "${platform}" = ios; then
-              max_attempts=2
-            fi
-            local attempt=1
-            while test "${attempt}" -le "${max_attempts}"; do
-              local started_at="${SECONDS}"
-              local attempt_log="${RUNNER_TEMP}/${label}-attempt-${attempt}.log"
-              : > "${attempt_log}"
-              printf '\n===== %s attempt=%s =====\n' "${label}" "${attempt}" >> "${CI_LOG}"
-              local summary_start=0
-              if test -f "${GITHUB_STEP_SUMMARY:-}" && test ! -L "${GITHUB_STEP_SUMMARY}"; then
-                summary_start="$(wc -c 2>/dev/null < "${GITHUB_STEP_SUMMARY}")" || summary_start=-1
-              fi
-              set +e
-              "$@" 2>&1 | tee -a "${CI_LOG}" >> "${attempt_log}"
-              local status=${PIPESTATUS[0]}
-              set -e
-              printf 'duration_seconds=%s\n' "$((SECONDS - started_at))" >> "${CI_LOG}"
-              if test "${status}" -eq 0; then
-                rm -f -- "${attempt_log}"
-                return 0
-              fi
-              if test "${platform}" = ios &&
-                test "${attempt}" -eq 1 &&
-                grep -Eq 'Failed to get background assertion for target app|DebuggerLLDB\.DebuggerVersionStore\.StoreError' "${attempt_log}" &&
-                ! grep -Eq 'Test (Case|Suite) .* (started|failed)|SCREENSHOT_REVIEW_AUTH_FAILURE:|(^|[[:space:]])(fatal )?error:|\*\* BUILD FAILED \*\*' "${attempt_log}"; then
-                printf 'Known transient hosted iOS simulator launch failure detected; retrying the fixed product wrapper once with a fresh product-owned simulator.\n' >> "${CI_LOG}"
-                rm -f -- "${attempt_log}"
-                rm -rf -- "${CI_APPLE_SCREENSHOT_OUTPUT_DIR}"
-                rm -f -- "${CI_APPLE_SCREENSHOT_PACKAGE_PATH}"
-                attempt=$((attempt + 1))
-                continue
-              fi
-              rm -f -- "${attempt_log}"
-              if test "${platform}" = ios; then
-                SCREENSHOT_SUMMARY_START="${summary_start}" report_screenshot_failure || true
-              fi
-              printf '%s failed; inspect the private Google Drive CI log.\n' "${label}" >&2
-              return "${status}"
-            done
-            return 1
-          }
-
           case "${TEST_PROFILE}" in
-            screenshot-review)
-              test "${SOURCE_REPOSITORY}" = "StreamScapeTV/iptv-apple"
-              [[ "${OBSERVED_SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]] || {
-                echo "screenshot-review requires the exact observed lowercase source SHA" >&2
-                exit 2
-              }
-              case "${EXECUTION_LANE}" in
-                screenshot-ios) screenshot_platform=ios ;;
-                screenshot-tvos) screenshot_platform=tvos ;;
-                *) echo "unsupported screenshot-review lane: ${EXECUTION_LANE}" >&2; exit 2 ;;
-              esac
-              wrapper="scripts/ci/run-apple-screenshot-review.sh"
-              test -f "${wrapper}" || {
-                printf 'Missing fixed Apple screenshot-review wrapper: %s\n' "${wrapper}" >&2
-                exit 2
-              }
-              test ! -L "${wrapper}" || {
-                printf 'Apple screenshot-review wrapper must not be a symlink: %s\n' "${wrapper}" >&2
-                exit 2
-              }
-              git ls-files --error-unmatch -- "${wrapper}" >/dev/null 2>&1 || {
-                printf 'Apple screenshot-review wrapper must be tracked source: %s\n' "${wrapper}" >&2
-                exit 2
-              }
-              screenshot_root="${RUNNER_TEMP}/central-apple-screenshot-review"
-              screenshot_output="${screenshot_root}/${screenshot_platform}"
-              screenshot_package="${screenshot_root}/${screenshot_platform}.zip"
-              rm -rf -- "${screenshot_output}"
-              rm -f -- "${screenshot_package}"
-              mkdir -p -- "${screenshot_root}"
-              workspace_dirty="$(git status --porcelain --untracked-files=normal)"
-              test -z "${workspace_dirty}" || {
-                echo "screenshot-review requires a clean exact-source checkout after dependency materialization" >&2
-                printf '%s\n' "${workspace_dirty}" >&2
-                exit 1
-              }
-              export PYTHONDONTWRITEBYTECODE=1
-              export CI_APPLE_SCREENSHOT_PLATFORM="${screenshot_platform}"
-              export CI_APPLE_SCREENSHOT_OUTPUT_DIR="${screenshot_output}"
-              export CI_APPLE_SCREENSHOT_PACKAGE_PATH="${screenshot_package}"
-              run_screenshot_logged "apple-screenshot-${screenshot_platform}" "${screenshot_platform}" bash "${wrapper}"
-              test -s "${screenshot_package}"
-              {
-                printf 'screenshot_platform=%s\n' "${screenshot_platform}"
-                printf 'screenshot_package_path=%s\n' "${screenshot_package}"
-                printf 'screenshot_file_name=%s.zip\n' "${screenshot_platform}"
-              } >> "${GITHUB_OUTPUT}"
-              exit 0
-              ;;
             testflight)
               wrapper="scripts/ci/run-apple-testflight.sh"
               test -f "${wrapper}" || {
@@ -813,135 +541,6 @@ jobs:
               exit 0
               ;;
           esac
-
-      - name: Validate screenshot-review package identity
-        id: screenshot_package
-        if: ${{ inputs.test_profile == 'screenshot-review' && steps.commands.outcome == 'success' }}
-        shell: bash
-        env:
-          SOURCE_REPOSITORY: ${{ inputs.repository || github.repository }}
-          OBSERVED_SOURCE_SHA: ${{ steps.source_identity.outputs.source_sha }}
-          SCREENSHOT_PLATFORM: ${{ steps.commands.outputs.screenshot_platform }}
-          SCREENSHOT_PACKAGE_PATH: ${{ steps.commands.outputs.screenshot_package_path }}
-          SCREENSHOT_FILE_NAME: ${{ steps.commands.outputs.screenshot_file_name }}
-        run: |
-          set -Eeuo pipefail
-          python3 - <<'PY_SCREENSHOT_PACKAGE'
-          import json
-          import os
-          import re
-          import zipfile
-          from pathlib import Path
-
-          repository = os.environ["SOURCE_REPOSITORY"]
-          source_sha = os.environ["OBSERVED_SOURCE_SHA"]
-          platform = os.environ["SCREENSHOT_PLATFORM"]
-          package = Path(os.environ["SCREENSHOT_PACKAGE_PATH"])
-          file_name = os.environ["SCREENSHOT_FILE_NAME"]
-          if repository != "StreamScapeTV/iptv-apple":
-              raise SystemExit("screenshot-review package repository mismatch")
-          if re.fullmatch(r"[0-9a-f]{40}", source_sha) is None:
-              raise SystemExit("screenshot-review package has invalid observed source SHA")
-          if platform not in {"ios", "tvos"} or file_name != f"{platform}.zip":
-              raise SystemExit("screenshot-review package lane identity mismatch")
-          if package.name != file_name or not package.is_file():
-              raise SystemExit("screenshot-review package path/name mismatch")
-          expected_root = "repositories/iptv-apple/screenshots"
-          expected_path = f"{expected_root}/{source_sha}/{file_name}"
-          try:
-              with zipfile.ZipFile(package) as archive:
-                  if archive.testzip() is not None:
-                      raise SystemExit("screenshot-review ZIP contains a corrupt member")
-                  if archive.namelist().count("index.json") != 1:
-                      raise SystemExit("screenshot-review ZIP must contain exactly one index.json")
-                  index = json.loads(archive.read("index.json"))
-          except (OSError, zipfile.BadZipFile, json.JSONDecodeError, KeyError) as error:
-              raise SystemExit("screenshot-review ZIP/index.json is invalid") from error
-          if not isinstance(index, dict):
-              raise SystemExit("screenshot-review index must be one object")
-          checks = {
-              "source_sha": source_sha,
-              "platform": platform,
-              "drive_root": expected_root,
-              "drive_package_path": expected_path,
-          }
-          for key, expected in checks.items():
-              if index.get(key) != expected:
-                  raise SystemExit(f"screenshot-review {key} mismatch")
-          if "drive_source_folder" in index:
-              raise SystemExit("screenshot-review index must not encode source SHA as a Drive folder")
-          direct_dir = package.parent / "direct-evidence"
-          direct_dir.mkdir(parents=True, exist_ok=False)
-          captures = index.get("captures")
-          if not isinstance(captures, list) or not 1 <= len(captures) <= 20:
-              raise SystemExit("screenshot-review index must contain 1 through 20 captures")
-          seen_screen_ids = set()
-          expected_prefixes = ("mobile.", "tablet.") if platform == "ios" else ("tv.",)
-          with zipfile.ZipFile(package) as archive:
-              names = set(archive.namelist())
-              for capture in captures:
-                  if not isinstance(capture, dict):
-                      raise SystemExit("screenshot-review capture identity is malformed")
-                  screen_id = capture.get("screen_id")
-                  screenshot_member = capture.get("screenshot")
-                  metadata_member = capture.get("metadata")
-                  if (
-                      not isinstance(screen_id, str)
-                      or not screen_id.startswith(expected_prefixes)
-                      or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,191}", screen_id) is None
-                      or screen_id in seen_screen_ids
-                  ):
-                      raise SystemExit("screenshot-review capture screen identity is invalid")
-                  seen_screen_ids.add(screen_id)
-                  for member in (screenshot_member, metadata_member):
-                      if not isinstance(member, str) or member not in names or member.startswith("/") or ".." in Path(member).parts:
-                          raise SystemExit("screenshot-review capture member path is invalid")
-                  metadata = json.loads(archive.read(metadata_member))
-                  if metadata.get("screen_id") != screen_id or metadata.get("source_sha") != source_sha:
-                      raise SystemExit("screenshot-review per-screen metadata provenance mismatch")
-                  metadata["review_slot"] = "candidate"
-                  metadata["review_drive_path"] = f"{expected_root}/{platform}/{screen_id}/candidate.png"
-                  image_bytes = archive.read(screenshot_member)
-                  if len(image_bytes) < 64 or not image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
-                      raise SystemExit("screenshot-review capture is not a valid PNG payload")
-                  route_dir = direct_dir / screen_id
-                  meta_dir = route_dir / "_meta"
-                  meta_dir.mkdir(parents=True, exist_ok=False)
-                  (route_dir / "candidate.png").write_bytes(image_bytes)
-                  (meta_dir / "candidate.json").write_text(
-                      json.dumps(metadata, indent=2, sort_keys=True) + "\n",
-                      encoding="utf-8",
-                  )
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write(f"package_path={package}\n")
-              output.write(f"file_name={file_name}\n")
-              output.write(f"source_sha={source_sha}\n")
-              output.write(f"platform={platform}\n")
-              output.write(f"evidence_dir={direct_dir}\n")
-          PY_SCREENSHOT_PACKAGE
-
-      - name: Upload screenshot-review candidate evidence by route
-        if: ${{ inputs.test_profile == 'screenshot-review' && steps.screenshot_package.outcome == 'success' }}
-        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
-        env:
-          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
-          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
-        with:
-          repository: ${{ inputs.repository || github.repository }}
-          operation: upload-directory
-          destination_kind: repository-screenshots
-          subdirectory: ${{ steps.screenshot_package.outputs.platform }}
-          file_path: ${{ steps.screenshot_package.outputs.evidence_dir }}
-
-      - name: Clean screenshot-review package state
-        if: ${{ always() && inputs.test_profile == 'screenshot-review' }}
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          rm -rf -- "${RUNNER_TEMP}/central-apple-screenshot-review"
-          test ! -e "${RUNNER_TEMP}/central-apple-screenshot-review"
 
       - name: Clean TestFlight credential and release state
         id: testflight_cleanup
@@ -1266,14 +865,6 @@ jobs:
           CI_SECRET_TAILSCALE_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
           CI_SECRET_FORGEJO_PACKAGE_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
           CI_SECRET_FORGEJO_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
-          CI_SECRET_SCREENSHOT_STREAMSCAPE_API_BASE: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_API_BASE || '' }}
-          CI_SECRET_SCREENSHOT_STREAMSCAPE_EMAIL: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_EMAIL || '' }}
-          CI_SECRET_SCREENSHOT_STREAMSCAPE_PASSWORD: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_PASSWORD || '' }}
-          CI_SECRET_SCREENSHOT_STREAMSCAPE_DEMO_EMAIL: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_DEMO_EMAIL || '' }}
-          CI_SECRET_SCREENSHOT_STREAMSCAPE_DEMO_PASSWORD: ${{ inputs.test_profile == 'screenshot-review' && secrets.STREAMSCAPE_DEMO_PASSWORD || '' }}
-          CI_SECRET_SCREENSHOT_XTREAM_URL: ${{ inputs.test_profile == 'screenshot-review' && secrets.XTREAM_URL || '' }}
-          CI_SECRET_SCREENSHOT_XTREAM_USERNAME: ${{ inputs.test_profile == 'screenshot-review' && secrets.XTREAM_USERNAME || '' }}
-          CI_SECRET_SCREENSHOT_XTREAM_PASSWORD: ${{ inputs.test_profile == 'screenshot-review' && secrets.XTREAM_PASSWORD || '' }}
           CI_SECRET_APPLE_TEAM_ID: ${{ inputs.test_profile == 'testflight' && secrets.APPLE_TEAM_ID || '' }}
           CI_SECRET_APP_STORE_CONNECT_KEY_ID: ${{ inputs.test_profile == 'testflight' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
           CI_SECRET_APP_STORE_CONNECT_ISSUER_ID: ${{ inputs.test_profile == 'testflight' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}

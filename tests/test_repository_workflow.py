@@ -3297,7 +3297,8 @@ printf 'GIT_TERMINAL_PROMPT=%s\\n' "${GIT_TERMINAL_PROMPT:-}"
 
     def test_non_migrated_product_workflows_remain_selected_by_existing_lanes(self) -> None:
         jobs = self.dispatch["jobs"]
-        self.assertEqual(jobs["apple"]["uses"], "./.github/workflows/apple.yml")
+        self.assertNotIn("apple", jobs)
+        self.assertEqual(jobs["apple_release"]["uses"], "./.github/workflows/apple.yml")
         self.assertEqual(jobs["android"]["uses"], "./.github/workflows/android.yml")
         self.assertEqual(jobs["maven"]["uses"], "./.github/workflows/maven.yml")
         self.assertIn("repository", jobs["settle_cancelled"]["needs"])
