@@ -215,11 +215,25 @@ class SwiftPMBinaryHelperTests(unittest.TestCase):
             swiftpm_binary.repository_registry_read_policy({"repository_ci": strict}, repository),
             "authenticated",
         )
+        device = {**base, "capabilities": ["private_network", "apple_physical_device"]}
+        self.assertEqual(
+            swiftpm_binary.repository_registry_read_policy({"repository_ci": device}, repository),
+            "credential-free",
+        )
+        self.assertEqual(
+            swiftpm_binary.repository_registry_read_policy(
+                {"repository_ci": {**device, "capabilities": device["capabilities"] + ["registry_netrc"]}},
+                repository,
+            ),
+            "authenticated",
+        )
         for invalid in (
             {},
             {"repository_ci": {**base, "repository": "StreamScapeTV/other"}},
             {"repository_ci": {**base, "capabilities": ["not-a-capability"]}},
             {"repository_ci": {**base, "capabilities": ["registry_netrc", "registry_netrc"]}},
+            {"repository_ci": {**device, "capabilities": ["apple_physical_device", "apple_physical_device"]}},
+            {"repository_ci": {**device, "capabilities": ["apple_physical_device", "not-a-capability"]}},
             {"repository_ci": {**base, "hostPolicy": "invalid"}},
         ):
             with self.subTest(invalid=invalid):
