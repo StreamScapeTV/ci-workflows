@@ -168,6 +168,30 @@ The frozen v1 non-host capability catalog is:
 - `github_git` — Central configures ephemeral Git HTTPS authentication for ordinary Git operations.
 - `registry_netrc` — Central configures ephemeral HTTPS package-registry read authentication through the operation's tool defaults.
 - `gradle_maven` — Central configures ephemeral Gradle private-Maven read properties.
+
+For generic Linux `build`, `test`, `full` and `ui-test` operations with that
+capability, Central reuses the Gradle downloaded-dependency cache (`modules-2`),
+including package bytes and their resolution metadata. Media AARs therefore do
+not need to be downloaded again when a compatible warm cache is available.
+The cache key separates repository, OS and architecture and fingerprints tracked
+Gradle dependency/build inputs. It does not include the application commit, branch,
+test selector or unrelated CI script changes. A successful develop full build can
+seed the same dependency cache used by that project's issue-branch jobs through
+the Central workflow's default-branch cache scope.
+
+Only dependency downloads/metadata are retained: not Gradle transforms, generated
+script jars, Kotlin DSL state, wrapper distributions, application outputs or
+credentials. Apple continues to use its separate native SwiftPM artifact cache;
+Android AARs and Apple XCFrameworks are different packages and cannot share one
+binary archive. GitHub cache retention/eviction still applies; a cache miss falls
+back to normal authenticated registry resolution, not alternate binaries or an
+offline bypass. Cache success alone is not proof of current registry reachability.
+GitHub cache entries are immutable: prefer seeding a dependency identity with a
+successful full develop build. If a targeted run seeds only part of that identity,
+later jobs still download any missing dependencies; a cache hit is not a promise
+that every possible configuration is already warm. Dependency/version/lockfile
+changes create a new identity. Retire old broad v1 entries only after a successful
+v2 producer and actual warm consumer readback, leaving Apple/Tailscale entries alone.
 - `registry_oci_publish` — for an authorized Linux repository `release`, Central creates isolated Buildah/Skopeo and Helm registry authentication using the reviewed private registry write credential. Repository code receives authenticated tool defaults plus the fixed registry host, never the raw write token; image/chart namespaces and publication coordinates remain repository-owned.
 - `backup_s3_read` — authorized repository `release` only. Central requires a separate private descriptor bound to the exact project, Agent State CI run, repository, tag/ref, observed source SHA, and release operation, then exposes one fixed read-only S3-compatible backup connection bundle only to `.ci/release.sh`. Backup selection, Barman/CloudNativePG restore, PostgreSQL topology, migrations, health/smoke checks, restored-data handling, and cleanup remain repository-owned. Periodic raw-log checkpointing is disabled while this capability is active; final text/artifact evidence is still secret-scrubbed before Drive upload.
 - `protected_deployed_conformance` — Linux `full` validation only, and only when the same trusted grant also includes `private_network`. Central resolves a separate private `protected_deployed_conformance` Agent State descriptor bound to the exact repository/run, writes the approved HTTP/WSS scenario documents as mode-0600 files, projects a finite protected bundle into repository-owned environment names, executes one tracked no-argv Python certifier after the ordinary `.ci/test-full.sh` succeeds, stores only bounded private diagnostics/evidence, performs the descriptor's same-origin reset/readback, then deletes the private bundle. Public callers cannot select the target, scenario, credential, entrypoint, environment names, reset target, expected protocol statuses, or pass/defer semantics.

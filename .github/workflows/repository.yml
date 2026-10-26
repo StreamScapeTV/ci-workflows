@@ -1241,7 +1241,7 @@ jobs:
       - name: Resolve bounded Gradle cache identity
         id: gradle_cache_identity
         if: >-
-          ${{ inputs.operation == 'test'
+          ${{ contains(fromJSON('["build","test","full","ui-test"]'), inputs.operation)
               && needs.resolve_host.outputs.host_os == 'linux'
               && steps.capabilities.outputs.gradle_maven == 'true' }}
         shell: bash
@@ -1283,11 +1283,11 @@ jobs:
                   return True
               if relative.endswith((".gradle", ".gradle.kts")):
                   return True
-              if path.name in {"gradle.properties", "versions.properties"}:
+              if path.name in {"gradle.properties", "versions.properties", "gradle.lockfile"}:
                   return True
-              if path.parts and path.parts[0] in {"buildSrc", "build-logic", ".ci"}:
+              if path.parts and path.parts[0] in {"buildSrc", "build-logic"}:
                   return True
-              return len(path.parts) >= 2 and path.parts[0] == "scripts" and path.parts[1] == "ci"
+              return False
 
           selected = sorted(relative for relative in tracked if is_cache_identity_input(relative))
           if "gradle/wrapper/gradle-wrapper.properties" not in selected:
@@ -1295,7 +1295,7 @@ jobs:
           if not 1 <= len(selected) <= 512:
               raise SystemExit("bounded Gradle cache identity exceeds the reviewed 512-file limit")
 
-          digest = hashlib.sha256(b"repository-gradle-cache-v1\0")
+          digest = hashlib.sha256(b"repository-gradle-dependencies-v2\0")
           total = 0
           for relative in selected:
               path = root / relative
@@ -1322,15 +1322,15 @@ jobs:
               raise SystemExit("bounded Gradle cache requires one valid trusted source repository")
           repository_digest = hashlib.sha256(source_repository.encode("utf-8")).hexdigest()
           prefix = (
-              f"repository-gradle-v1-{__import__('os').environ['RUNNER_OS']}-"
-              f"{__import__('os').environ['RUNNER_ARCH']}-{repository_digest}-{fingerprint}-"
+              f"repository-gradle-dependencies-v2-{__import__('os').environ['RUNNER_OS']}-"
+              f"{__import__('os').environ['RUNNER_ARCH']}-{repository_digest}-{fingerprint}"
           )
           with output_path.open("a", encoding="utf-8") as output:
               output.write(f"fingerprint={fingerprint}\n")
               output.write(f"input_count={len(selected)}\n")
               output.write(f"input_bytes={total}\n")
               output.write(f"restore_key={prefix}\n")
-              output.write(f"cache_key={prefix}{source_sha}\n")
+              output.write(f"cache_key={prefix}\n")
           PY_GRADLE_CACHE_IDENTITY
 
       - name: Restore bounded Gradle user-home cache
@@ -1339,12 +1339,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: |
-            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/modules-2/files-2.1
-            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/transforms-*
-            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/jars-*
-            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/*/generated-gradle-jars
-            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/*/kotlin-dsl
-            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/wrapper/dists
+            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/modules-2
           key: ${{ steps.gradle_cache_identity.outputs.cache_key }}
           restore-keys: |
             ${{ steps.gradle_cache_identity.outputs.restore_key }}
@@ -1983,12 +1978,7 @@ jobs:
           root = Path(sys.argv[1])
           output_path = Path(sys.argv[2])
           patterns = (
-              "caches/modules-2/files-2.1",
-              "caches/transforms-*",
-              "caches/jars-*",
-              "caches/*/generated-gradle-jars",
-              "caches/*/kotlin-dsl",
-              "wrapper/dists",
+              "caches/modules-2",
           )
           if root.is_symlink() or not root.is_dir():
               raise SystemExit("bounded Gradle cache root must remain one real directory")
@@ -2082,12 +2072,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: |
-            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/modules-2/files-2.1
-            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/transforms-*
-            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/jars-*
-            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/*/generated-gradle-jars
-            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/*/kotlin-dsl
-            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/wrapper/dists
+            ${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/modules-2
           key: ${{ steps.gradle_cache_identity.outputs.cache_key }}
 
       - name: Reconcile bounded Central timeline after early exit

@@ -981,7 +981,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, self.workflow_text)
 
-    def test_targeted_linux_gradle_cache_is_bounded_and_secret_safe(self) -> None:
+    def test_linux_dependency_cache_covers_build_test_full_ui_and_is_secret_safe(self) -> None:
         steps = self.workflow["jobs"]["execute"]["steps"]
         by_name = {step.get("name"): step for step in steps if step.get("name")}
         names = [step.get("name") for step in steps]
@@ -1000,7 +1000,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertEqual(positions, sorted(positions))
 
         identity = by_name["Resolve bounded Gradle cache identity"]
-        self.assertIn("inputs.operation == 'test'", identity["if"])
+        self.assertIn('contains(fromJSON(\'["build","test","full","ui-test"]\'), inputs.operation)', identity["if"])
         self.assertIn("needs.resolve_host.outputs.host_os == 'linux'", identity["if"])
         self.assertIn("steps.capabilities.outputs.gradle_maven == 'true'", identity["if"])
         self.assertEqual(
@@ -1012,14 +1012,13 @@ class RepositoryWorkflowTests(unittest.TestCase):
         for token in (
             'relative.startswith("gradle/")',
             'relative.endswith((".gradle", ".gradle.kts"))',
-            '{"buildSrc", "build-logic", ".ci"}',
-            'path.parts[0] == "scripts" and path.parts[1] == "ci"',
+            '{"buildSrc", "build-logic"}',
             '"gradle/wrapper/gradle-wrapper.properties" not in selected',
             "reviewed 512-file limit",
             "exceeds 1 MiB",
             "reviewed 8 MiB total",
-            'hashlib.sha256(b"repository-gradle-cache-v1\\0")',
-            'output.write(f"cache_key={prefix}{source_sha}\\n")',
+            'hashlib.sha256(b"repository-gradle-dependencies-v2\\0")',
+            'output.write(f"cache_key={prefix}\\n")',
         ):
             self.assertIn(token, identity_script)
         for forbidden in ("inputs.ref", "semantic_inputs_json", "NORMALIZED_INPUTS"):
@@ -1029,21 +1028,18 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertEqual(restore["uses"], "actions/cache/restore@v4")
         self.assertEqual(restore["with"]["key"], "${{ steps.gradle_cache_identity.outputs.cache_key }}")
         self.assertIn("${{ steps.gradle_cache_identity.outputs.restore_key }}", restore["with"]["restore-keys"])
-        for path in (
-            ".gradle/caches/modules-2/files-2.1",
-            ".gradle/caches/transforms-*",
-            ".gradle/caches/jars-*",
-            ".gradle/caches/*/generated-gradle-jars",
-            ".gradle/caches/*/kotlin-dsl",
-            ".gradle/wrapper/dists",
-        ):
-            self.assertIn(path, restore["with"]["path"])
+        self.assertEqual(restore["with"]["path"].strip(),
+            "${{ steps.registry_auth.outputs.auth_home }}/.gradle/caches/modules-2")
         for forbidden in (
             "gradle.properties",
             ".netrc",
             "source/build",
             "REGISTRY_READ_TOKEN",
             ".gradle/caches/build-cache-",
+            "transforms-",
+            "generated-gradle-jars",
+            "kotlin-dsl",
+            "wrapper/dists",
         ):
             self.assertNotIn(forbidden, restore["with"]["path"])
 
@@ -1092,6 +1088,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
                 encoding="utf-8",
             )
             (source / "build.gradle.kts").write_text("plugins {}\n", encoding="utf-8")
+            (source / "gradle.lockfile").write_text("example:library:1.0=runtimeClasspath\n", encoding="utf-8")
             (source / ".ci").mkdir()
             (source / ".ci/test.sh").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
             (source / "scripts/ci").mkdir(parents=True)
@@ -1136,7 +1133,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
             source_only = invoke("b" * 40)
             self.assertEqual(source_only["fingerprint"], baseline["fingerprint"])
             self.assertEqual(source_only["restore_key"], baseline["restore_key"])
-            self.assertNotEqual(source_only["cache_key"], baseline["cache_key"])
+            self.assertEqual(source_only["cache_key"], baseline["cache_key"])
 
             output = workspace / "github-output"
             output.write_text("", encoding="utf-8")
@@ -1170,12 +1167,11 @@ class RepositoryWorkflowTests(unittest.TestCase):
             for relative, replacement in (
                 ("build.gradle.kts", 'plugins { id("java") }\n'),
                 ("gradle/libs.versions.toml", "kotlin = '2.3.0'\n"),
+                ("gradle.lockfile", "example:library:2.0=runtimeClasspath\n"),
                 (
                     "gradle/wrapper/gradle-wrapper.properties",
                     "distributionUrl=https://services.gradle.org/distributions/gradle-9.1-bin.zip\n",
                 ),
-                (".ci/test.sh", "#!/usr/bin/env bash\nprintf 'changed\\n'\n"),
-                ("scripts/ci/run-android-gradle.sh", "#!/usr/bin/env bash\nprintf 'changed\\n'\n"),
             ):
                 target = source / relative
                 original = target.read_text(encoding="utf-8")
@@ -1183,6 +1179,10 @@ class RepositoryWorkflowTests(unittest.TestCase):
                 changed = invoke("b" * 40)
                 self.assertNotEqual(changed["fingerprint"], baseline["fingerprint"], relative)
                 target.write_text(original, encoding="utf-8")
+
+            for relative in (".ci/test.sh", "scripts/ci/run-android-gradle.sh"):
+                (source / relative).write_text("#!/bin/sh\necho changed\n", encoding="utf-8")
+                self.assertEqual(invoke("c" * 40)["cache_key"], baseline["cache_key"])
 
     def test_gradle_cache_save_rejects_secret_bytes_and_prunes_locks(self) -> None:
         prepare = self.steps_by_name["Prepare bounded Gradle cache save"]
@@ -1196,6 +1196,15 @@ class RepositoryWorkflowTests(unittest.TestCase):
                 cache_dir.mkdir(parents=True)
                 (gradle / "gradle.properties").write_text("credential-file-outside-cache\n", encoding="utf-8")
                 (cache_dir / "artifact.jar").write_bytes(cache_bytes)
+                metadata = gradle / "caches/modules-2/metadata-2.100/descriptors/example/module/1.0"
+                metadata.mkdir(parents=True)
+                (metadata / "descriptor.bin").write_bytes(b"resolution metadata")
+                # Regenerable outputs and wrapper bytes are outside the cache,
+                # including any unrelated secret-bearing generated content.
+                for relative in ("caches/transforms-1", "wrapper/dists"):
+                    excluded = gradle / relative
+                    excluded.mkdir(parents=True)
+                    (excluded / "excluded.bin").write_bytes(secret.encode())
                 lock = cache_dir / "artifact.jar.lock"
                 lock.write_text("lock\n", encoding="utf-8")
                 output = root / "github-output"
