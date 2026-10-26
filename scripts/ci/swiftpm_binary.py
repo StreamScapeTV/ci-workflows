@@ -35,6 +35,7 @@ KNOWN_REPOSITORY_CAPABILITIES = {
     "registry_netrc",
     "gradle_maven",
     "registry_oci_publish",
+    "apple_physical_device",
 }
 READ_POLICIES = {"authenticated", "credential-free"}
 
