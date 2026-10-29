@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -356,7 +357,7 @@ class SourceCheckpointPublishTests(unittest.TestCase):
                 materialize_checkpoint(archive, repo)
             self.assertEqual(keep.read_text(), "keep")
 
-    def test_workflow_dispatch_and_snapshot_use_numbered_full_zip_contract_only(self) -> None:
+    def test_workflow_keeps_numbered_checkpoint_contract_and_legacy_transport(self) -> None:
         inventory = yaml.safe_load((ROOT / "INVENTORY.yaml").read_text())
         self.assertEqual(inventory["workflows"]["source_checkpoint_publish"], ".github/workflows/source-checkpoint-publish.yml")
         self.assertEqual(inventory["scripts"]["source_checkpoint_publish"], "scripts/ci/source_checkpoint_publish.py")
@@ -390,7 +391,7 @@ class SourceCheckpointPublishTests(unittest.TestCase):
         self.assertNotIn("checkpoint_resume", DISPATCH.read_text())
         self.assertNotIn("resume-action", DISPATCH.read_text())
         combined=(WORKFLOW.read_text() + DISPATCH.read_text() + (ROOT / "scripts/ci/source_checkpoint_publish.py").read_text()).lower()
-        for retired in (".patch", "patch-transport", "patch chain", "apply patch"):
+        for retired in ("patch-transport", "patch chain", "resume-action"):
             self.assertNotIn(retired, combined)
 
 
@@ -554,6 +555,151 @@ class SourceCheckpointPublishTests(unittest.TestCase):
             "${{ steps.checkpoint.outputs.checkpoint_sequence || steps.remote.outputs.checkpoint_sequence || steps.replay_checkpoint.outputs.checkpoint_sequence }}",
         )
         self.assertNotIn("always()", str(cleanup))
+
+class DeltaCheckpointTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.base, _, _ = make_git_checkpoint(self.root)
+        self.source = self.root / "source"
+        # Multiple unpublished commits, binaries, rename/delete, modes and symlinks.
+        git(self.source, "mv", "base.txt", "renamed.txt")
+        (self.source / "binary.dat").write_bytes(bytes(range(256)) * 32)
+        (self.source / "base-link").unlink()
+        git(self.source, "add", "-A")
+        git(self.source, "commit", "-m", "second unpublished contribution")
+        self.tree = git(self.source, "rev-parse", "HEAD^{tree}")
+        self.data = subprocess.run(
+            ["git", "-C", str(self.source), "diff", "--binary", "--full-index", "--no-renames",
+             "--no-ext-diff", "--no-textconv", self.base, "HEAD", "--"],
+            capture_output=True, check=True).stdout
+        self.manifest = {"format": "streamscape.patch.v1", "repository": "StreamScapeTV/example",
+                         "branch": "feature/checkpoint", "base_commit": self.base,
+                         "base_tree": git(self.source, "rev-parse", self.base + "^{tree}"),
+                         "candidate_tree": self.tree, "sandbox_commit": git(self.source, "rev-parse", "HEAD"),
+                         "patch_sha256": hashlib.sha256(self.data).hexdigest(), "message": "Publish delta"}
+        self.target = self.root / "target"
+        subprocess.run(["git", "clone", "--quiet", str(self.source), str(self.target)], check=True)
+        git(self.target, "reset", "--hard", self.base)
+        self.archive = self.root / "delta.zip"
+
+    def write(self):
+        with zipfile.ZipFile(self.archive, "w", compression=zipfile.ZIP_DEFLATED) as z:
+            z.writestr("manifest.json", json.dumps(self.manifest))
+            z.writestr("change.patch", self.data)
+
+    def apply(self, **kwargs):
+        self.write()
+        values = dict(repository="StreamScapeTV/example", branch="feature/checkpoint",
+                      expected_head=self.base, expected_tree=self.tree)
+        values.update(kwargs)
+        materialize_checkpoint(self.archive, self.target, **values)
+
+    def unchanged(self):
+        self.assertEqual(git(self.target, "status", "--porcelain"), "")
+        self.assertEqual(git(self.target, "rev-parse", "HEAD"), self.base)
+
+    def test_all_committed_changes_reconstruct_exact_tree(self):
+        self.apply()
+        self.assertEqual(stage_and_verify_tree(self.target, expected_head=self.base,
+                                              expected_tree=self.tree), self.tree)
+        self.assertEqual((self.target / "binary.dat").read_bytes(), bytes(range(256)) * 32)
+        self.assertFalse((self.target / "base.txt").exists())
+        self.assertEqual((self.target / "bin/run.sh").stat().st_mode & 0o777, 0o755)
+        self.assertEqual(git(self.target, "rev-parse", "HEAD"), self.base)  # publisher owns commit
+
+    def test_wrong_identity_rejected_before_mutation(self):
+        for key, wrong in (("repository", "StreamScapeTV/example-other"), ("branch", "other"),
+                           ("base_commit", "a" * 40), ("candidate_tree", "b" * 40)):
+            with self.subTest(key=key):
+                previous = self.manifest[key]; self.manifest[key] = wrong
+                with self.assertRaises(CheckpointPublishError): self.apply()
+                self.unchanged(); self.manifest[key] = previous
+
+    def test_tree_proven_in_temporary_index_before_mutation(self):
+        self.manifest["candidate_tree"] = "b" * 40
+        with self.assertRaisesRegex(CheckpointPublishError, "candidate tree mismatch"):
+            self.apply(expected_tree="b" * 40)
+        self.unchanged()
+
+    def test_corrupt_patch_and_base_tree_rejected(self):
+        for key, bad in (("patch_sha256", "0" * 64), ("base_tree", "a" * 40),
+                         ("format", "streamscape.patch.v2")):
+            with self.subTest(key=key):
+                prior = self.manifest[key]; self.manifest[key] = bad
+                with self.assertRaises(CheckpointPublishError): self.apply()
+                self.unchanged(); self.manifest[key] = prior
+
+    def test_dirty_destination_is_preserved(self):
+        (self.target / "local.txt").write_text("do not discard")
+        with self.assertRaisesRegex(CheckpointPublishError, "clean"):
+            self.apply()
+        self.assertEqual((self.target / "local.txt").read_text(), "do not discard")
+
+    def test_protected_branch_and_stale_parent_rejected(self):
+        self.manifest["branch"] = "main"
+        with self.assertRaisesRegex(CheckpointPublishError, "protected"):
+            self.apply(branch="main")
+        self.manifest["branch"] = "feature/checkpoint"
+        self.manifest["base_commit"] = "a" * 40
+        with self.assertRaisesRegex(CheckpointPublishError, "stale"):
+            self.apply(expected_head="a" * 40)
+        self.unchanged()
+
+    def test_unsafe_patch_path_rejected_without_filesystem_write(self):
+        self.data = b"diff --git a/../escape b/../escape\nnew file mode 100644\n--- /dev/null\n+++ b/../escape\n@@ -0,0 +1 @@\n+bad\n"
+        self.manifest["patch_sha256"] = hashlib.sha256(self.data).hexdigest()
+        with self.assertRaises(CheckpointPublishError): self.apply()
+        self.assertFalse((self.root / "escape").exists()); self.unchanged()
+
+    def test_same_two_names_remain_valid_legacy_full_tree(self):
+        with zipfile.ZipFile(self.archive, "w") as z:
+            z.writestr("manifest.json", '{"format":"ordinary-product-data"}')
+            z.writestr("change.patch", "ordinary tracked file")
+        materialize_checkpoint(self.archive, self.target)
+        self.assertEqual((self.target / "change.patch").read_text(), "ordinary tracked file")
+
+    def refresh_patch(self):
+        git(self.source, "add", "-f", "-A")
+        git(self.source, "commit", "-m", "next contribution")
+        self.tree = git(self.source, "rev-parse", "HEAD^{tree}")
+        self.data = subprocess.run(
+            ["git", "-C", str(self.source), "diff", "--binary", "--full-index", "--no-renames",
+             "--no-ext-diff", "--no-textconv", self.base, "HEAD", "--"],
+            capture_output=True, check=True).stdout
+        self.manifest.update(candidate_tree=self.tree, patch_sha256=hashlib.sha256(self.data).hexdigest())
+
+    def test_delta_retains_full_tree_path_limits(self):
+        (self.source / "not\\canonical.txt").write_text("invalid checkpoint path")
+        self.refresh_patch()
+        with self.assertRaisesRegex(CheckpointPublishError, "path is invalid"):
+            self.apply()
+        self.unchanged()
+
+    def test_delta_retains_full_tree_size_limits(self):
+        from unittest.mock import patch
+        self.write()
+        with zipfile.ZipFile(self.archive) as bundle:
+            limit = sum(info.file_size for info in bundle.infolist()) + 1
+        self.assertLess(limit, 8192)
+        with patch("scripts.ci.source_checkpoint_publish.MAX_UNCOMPRESSED_BYTES", limit):
+            with self.assertRaisesRegex(CheckpointPublishError, "checkpoint limits"):
+                self.apply()
+        self.unchanged()
+
+    def test_submodule_is_not_a_checkpoint_file(self):
+        git(self.source, "update-index", "--add", "--cacheinfo", "160000", self.base, "external-module")
+        git(self.source, "commit", "-m", "submodule")
+        self.tree = git(self.source, "rev-parse", "HEAD^{tree}")
+        self.data = subprocess.run(
+            ["git", "-C", str(self.source), "diff", "--binary", "--full-index", "--no-renames",
+             "--no-ext-diff", "--no-textconv", self.base, "HEAD", "--"], capture_output=True, check=True).stdout
+        self.manifest.update(candidate_tree=self.tree, patch_sha256=hashlib.sha256(self.data).hexdigest())
+        with self.assertRaisesRegex(CheckpointPublishError, "unsupported file type"):
+            self.apply()
+        self.unchanged()
+
 
 if __name__ == "__main__":
     unittest.main()

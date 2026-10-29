@@ -165,16 +165,20 @@ jobs:
           path: target
           persist-credentials: false
 
-      - name: Materialize latest full-tree checkpoint and verify exact tree
+      - name: Materialize latest checkpoint and verify exact tree
         if: ${{ steps.remote.outputs.action == 'publish' }}
         shell: bash
         env:
           EXPECTED_HEAD: ${{ inputs.expected_head }}
           EXPECTED_TREE: ${{ inputs.expected_tree }}
           ARCHIVE: ${{ steps.checkpoint.outputs.archive }}
+          TARGET_REPOSITORY: ${{ inputs.repository }}
+          TARGET_BRANCH: ${{ inputs.branch }}
         run: >-
           python3 scripts/ci/source_checkpoint_publish.py materialize
           --archive "${ARCHIVE}"
+          --repository "${TARGET_REPOSITORY}"
+          --branch "${TARGET_BRANCH}"
           --worktree target
           --expected-head "${EXPECTED_HEAD}"
           --expected-tree "${EXPECTED_TREE}"
@@ -366,7 +370,7 @@ jobs:
           DELETED_CHECKPOINTS: ${{ steps.checkpoint_cleanup.outputs.deleted_checkpoints || '0' }}
         run: |
           {
-            printf 'Published latest numbered Drive full-tree checkpoint.\n'
+            printf 'Published latest numbered Drive source checkpoint.\n'
             printf -- '- target: `%s@%s`\n' "${TARGET_REPOSITORY}" "${TARGET_BRANCH}"
             printf -- '- previous head: `%s`\n' "${EXPECTED_HEAD}"
             printf -- '- action: `%s`\n' "${PUBLICATION_ACTION}"
