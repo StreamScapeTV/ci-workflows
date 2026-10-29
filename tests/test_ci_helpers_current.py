@@ -217,6 +217,17 @@ class CiHelperTests(_prior.CiHelperTests):
                 self.assertRegex(values["concurrency_key"], r"^[0-9a-f]{64}$")
                 return values
 
+        # Both the admission lane and GitHub job group must isolate cache/lint
+        # work. A build or lint may replace only an older run of the same kind.
+        warmup = resolve_lane(profile="build")
+        lint = resolve_lane(profile="lint")
+        self.assertNotEqual(warmup["concurrency_key"], lint["concurrency_key"])
+        for profile, expected in (("build", warmup), ("lint", lint)):
+            self.assertEqual(expected, resolve_lane(profile=profile))
+            self.assertEqual(expected["cancel_in_progress"], "true")
+            for acceptance in ("test", "full", "ui-test"):
+                self.assertNotEqual(expected["concurrency_key"],
+                                    resolve_lane(profile=acceptance)["concurrency_key"])
         branch_a = resolve_lane()
         duplicate_a = resolve_lane()
         branch_b = resolve_lane(ref="feature/new-head")

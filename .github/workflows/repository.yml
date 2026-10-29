@@ -478,6 +478,7 @@ jobs:
             }
           fi
           case "${OPERATION}" in
+            lint) entrypoint=.ci/lint.sh ;;
             build) entrypoint=.ci/build.sh ;;
             test) entrypoint=.ci/test.sh ;;
             full) entrypoint=.ci/test-full.sh ;;
