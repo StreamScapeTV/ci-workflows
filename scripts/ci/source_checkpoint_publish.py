@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish the unique latest immutable numbered Drive full-tree checkpoint."""
+"""Publish a numbered full-tree or exact-base Git patch checkpoint."""
 from __future__ import annotations
 
 import argparse
@@ -11,6 +11,7 @@ import re
 import shutil
 import stat
 import subprocess
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -568,7 +569,95 @@ def _clear_worktree(worktree: Path) -> None:
             shutil.rmtree(child)
 
 
-def materialize_checkpoint(archive_path: Path, worktree: Path) -> None:
+def materialize_patch(
+    archive: zipfile.ZipFile, worktree: Path, *, repository: str, branch: str,
+    expected_head: str, expected_tree: str,
+) -> bool:
+    """Apply the existing helper patch format; prove the tree before mutation."""
+    if sorted(archive.namelist()) != ["change.patch", "manifest.json"]:
+        return False
+    if archive.getinfo("manifest.json").file_size > 64 * 1024:
+        raise CheckpointPublishError("patch manifest is oversized")
+    try:
+        manifest = json.loads(archive.read("manifest.json"))
+    except (ValueError, UnicodeError):
+        return False  # A legacy full tree may legitimately contain these names.
+    if not isinstance(manifest, dict) or not str(manifest.get("format", "")).startswith("streamscape.patch."):
+        return False
+    if manifest.get("format") != "streamscape.patch.v1":
+        raise CheckpointPublishError("unsupported patch format")
+    if any(_member_kind(info)[0] != "file" for info in archive.infolist()):
+        raise CheckpointPublishError("patch members must be regular files")
+    if not isinstance(manifest.get("patch_sha256"), str):
+        raise CheckpointPublishError("invalid patch digest")
+    for key, expected in {"repository": repository, "branch": branch,
+                          "base_commit": expected_head, "candidate_tree": expected_tree}.items():
+        if not expected or manifest.get(key) != expected:
+            raise CheckpointPublishError("patch manifest differs from selected " + key)
+    validate_request(repository, branch, expected_head, expected_tree,
+                     manifest.get("patch_sha256", ""), 1, manifest.get("message", ""))
+    if not SHA40.fullmatch(str(manifest.get("base_tree", ""))):
+        raise CheckpointPublishError("invalid patch base tree")
+    data = archive.read("change.patch")
+    if not data or _sha256(data) != manifest["patch_sha256"]:
+        raise CheckpointPublishError("patch digest mismatch or empty change")
+    if run_git(worktree, "rev-parse", "HEAD") != expected_head:
+        raise CheckpointPublishError("stale patch parent")
+    if run_git(worktree, "rev-parse", "HEAD^{tree}") != manifest["base_tree"]:
+        raise CheckpointPublishError("patch base tree mismatch")
+    if run_git(worktree, "status", "--porcelain", "--untracked-files=all"):
+        raise CheckpointPublishError("patch destination must be clean")
+
+    def apply(*args: str, index: str | None = None) -> None:
+        environment = os.environ.copy()
+        if index:
+            environment["GIT_INDEX_FILE"] = index
+        result = subprocess.run(["git", "-C", str(worktree), *args], input=data,
+                                capture_output=True, env=environment)
+        if result.returncode:
+            raise CheckpointPublishError("exact-base Git patch was rejected")
+
+    with tempfile.TemporaryDirectory(prefix="checkpoint-index-") as temporary:
+        index = str(Path(temporary) / "index")
+        environment = dict(os.environ, GIT_INDEX_FILE=index)
+        subprocess.run(["git", "-C", str(worktree), "read-tree", expected_head],
+                       check=True, capture_output=True, env=environment)
+        apply("apply", "--cached", "--check", "--binary", "-", index=index)
+        apply("apply", "--cached", "--binary", "-", index=index)
+        tree = subprocess.run(["git", "-C", str(worktree), "write-tree"], check=True,
+                              capture_output=True, text=True, env=environment).stdout.strip()
+        if tree != expected_tree:
+            raise CheckpointPublishError("patch candidate tree mismatch; workspace unchanged")
+        # A delta must retain the full-tree transport's path/type/size limits.
+        # Inspect the proven index tree before touching the real index or files.
+        listing = subprocess.run(
+            ["git", "-C", str(worktree), "ls-tree", "-rlz", tree],
+            check=True, capture_output=True).stdout.split(b"\0")
+        total = count = 0
+        for entry in filter(None, listing):
+            metadata, path = entry.split(b"\t", 1)
+            mode, kind, _, size = metadata.split()
+            try:
+                _safe_member_path(path.decode("utf-8"))
+            except UnicodeError:
+                raise CheckpointPublishError("patch path is not UTF-8") from None
+            if kind != b"blob" or mode not in {b"100644", b"100755", b"120000"}:
+                raise CheckpointPublishError("patch contains an unsupported file type")
+            total += int(size)
+            count += 1
+            if int(size) > MAX_MEMBER_BYTES or total > MAX_UNCOMPRESSED_BYTES or count > MAX_MEMBERS:
+                raise CheckpointPublishError("patch candidate exceeds checkpoint limits")
+    # No fuzzy/three-way application, arbitrary command, extra transport or commit.
+    # The existing publisher owns commit, expected-parent push, replay and readback.
+    apply("apply", "--index", "--check", "--binary", "-")
+    apply("apply", "--index", "--binary", "-")
+    return True
+
+
+def materialize_checkpoint(
+    archive_path: Path, worktree: Path, *, repository: str = "", branch: str = "",
+    expected_head: str = "", expected_tree: str = "",
+) -> None:
     if not archive_path.is_file() or not 1 <= archive_path.stat().st_size <= MAX_BUNDLE_BYTES:
         raise CheckpointPublishError("checkpoint ZIP is missing or oversized")
     try:
@@ -607,6 +696,9 @@ def materialize_checkpoint(archive_path: Path, worktree: Path) -> None:
                     raise CheckpointPublishError("checkpoint ZIP contains a file/directory collision")
                 parent = parent.parent
 
+        if materialize_patch(archive, worktree, repository=repository, branch=branch,
+                             expected_head=expected_head, expected_tree=expected_tree):
+            return
         _clear_worktree(worktree)
         for info, path, kind, mode in sorted(entries, key=lambda value: (len(value[1].parts), value[1].as_posix())):
             target = worktree.joinpath(*path.parts)
@@ -716,6 +808,8 @@ def main() -> int:
     materialize.add_argument("--worktree", required=True)
     materialize.add_argument("--expected-head", required=True)
     materialize.add_argument("--expected-tree", required=True)
+    materialize.add_argument("--repository", default="")
+    materialize.add_argument("--branch", default="")
 
     cleanup = sub.add_parser("cleanup-consumed")
     cleanup.add_argument("--repository", required=True)
@@ -801,7 +895,9 @@ def main() -> int:
             ))
             return 0
         if args.command == "materialize":
-            materialize_checkpoint(Path(args.archive), Path(args.worktree))
+            materialize_checkpoint(Path(args.archive), Path(args.worktree),
+                                   repository=args.repository, branch=args.branch,
+                                   expected_head=args.expected_head, expected_tree=args.expected_tree)
             tree = stage_and_verify_tree(Path(args.worktree), expected_head=args.expected_head, expected_tree=args.expected_tree)
             print(tree)
             return 0
