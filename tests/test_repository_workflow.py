@@ -314,12 +314,26 @@ class RepositoryWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(execute["timeout-minutes"], 300)
 
+    def test_lint_is_a_fixed_entrypoint_without_test_or_command_inputs(self) -> None:
+        result, output = self.run_repository_request(operation="lint", semantic={"product_target": "app"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("entrypoint=.ci/lint.sh\n", output)
+        accepted = self.run_dispatch_request("lint", {"host_os": "linux", "semantic_inputs": "{}"})
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        for semantic in ({"test_selectors": ["Suite/Test"]}, {"command": "echo unsafe"},
+                         {"build_configuration": "release"}, {"ui_mode": "capture"}):
+            result, _ = self.run_repository_request(operation="lint", semantic=semantic)
+            self.assertNotEqual(result.returncode, 0)
+            rejected = self.run_dispatch_request("lint", {"host_os": "linux", "semantic_inputs": json.dumps(semantic)})
+            self.assertNotEqual(rejected.returncode, 0)
+
     def test_contract_documents_fixed_entrypoints_hosts_and_versioned_environment(self) -> None:
         self.assertEqual(self.contract["schemaVersion"], 1)
         adoption = self.contract["adoption"]
         self.assertEqual(
             adoption["fixedEntrypoints"],
             {
+                "lint": ".ci/lint.sh",
                 "build": ".ci/build.sh",
                 "test": ".ci/test.sh",
                 "full": ".ci/test-full.sh",
@@ -818,7 +832,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
             "${{ steps.claim.outputs.workflow_key == 'validation.repository' }}",
         )
         self.assertIn(
-            'profile not in {"build", "test", "full", "ui-test", "device-test"}',
+            'profile not in {"lint", "build", "test", "full", "ui-test", "device-test"}',
             admission["run"],
         )
         job = self.dispatch["jobs"]["repository"]

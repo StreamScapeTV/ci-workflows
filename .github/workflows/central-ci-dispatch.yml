@@ -83,15 +83,17 @@ jobs:
           if is_tag not in {"true", "false"}:
               raise SystemExit("Central validation concurrency source kind is invalid")
 
-          # Ordinary validations of the same moving branch replace one another,
-          # across generic test/full and retained screenshot lanes.
+          # Keep cheap lint/cache builds outside the required acceptance lane.
+          # A moving branch still supersedes obsolete runs within its own lane.
           ordinary_profiles = {
-              "validation.repository": frozenset(("build", "test", "full", "ui-test")),
+              "validation.repository": frozenset(("lint", "build", "test", "full", "ui-test")),
           }
           cancel_in_progress = (
               is_tag == "false" and profile in ordinary_profiles.get(workflow, ())
           )
-          if cancel_in_progress:
+          if cancel_in_progress and profile in {"lint", "build"}:
+              material = ("central-lightweight-branch-v1", repository, ref, profile)
+          elif cancel_in_progress:
               material = ("central-ordinary-branch-validation-v2", repository, ref)
           else:
               # Preserve per-profile, non-cancelling serialization for physical
@@ -319,8 +321,8 @@ jobs:
               raise SystemExit("validation.repository inputs must be one JSON object") from exc
           if not isinstance(inputs, dict):
               raise SystemExit("validation.repository inputs must be one JSON object")
-          if profile not in {"build", "test", "full", "ui-test", "device-test"}:
-              raise SystemExit("validation.repository supports only build, test, full, ui-test, or device-test")
+          if profile not in {"lint", "build", "test", "full", "ui-test", "device-test"}:
+              raise SystemExit("validation.repository supports only lint, build, test, full, ui-test, or device-test")
 
           provider_operation_id = inputs.pop("provider_operation_id", None)
           if provider_operation_id is not None:
@@ -355,6 +357,7 @@ jobs:
               raise SystemExit("validation.repository semantic_inputs must encode one JSON object")
 
           allowed = {
+              "lint": {"product_target"},
               "build": {"product_target"},
               "test": {"product_target", "test_selectors"},
               "full": {"product_target"},

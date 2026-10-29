@@ -33,6 +33,13 @@ class RepositoryExecutionPlanTests(unittest.TestCase):
                 command += ["--plan", str(path)]
             return subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
 
+    def test_lint_has_one_fixed_operation_with_legacy_or_tracked_host(self) -> None:
+        for plan in (None, {"schemaVersion": 1, "operations": {"lint": ["linux"]}}):
+            result = self.run_plan(operation="lint", plan=plan)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)["operation"], "lint")
+            self.assertEqual(json.loads(result.stdout)["operatingSystems"], ["linux"])
+
     def test_missing_plan_preserves_one_legacy_host_only(self) -> None:
         result = self.run_plan(operation="full", host_os="macos")
         self.assertEqual(result.returncode, 0, result.stderr)

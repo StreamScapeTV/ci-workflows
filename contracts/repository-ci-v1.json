@@ -4,6 +4,7 @@
   "summary": "Central executes one semantic parent operation on the finite reviewed OS set selected by an optional tracked repository execution plan, while each child still invokes exactly one fixed .ci entrypoint on a trusted generic host class. Product commands and toolchain behavior stay in the repository.",
   "adoption": {
     "fixedEntrypoints": {
+      "lint": ".ci/lint.sh",
       "build": ".ci/build.sh",
       "test": ".ci/test.sh",
       "full": ".ci/test-full.sh",
@@ -21,7 +22,7 @@
     },
     "scriptEnvironment": {
       "CI_HOST_OS": "Current child operating system selected by the tracked repository execution plan, or by legacy host_os only when no plan exists.",
-      "CI_OPERATION": "Selected fixed semantic operation: build, test, full, ui-test, device-test, or separately authorized release.",
+      "CI_OPERATION": "Selected fixed semantic operation: lint, build, test, full, ui-test, device-test, or separately authorized release.",
       "CI_INPUTS_JSON": "Canonical JSON object with schemaVersion=1 and an inputs object validated against the operation schema.",
       "CI_LOG_DIR": "Central-owned optional text evidence directory.",
       "CI_ARTIFACT_DIR": "Central-owned optional bounded artifact evidence directory.",
@@ -200,6 +201,12 @@
       }
     },
     "operations": {
+      "lint": {
+        "allowed": [
+          "product_target"
+        ],
+        "required": []
+      },
       "build": {
         "allowed": [
           "product_target",

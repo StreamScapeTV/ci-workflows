@@ -37,5 +37,5 @@ class AndroidScreenshotRetirementTests(unittest.TestCase):
         self.assertTrue((ROOT / '.github/workflows/repository.yml').is_file())
         script = next(s['run'] for s in self.dispatch['jobs']['request']['steps']
                       if s.get('name') == 'Resolve bounded validation concurrency lane')
-        self.assertIn('"validation.repository": frozenset(("build", "test", "full", "ui-test"))', script)
+        self.assertIn('"validation.repository": frozenset(("lint", "build", "test", "full", "ui-test"))', script)
         self.assertNotIn('"validation.android": frozenset', script)
