@@ -610,7 +610,7 @@ class DeltaCheckpointTests(unittest.TestCase):
         self.assertEqual(git(self.target, "rev-parse", "HEAD"), self.base)  # publisher owns commit
 
     def test_wrong_identity_rejected_before_mutation(self):
-        for key, wrong in (("repository", "StreamScapeTV/foreign"), ("branch", "other"),
+        for key, wrong in (("repository", "StreamScapeTV/example-other"), ("branch", "other"),
                            ("base_commit", "a" * 40), ("candidate_tree", "b" * 40)):
             with self.subTest(key=key):
                 previous = self.manifest[key]; self.manifest[key] = wrong
