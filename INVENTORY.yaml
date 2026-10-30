@@ -50,6 +50,7 @@ scripts:
   protected_deployed_conformance: scripts/ci/protected_deployed_conformance.py
   source_snapshot_delete: scripts/ci/source_snapshot_delete.py
   source_checkpoint_publish: scripts/ci/source_checkpoint_publish.py
+  source_checkpoint_recover: scripts/ci/source_checkpoint_recover.py
   source_snapshot_lifecycle: scripts/ci/source_snapshot_lifecycle.py
   swiftpm_binary: scripts/ci/swiftpm_binary.py
 contracts:
