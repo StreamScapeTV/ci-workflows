@@ -242,6 +242,7 @@ runs:
         TARGET_REF: ${{ inputs.ref }}
         REPOSITORY_FOLDER_ID: ${{ steps.drive_repository.outputs.folder_id }}
         ARCHIVE_FILENAME: ${{ steps.snapshot.outputs.archive_filename }}
+        MANIFEST: ${{ steps.snapshot.outputs.manifest }}
       run: |
         set -Eeuo pipefail
         state="${RUNNER_TEMP}/source-snapshot-lifecycle.json"
@@ -253,6 +254,17 @@ runs:
           --repository-folder-id "${REPOSITORY_FOLDER_ID}" \
           --state "${state}"
         printf 'state=%s\n' "${state}" >> "${GITHUB_OUTPUT}"
+        python3 - "${state}" "${MANIFEST}" "${GITHUB_OUTPUT}" <<'PY_SELECTED'
+        from pathlib import Path
+        import json, sys
+        state, path, output = map(Path, sys.argv[1:])
+        filename = json.loads(state.read_text())["replacement_archive_filename"]
+        manifest = json.loads(path.read_text())
+        manifest["archive_filename"] = filename
+        path.write_text(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")
+        with output.open("a") as stream:
+            stream.write(f"archive_filename={filename}\n")
+        PY_SELECTED
 
     - name: Upload repository snapshot archive
       if: ${{ steps.mutation_fence.outputs.current == 'true' }}
@@ -263,7 +275,7 @@ runs:
         ref: ${{ inputs.ref }}
         repository_folder_id: ${{ steps.drive_repository.outputs.folder_id }}
         file_path: ${{ steps.snapshot.outputs.archive }}
-        file_name: ${{ steps.snapshot.outputs.archive_filename }}
+        file_name: ${{ steps.source_lifecycle.outputs.archive_filename }}
         previous_file_name: source.zip
         mime_type: application/zip
         fresh_object: true
