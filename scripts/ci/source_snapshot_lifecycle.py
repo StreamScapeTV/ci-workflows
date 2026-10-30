@@ -194,6 +194,7 @@ def preflight(
         "ref": ref,
         "is_tag": is_tag,
         "archive_filename": archive_filename,
+        "replacement_archive_filename": archive_filename,
         "ref_folder_id": ref_folder.get("id", "") if ref_folder else "",
         "manifest_file_id": "",
         "previous_archive_file_id": "",
@@ -265,7 +266,12 @@ def preflight(
             raise SourceSnapshotLifecycleError("historical source snapshot archive hash metadata does not match manifest")
     if matching and isinstance(declared_size, int) and matching[0].get("size") not in (None, str(declared_size)):
         raise SourceSnapshotLifecycleError("canonical source snapshot archive size metadata does not match manifest")
-    state["prior_archive_file_ids"] = sorted({value["id"] for value in candidates})
+    # A historical manifest authorizes only its declared object. Other archives
+    # may be preserved evidence. Keep its existing basename if the canonical name
+    # is occupied, so publication can converge without touching those siblings.
+    state["prior_archive_file_ids"] = [archive_id] if historical else sorted({value["id"] for value in candidates})
+    if historical and (current or legacy):
+        state["replacement_archive_filename"] = archive_name
     if historical:
         state["previous_archive_filename"] = archive_name
     state["manifest_file_id"] = manifest_file["id"]
@@ -300,6 +306,9 @@ def prune(
     if not isinstance(prior_ids, list) or any(not isinstance(value, str) or not DRIVE_FILE_ID.fullmatch(value) for value in prior_ids):
         raise SourceSnapshotLifecycleError("source snapshot replacement state has invalid prior archive identities")
 
+    published_filename = state.get("replacement_archive_filename", archive_filename)
+    if published_filename not in (archive_filename, state.get("previous_archive_filename")):
+        raise SourceSnapshotLifecycleError("source snapshot replacement filename does not match preflight authority")
     manifest = _parse_manifest(manifest_path.read_bytes())
     ref_folder = _resolve_ref_folder(
         client,
@@ -316,7 +325,7 @@ def prune(
         ("requested_ref", ref),
         ("is_tag", is_tag),
         ("folder_id", folder_id),
-        ("archive_filename", archive_filename),
+        ("archive_filename", published_filename),
     ):
         if manifest.get(key) != expected:
             raise SourceSnapshotLifecycleError(f"current source snapshot manifest identity mismatch: {key}")
@@ -329,15 +338,15 @@ def prune(
     manifest_id = manifest.get("manifest_file_id")
     if manifest_id != manifests[0]["id"]:
         raise SourceSnapshotLifecycleError("current source snapshot manifest Drive identity mismatch")
-    current = client.exact_files(folder_id, archive_filename)
-    legacy = client.exact_files(folder_id, "source.zip")
+    current = client.exact_files(folder_id, published_filename)
+    legacy = client.exact_files(folder_id, "source.zip") if published_filename == archive_filename else []
     all_candidates = current + legacy
     historical_name = state.get("previous_archive_filename")
     if historical_name:
         all_candidates += client.exact_files(folder_id, historical_name)
     if client.media(manifest_id) != manifest_path.read_bytes():
         raise SourceSnapshotLifecycleError("current source snapshot manifest raw Drive readback mismatch")
-    if not any(value.get("id") == current_id and value.get("name") == archive_filename for value in all_candidates):
+    if not any(value.get("id") == current_id and value.get("name") == published_filename for value in all_candidates):
         raise SourceSnapshotLifecycleError("current source snapshot archive is not present under canonical filename")
 
     prior_set = set(prior_ids)
@@ -347,9 +356,9 @@ def prune(
     for file_id in stale_ids:
         client.delete(file_id)
 
-    final_current = client.exact_files(folder_id, archive_filename)
-    final_legacy = client.exact_files(folder_id, "source.zip")
-    historical_remaining = client.exact_files(folder_id, historical_name) if historical_name else []
+    final_current = client.exact_files(folder_id, published_filename)
+    final_legacy = client.exact_files(folder_id, "source.zip") if published_filename == archive_filename else []
+    historical_remaining = client.exact_files(folder_id, historical_name) if historical_name and historical_name != published_filename else []
     if len(final_current) != 1 or final_current[0].get("id") != current_id or final_legacy or historical_remaining:
         raise SourceSnapshotLifecycleError(
             "source snapshot replacement did not converge to exactly one canonical archive; concurrent or stale object remains"

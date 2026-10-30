@@ -3,6 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import tempfile
+import subprocess
+import sys
+
+import yaml
 import unittest
 
 from scripts.ci.source_snapshot_lifecycle import (
@@ -84,6 +88,50 @@ class SourceSnapshotLifecycleTests(unittest.TestCase):
                 self.assertIn(drive.manifest_id, drive.files)
                 self.assertIn("unrelated_12345", drive.files)
                 self._preflight(drive, state)
+
+    def test_historical_collision_preserves_sibling_bytes_and_repeated_refresh(self):
+        for sibling_name in ("example-main.zip", "source.zip"):
+            with self.subTest(sibling_name=sibling_name), tempfile.TemporaryDirectory() as td:
+                drive = self._historical()
+                sibling = {"id": "preserved_12345", "name": sibling_name,
+                           "mimeType": "application/zip", "size": "17", "bytes": b"retained evidence"}
+                drive.files[sibling["id"]] = sibling.copy()
+                drive.manifest["historical_source_preserved"] = {"file_id": sibling["id"], "head": "a" * 40}
+                state, manifest = Path(td) / "state.json", Path(td) / "manifest.json"
+                for index in (1, 2):
+                    old_id = drive.manifest["archive_file_id"]
+                    self._preflight(drive, state)
+                    recorded = json.loads(state.read_text())
+                    self.assertEqual(recorded["replacement_archive_filename"], "6fc9561-complete-source.zip")
+                    self.assertEqual(recorded["prior_archive_file_ids"], [old_id])
+                    # A preflight/unfinished upload never modifies either predecessor.
+                    self.assertIn(old_id, drive.files)
+                    self.assertEqual(drive.files[sibling["id"]], sibling)
+                    self._write_new_manifest(drive, manifest, f"new_archive_{index}_12345")
+                    self.assertEqual(self._prune(drive, state, manifest), 1)
+                    self.assertEqual(drive.files[sibling["id"]], sibling)
+                    self.assertNotIn(sibling["id"], drive.deleted)
+                    selected = drive.exact_files(drive.folder_id, "6fc9561-complete-source.zip")
+                    self.assertEqual([value["id"] for value in selected], [drive.manifest["archive_file_id"]])
+
+    def test_both_callers_publish_preflight_selected_manifest_filename(self):
+        root = Path(__file__).resolve().parents[1]
+        for filename in ("actions/source-snapshot/action.yml", ".github/workflows/central-ci-dispatch.yml"):
+            with self.subTest(filename=filename), tempfile.TemporaryDirectory() as td:
+                config = yaml.safe_load((root / filename).read_text())
+                steps = config["runs"]["steps"] if "runs" in config else config["jobs"]["source_snapshot"]["steps"]
+                by_name = {step.get("name"): step for step in steps}
+                script = by_name["Validate existing canonical source archive state"]["run"]
+                selected = script.split("<<'PY_SELECTED'\n", 1)[1].split("\nPY_SELECTED", 1)[0]
+                state, manifest, output = (Path(td) / name for name in ("state", "manifest", "output"))
+                state.write_text(json.dumps({"replacement_archive_filename": "6fc9561-complete-source.zip"}))
+                manifest.write_text(json.dumps({"archive_filename": "example-main.zip", "repository": "StreamScapeTV/example"}))
+                subprocess.run([sys.executable, "-c", selected, str(state), str(manifest), str(output)], check=True)
+                self.assertEqual(json.loads(manifest.read_text()), {
+                    "archive_filename": "6fc9561-complete-source.zip", "repository": "StreamScapeTV/example"})
+                self.assertEqual(output.read_text(), "archive_filename=6fc9561-complete-source.zip\n")
+                self.assertEqual(by_name["Upload repository snapshot archive"]["with"]["file_name"],
+                                 "${{ steps.source_lifecycle.outputs.archive_filename }}")
 
     def test_historical_preflight_rejects_missing_ambiguous_or_wrong_archive_identity(self):
         for variant in ("missing", "duplicate", "identity", "size", "hash", "manifest-id", "conflicting-ids", "multiple-manifests", "invalid-name"):
@@ -207,7 +255,7 @@ class SourceSnapshotLifecycleTests(unittest.TestCase):
     def _write_new_manifest(self, drive: FakeDrive, manifest_path: Path, new_id: str = "new_archive_12345") -> None:
         drive.files[new_id] = {
             "id": new_id,
-            "name": "example-main.zip",
+            "name": drive.manifest["archive_filename"],
             "mimeType": "application/zip",
             "size": "3",
         }
