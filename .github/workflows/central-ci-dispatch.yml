@@ -530,12 +530,19 @@ jobs:
               inputs = json.loads(os.environ["INPUTS_JSON"])
           except (KeyError, json.JSONDecodeError) as exc:
               raise SystemExit("source.checkpoint-publish inputs must be one JSON object") from exc
-          required = {"expected_head", "expected_tree", "archive_sha256", "archive_size_bytes", "commit_message"}
-          if not isinstance(inputs, dict) or set(inputs) != required:
+          operation = inputs.get("operation", "publish") if isinstance(inputs, dict) else None
+          if operation not in {"publish", "inspect", "settle"}:
+              raise SystemExit("source.checkpoint-publish operation must be publish, inspect, or settle")
+          required = {"expected_head", "expected_tree"}
+          if operation == "publish":
+              required |= {"archive_sha256", "archive_size_bytes", "commit_message"}
+          if not isinstance(inputs, dict) or set(inputs) - {"operation"} != required:
               raise SystemExit("source.checkpoint-publish requires exactly expected_head/expected_tree/archive_sha256/archive_size_bytes/commit_message")
           for key in ("expected_head", "expected_tree"):
               if not isinstance(inputs[key], str) or not re.fullmatch(r"[0-9a-f]{40}", inputs[key]):
                   raise SystemExit(f"source.checkpoint-publish {key} must be one lowercase 40-character Git SHA")
+          if operation != "publish":
+              raise SystemExit(0)
           if not isinstance(inputs["archive_sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", inputs["archive_sha256"]):
               raise SystemExit("source.checkpoint-publish archive_sha256 must be one lowercase SHA-256")
           size = inputs["archive_size_bytes"]
@@ -984,9 +991,10 @@ jobs:
       branch: ${{ needs.request.outputs.ref }}
       expected_head: ${{ fromJSON(needs.request.outputs.inputs_json).expected_head }}
       expected_tree: ${{ fromJSON(needs.request.outputs.inputs_json).expected_tree }}
-      archive_sha256: ${{ fromJSON(needs.request.outputs.inputs_json).archive_sha256 }}
-      archive_size_bytes: ${{ fromJSON(needs.request.outputs.inputs_json).archive_size_bytes }}
-      commit_message: ${{ fromJSON(needs.request.outputs.inputs_json).commit_message }}
+      operation: ${{ fromJSON(needs.request.outputs.inputs_json).operation || 'publish' }}
+      archive_sha256: ${{ fromJSON(needs.request.outputs.inputs_json).archive_sha256 || '' }}
+      archive_size_bytes: ${{ fromJSON(needs.request.outputs.inputs_json).archive_size_bytes || 0 }}
+      commit_message: ${{ fromJSON(needs.request.outputs.inputs_json).commit_message || '' }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
 

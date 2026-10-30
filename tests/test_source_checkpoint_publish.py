@@ -366,7 +366,7 @@ class SourceCheckpointPublishTests(unittest.TestCase):
         call = workflow["on"]["workflow_call"]
         self.assertEqual(
             set(call["inputs"]),
-            {"repository", "branch", "expected_head", "expected_tree", "archive_sha256", "archive_size_bytes", "commit_message", "ci_run_id"},
+            {"repository", "branch", "expected_head", "expected_tree", "operation", "archive_sha256", "archive_size_bytes", "commit_message", "ci_run_id"},
         )
         self.assertNotIn("workflow_dispatch", workflow["on"])
         text = WORKFLOW.read_text()
@@ -379,12 +379,13 @@ class SourceCheckpointPublishTests(unittest.TestCase):
         dispatch = yaml.safe_load(DISPATCH.read_text())
         request_steps = {step.get("name"): step for step in dispatch["jobs"]["request"]["steps"] if step.get("name")}
         admission = request_steps["Validate canonical source checkpoint publication request"]
-        self.assertIn('{"expected_head", "expected_tree", "archive_sha256", "archive_size_bytes", "commit_message"}', admission["run"])
+        self.assertIn('required = {"expected_head", "expected_tree"}', admission["run"])
+        self.assertIn('required |= {"archive_sha256", "archive_size_bytes", "commit_message"}', admission["run"])
         self.assertNotIn('checkpoint_sequence', admission["run"])
         job = dispatch["jobs"]["source_checkpoint_publish"]
         self.assertEqual(
             set(job["with"]),
-            {"repository", "branch", "expected_head", "expected_tree", "archive_sha256", "archive_size_bytes", "commit_message", "ci_run_id"},
+            {"repository", "branch", "expected_head", "expected_tree", "operation", "archive_sha256", "archive_size_bytes", "commit_message", "ci_run_id"},
         )
         snapshot_names = [step.get("name") for step in dispatch["jobs"]["source_snapshot"]["steps"]]
         self.assertNotIn("Protect unpublished canonical Drive checkpoint", snapshot_names)
