@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import importlib.util
 import json
 import os
@@ -12,11 +14,45 @@ import subprocess
 import sys
 import tempfile
 import urllib.parse
+import zipfile
 
 from scripts.ci.source_checkpoint_publish import (
     CheckpointPublishError, DriveClient, GitHubClient, SHA40, _checkpoint_ref_folder,
-    select_latest_checkpoint_file,
+    select_latest_checkpoint_file, materialize_checkpoint, run_git,
 )
+
+
+def publisher_archive_tree(path, rules):
+    """Reuse publication's existing ZIP extraction, including its symlink handling."""
+    with zipfile.ZipFile(path) as archive:
+        metadata = rules.archive_metadata(archive)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        run_git(root, 'init', '-q')
+        materialize_checkpoint(path, root)
+        run_git(root, 'config', 'core.fileMode', 'true')
+        run_git(root, 'add', '-f', '-A', '--', '.')
+        tree = run_git(root, 'write-tree')
+    if metadata is not None and metadata.get('tree_sha') != tree:
+        raise CheckpointPublishError('checkpoint metadata tree SHA does not match archive content')
+    return tree, metadata
+
+
+def canonical_plan(rules, arguments):
+    output = io.StringIO()
+    original_arguments = sys.argv
+    try:
+        sys.argv = arguments
+        with contextlib.redirect_stdout(output):
+            status = rules.main()
+    finally:
+        sys.argv = original_arguments
+    if status not in {0, 2}:
+        raise CheckpointPublishError('canonical checkpoint recovery comparison failed')
+    try:
+        return json.loads(output.getvalue())
+    except json.JSONDecodeError:
+        raise CheckpointPublishError('canonical checkpoint recovery returned no comparison receipt') from None
 
 
 def verify_remote(github, repository, branch, head, tree):
@@ -47,7 +83,7 @@ def recover(drive, github, *, root_folder_id, repository, branch, head, tree, op
         root = Path(temporary)
         listing = root / 'listing.json'
         listing.write_text(json.dumps({'files': children}))
-        command = [sys.executable, rules.__file__, repository, branch, '--issue', issue[1],
+        command = [rules.__file__, repository, branch, '--issue', issue[1],
                    '--expected-head', head, '--expected-tree', tree, '--drive-listing', str(listing)]
         for sequence, items in sorted(groups.items()):
             for index, item in enumerate(items):
@@ -71,13 +107,7 @@ def recover(drive, github, *, root_folder_id, repository, branch, head, tree, op
         duplicates = any(len(items) > 1 for items in groups.values())
         plan = {'ok': True, 'connector_sequence': []}
         if duplicates:
-            result = subprocess.run(command, text=True, capture_output=True)
-            if result.returncode not in {0, 2}:
-                raise CheckpointPublishError('canonical checkpoint recovery comparison failed')
-            try:
-                plan = json.loads(result.stdout)
-            except json.JSONDecodeError:
-                raise CheckpointPublishError('canonical checkpoint recovery returned no comparison receipt') from None
+            plan = canonical_plan(rules, command)
         receipt = {'repository': repository, 'branch': branch, 'head_sha': head, 'tree_sha': tree,
                    'operation': operation, 'checkpoints': records, 'deleted_ids': [],
                    'safe_to_settle': plan.get('ok') is True,
@@ -134,6 +164,8 @@ def main():
     spec = importlib.util.spec_from_file_location('canonical_checkpoint_recovery', path)
     rules = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(rules)
+    # The canonical planner reuses the same existing safe publisher materializer.
+    rules.materialize_and_tree = lambda archive: publisher_archive_tree(archive, rules)
     try:
         receipt = recover(DriveClient(os.environ['GOOGLE_DRIVE_ACCESS_TOKEN']),
                           GitHubClient(os.environ['TARGET_TOKEN'], args.repository),

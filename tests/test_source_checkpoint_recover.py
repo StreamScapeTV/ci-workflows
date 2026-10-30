@@ -81,11 +81,11 @@ def rules():
 
 class RecoveryTests(unittest.TestCase):
     def run_recovery(self, drive, plan=None, github=None, operation='settle'):
-        def execute(command, **kwargs):
-            self.assertIn('checkpoint_recovery.py', command[1])
+        def execute(rules, command):
+            self.assertIn('checkpoint_recovery.py', command[0])
             self.assertIn('--expected-head', command)
-            return SimpleNamespace(returncode=0 if plan['ok'] else 2, stdout=json.dumps(plan))
-        with contextlib.redirect_stdout(io.StringIO()), patch('scripts.ci.source_checkpoint_recover.subprocess.run', side_effect=execute), patch('scripts.ci.source_checkpoint_recover.subprocess.check_output', return_value='d' * 40):
+            return plan
+        with contextlib.redirect_stdout(io.StringIO()), patch('scripts.ci.source_checkpoint_recover.canonical_plan', side_effect=execute), patch('scripts.ci.source_checkpoint_recover.subprocess.check_output', return_value='d' * 40):
             return recover(drive, github or Github(), root_folder_id='root_folder_123',
                            repository=REPO, branch=BRANCH, head=HEAD, tree=TREE,
                            operation=operation, rules=rules())
@@ -172,3 +172,37 @@ class RecoveryAdmissionTests(unittest.TestCase):
                     env=dict(os.environ, TEST_PROFILE='publish', REQUEST_IS_TAG='false',
                              REQUEST_REF=BRANCH, INPUTS_JSON=json.dumps(inputs)))
                 self.assertEqual(result.returncode, expected, result.stderr)
+
+
+class PublisherExtractionTests(unittest.TestCase):
+    def test_existing_publisher_rejects_symlink_ancestor_and_preserves_external_file(self):
+        import stat
+        import tempfile
+        import zipfile
+        from scripts.ci.source_checkpoint_recover import publisher_archive_tree
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            sentinel = root / 'sentinel'; sentinel.write_text('preserved')
+            archive = root / 'checkpoint.zip'
+            with zipfile.ZipFile(archive, 'w') as output:
+                link = zipfile.ZipInfo('escape'); link.external_attr = (stat.S_IFLNK | 0o777) << 16
+                output.writestr(link, str(root))
+                output.writestr('escape/sentinel', 'overwritten')
+            with self.assertRaisesRegex(CheckpointPublishError, 'collision'):
+                publisher_archive_tree(archive, SimpleNamespace(archive_metadata=lambda archive: None))
+            self.assertEqual(sentinel.read_text(), 'preserved')
+
+    def test_existing_publisher_retains_legitimate_source_symlink(self):
+        import stat
+        import tempfile
+        import zipfile
+        from scripts.ci.source_checkpoint_recover import publisher_archive_tree
+        with tempfile.TemporaryDirectory() as temporary:
+            archive = Path(temporary) / 'checkpoint.zip'
+            with zipfile.ZipFile(archive, 'w') as output:
+                output.writestr('source.py', 'source')
+                link = zipfile.ZipInfo('source-link'); link.external_attr = (stat.S_IFLNK | 0o777) << 16
+                output.writestr(link, 'source.py')
+            tree, metadata = publisher_archive_tree(archive, SimpleNamespace(archive_metadata=lambda archive: None))
+            self.assertRegex(tree, r'^[0-9a-f]{40}$')
+            self.assertIsNone(metadata)
