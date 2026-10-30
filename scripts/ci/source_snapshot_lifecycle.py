@@ -79,7 +79,7 @@ class DriveClient:
                 "q": " and ".join(clauses),
                 "spaces": "drive",
                 "pageSize": "100",
-                "fields": "nextPageToken,files(id,name,mimeType,parents,size,trashed)",
+                "fields": "nextPageToken,files(id,name,mimeType,parents,size,sha256Checksum,trashed)",
             }
             if token:
                 params["pageToken"] = token
@@ -227,18 +227,47 @@ def preflight(
     ):
         if manifest.get(key) != expected:
             raise SourceSnapshotLifecycleError(f"canonical source snapshot manifest identity mismatch: {key}")
+    if manifest.get("manifest_file_id", manifest_file["id"]) != manifest_file["id"]:
+        raise SourceSnapshotLifecycleError("canonical source snapshot manifest Drive identity mismatch")
+    if (manifest.get("archive_file_id") and manifest.get("source_zip_file_id")
+            and manifest["archive_file_id"] != manifest["source_zip_file_id"]):
+        raise SourceSnapshotLifecycleError("canonical source snapshot manifest has conflicting archive identities")
     archive_id = manifest.get("source_zip_file_id") or manifest.get("archive_file_id")
     archive_name = manifest.get("archive_filename")
     if not isinstance(archive_id, str) or not DRIVE_FILE_ID.fullmatch(archive_id):
         raise SourceSnapshotLifecycleError("canonical source snapshot manifest has invalid archive file identity")
-    if archive_name not in {archive_filename, "source.zip"}:
-        raise SourceSnapshotLifecycleError("canonical source snapshot manifest archive filename is outside current/legacy names")
+    historical = archive_name not in (archive_filename, "source.zip")
+    if historical:
+        # Historical checkpoint names are authority only through this exact manifest,
+        # never through a folder-wide ZIP scan or a guessed predecessor name.
+        if (not isinstance(archive_name, str) or not archive_name.endswith(".zip")
+                or any(char in archive_name for char in ("/", "\\"))
+                or any(ord(char) < 32 for char in archive_name)):
+            raise SourceSnapshotLifecycleError("canonical source snapshot manifest archive filename is invalid")
+        historical_files = client.exact_files(folder_id, archive_name)
+        if len(historical_files) != 1:
+            raise SourceSnapshotLifecycleError("historical source snapshot archive is missing or ambiguous")
+        candidates += historical_files
     matching = [value for value in candidates if value.get("id") == archive_id and value.get("name") == archive_name]
+    if historical and not matching:
+        raise SourceSnapshotLifecycleError("historical source snapshot archive identity does not match manifest")
     # A missing declared archive is likewise repairable by a fresh publication.
     # Never reuse another object's identity to pretend the old pair is complete.
     declared_size = manifest.get("archive_size_bytes", manifest.get("source_zip_size_bytes"))
+    if historical and (type(declared_size) is not int or declared_size <= 0 or matching[0].get("size") != str(declared_size)):
+        raise SourceSnapshotLifecycleError("historical source snapshot archive size metadata does not match manifest")
+    declared_hash = manifest.get("archive_sha256", manifest.get("source_zip_sha256"))
+    if historical and declared_hash is not None:
+        if not isinstance(declared_hash, str) or not SHA64.fullmatch(declared_hash):
+            raise SourceSnapshotLifecycleError("historical source snapshot archive hash is invalid")
+        observed_hash = matching[0].get("sha256Checksum")
+        if observed_hash is not None and observed_hash != declared_hash:
+            raise SourceSnapshotLifecycleError("historical source snapshot archive hash metadata does not match manifest")
     if matching and isinstance(declared_size, int) and matching[0].get("size") not in (None, str(declared_size)):
         raise SourceSnapshotLifecycleError("canonical source snapshot archive size metadata does not match manifest")
+    state["prior_archive_file_ids"] = sorted({value["id"] for value in candidates})
+    if historical:
+        state["previous_archive_filename"] = archive_name
     state["manifest_file_id"] = manifest_file["id"]
     state["previous_archive_file_id"] = archive_id
     state_path.write_text(json.dumps(state, sort_keys=True, separators=(",", ":")) + "\n")
@@ -303,6 +332,11 @@ def prune(
     current = client.exact_files(folder_id, archive_filename)
     legacy = client.exact_files(folder_id, "source.zip")
     all_candidates = current + legacy
+    historical_name = state.get("previous_archive_filename")
+    if historical_name:
+        all_candidates += client.exact_files(folder_id, historical_name)
+    if client.media(manifest_id) != manifest_path.read_bytes():
+        raise SourceSnapshotLifecycleError("current source snapshot manifest raw Drive readback mismatch")
     if not any(value.get("id") == current_id and value.get("name") == archive_filename for value in all_candidates):
         raise SourceSnapshotLifecycleError("current source snapshot archive is not present under canonical filename")
 
@@ -315,7 +349,8 @@ def prune(
 
     final_current = client.exact_files(folder_id, archive_filename)
     final_legacy = client.exact_files(folder_id, "source.zip")
-    if len(final_current) != 1 or final_current[0].get("id") != current_id or final_legacy:
+    historical_remaining = client.exact_files(folder_id, historical_name) if historical_name else []
+    if len(final_current) != 1 or final_current[0].get("id") != current_id or final_legacy or historical_remaining:
         raise SourceSnapshotLifecycleError(
             "source snapshot replacement did not converge to exactly one canonical archive; concurrent or stale object remains"
         )
