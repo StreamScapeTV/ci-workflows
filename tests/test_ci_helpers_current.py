@@ -486,7 +486,10 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertIn("Resolve durable Drive repository folder", dispatch)
         self.assertIn("Google Drive repository folder ID", dispatch)
         self.assertEqual(dispatch.count("repository_folder_id: ${{ steps.drive_repository.outputs.folder_id }}"), 3)
-        self.assertIn("Google Drive repository folder ID: `1--JcV6RK8jdIIP3ONWw420QDVpNTQ7L8`", agents)
+        # Local agents use installed skills; snapshot metadata remains in the workflow.
+        self.assertIn("`$iptv-workflow`", agents)
+        self.assertIn("`$iptv-platform`", agents)
+        self.assertIn(".agents/skills/<skill>/SKILL.md", agents)
         self.assertIn("file_name: ${{ steps.source_lifecycle.outputs.archive_filename }}", dispatch)
         self.assertIn("previous_file_name: source.zip", dispatch)
         self.assertIn('ref_slug = urllib.parse.quote(ref, safe="")', dispatch)
