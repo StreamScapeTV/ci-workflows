@@ -62,3 +62,47 @@ print('200',end='')
             result,payload=self.invoke(phase,status)
             self.assertNotEqual(result.returncode,0)
             self.assertIsNone(payload)
+
+
+class OutOfBandSettlementTests(unittest.TestCase):
+    UUID='1cd460b6-1111-4222-8333-444455556666'
+
+    def workflow(self):
+        return yaml.safe_load((ROOT/'.github/workflows/central-ci-settle.yml').read_text())
+
+    def resolve(self,title,conclusion):
+        step=next(s for s in self.workflow()['jobs']['settle']['steps'] if s.get('id')=='resolve')
+        with tempfile.TemporaryDirectory() as temp:
+            out=Path(temp)/'out'
+            out.write_text('')
+            result=subprocess.run(['bash','-c',step['run']],capture_output=True,text=True,env={
+                **os.environ,'RUN_TITLE':title,'RUN_CONCLUSION':conclusion,'GITHUB_OUTPUT':str(out)})
+            return result,dict(l.split('=',1) for l in out.read_text().splitlines())
+
+    def test_dispatch_title_carries_the_run_id_and_settlement_follows_every_completed_run(self):
+        dispatch=yaml.safe_load((ROOT/'.github/workflows/central-ci-dispatch.yml').read_text())
+        self.assertEqual(dispatch['run-name'],'Central CI dispatch ${{ inputs.ci_run_id }}')
+        workflow=self.workflow()
+        trigger=workflow[True] if True in workflow else workflow['on']
+        self.assertEqual(trigger,{'workflow_run':{'workflows':['Central CI dispatch'],'types':['completed']}})
+        self.assertEqual(workflow['permissions'],{'contents':'read'})
+        job=workflow['jobs']['settle']
+        self.assertIn("conclusion != 'success'",job['if'])
+        self.assertIn('head_repository.full_name == github.repository',job['if'])
+        self.assertIn("event == 'workflow_dispatch'",job['if'])
+        settle=job['steps'][-1]
+        self.assertEqual(settle['uses'],'./actions/agent-state')
+        self.assertEqual(settle['with']['phase'],'cancel-if-active')
+        self.assertEqual(settle['with']['ci_run_id'],'${{ steps.resolve.outputs.ci_run_id }}')
+        self.assertEqual(job['steps'][0]['with']['ref'],'${{ github.event.repository.default_branch }}')
+
+    def test_resolver_extracts_only_a_well_formed_run_id_and_maps_status(self):
+        for conclusion,status in [('failure','failed'),('timed_out','failed'),('startup_failure','failed'),('cancelled','cancelled')]:
+            result,out=self.resolve('Central CI dispatch '+self.UUID,conclusion)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertEqual(out,{'ci_run_id':self.UUID,'status':status})
+        for title in ['Central CI dispatch','Central CI dispatch not-a-uuid','Other '+self.UUID,'Central CI dispatch '+self.UUID+' extra','Central CI dispatch '+self.UUID+'\nx']:
+            result,out=self.resolve(title,'failure')
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertEqual(out.get('ci_run_id'),'')
+            self.assertNotIn('status',out)
