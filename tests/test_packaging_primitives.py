@@ -10,6 +10,8 @@ from unittest.mock import patch
 from ci_workflows.packaging_primitives import (
     REGISTRY_TOKEN_ENV,
     REGISTRY_USERNAME_ENV,
+    DEFAULT_TOOL_TIMEOUT_SECONDS,
+    IMAGE_BUILD_TIMEOUT_SECONDS,
     HelmPackage,
     ImageInspection,
     PackagingError,
@@ -381,6 +383,42 @@ class PackagingPrimitivesTests(unittest.TestCase):
             self.assertFalse(layout.exists())
             self.assertFalse(package.exists())
             self.assertFalse(auth.exists())
+
+    def test_image_build_has_its_own_bounded_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            context = Path(directory)
+            dockerfile = context / "Dockerfile"
+            dockerfile.write_text("FROM scratch\n", encoding="utf-8")
+            with patch("ci_workflows.packaging_primitives.subprocess.run") as run:
+                run.return_value = _completed(["buildah"])
+                build_image(context, dockerfile, "example:test", tool="buildah")
+                self.assertEqual(
+                    run.call_args.kwargs["timeout"], IMAGE_BUILD_TIMEOUT_SECONDS
+                )
+                run.reset_mock()
+                run.return_value = _completed(["buildah"], "[{}]")
+                inspect_image("example:test", tool="buildah")
+                self.assertEqual(
+                    run.call_args.kwargs["timeout"], DEFAULT_TOOL_TIMEOUT_SECONDS
+                )
+        self.assertGreater(IMAGE_BUILD_TIMEOUT_SECONDS, DEFAULT_TOOL_TIMEOUT_SECONDS)
+        self.assertLessEqual(IMAGE_BUILD_TIMEOUT_SECONDS, 3600)
+
+    def test_build_timeout_is_distinguishable_and_leaks_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            context = Path(directory)
+            dockerfile = context / "Dockerfile"
+            dockerfile.write_text("FROM scratch\n", encoding="utf-8")
+            with patch("ci_workflows.packaging_primitives.subprocess.run") as run:
+                run.side_effect = subprocess.TimeoutExpired(
+                    ["buildah", "bud", "token=secret-value"], 1800
+                )
+                with self.assertRaisesRegex(
+                    PackagingError, "^tool execution timed out: buildah$"
+                ):
+                    build_image(
+                        context, dockerfile, "example:test", tool="buildah"
+                    )
 
     def test_tool_failure_does_not_echo_stderr_or_secret(self) -> None:
         environment = {
