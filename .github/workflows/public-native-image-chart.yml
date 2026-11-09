@@ -74,7 +74,7 @@ env:
   REGISTRY: git.faruqi.dev
   REGISTRY_NAMESPACE: mimranfaruqi
   CHART_NAMESPACE: mimranfaruqi/helm-charts
-  PUBLISHER_SHA: b777940a39a4cdec0b0ce82d6c7485af31e0b592
+  PUBLISHER_SHA: b5513253209bb22d5fcd7c6f62ff1e8c1e90734c
 
 jobs:
   publish:
