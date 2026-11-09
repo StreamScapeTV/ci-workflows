@@ -80,13 +80,19 @@ def _environment(environment: Mapping[str, str] | None) -> dict[str, str]:
     return {str(key): str(value) for key, value in source.items()}
 
 
+# Short default for fast tools (helm, skopeo, login); image builds are slow and
+# get their own bounded cap. Timeouts stay enabled for every command.
+DEFAULT_TOOL_TIMEOUT_SECONDS = 300
+IMAGE_BUILD_TIMEOUT_SECONDS = 1800
+
+
 def _run(
     argv: Sequence[str],
     *,
     cwd: Path | None,
     environment: Mapping[str, str] | None,
     stdin: str | None = None,
-    timeout: int = 300,
+    timeout: int = DEFAULT_TOOL_TIMEOUT_SECONDS,
 ) -> subprocess.CompletedProcess[str]:
     _require(
         bool(argv) and all(isinstance(item, str) and item for item in argv),
@@ -104,7 +110,9 @@ def _run(
             timeout=timeout,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired) as error:
+    except subprocess.TimeoutExpired as error:
+        raise PackagingError(f"tool execution timed out: {argv[0]}") from error
+    except OSError as error:
         raise PackagingError(f"tool execution failed: {argv[0]}") from error
     if result.returncode:
         raise PackagingError(f"tool execution failed: {argv[0]}")
@@ -218,7 +226,12 @@ def build_image(
         value = _text(value, "build argument value")
         argv.extend(["--build-arg", f"{key}={value}"])
     argv.append(str(context))
-    _run(argv, cwd=context, environment=environment)
+    _run(
+        argv,
+        cwd=context,
+        environment=environment,
+        timeout=IMAGE_BUILD_TIMEOUT_SECONDS,
+    )
     return ImageReference(reference=tag)
 
 
