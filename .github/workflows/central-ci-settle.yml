@@ -1,0 +1,72 @@
+name: Central CI terminal settlement
+
+# Safety net for Central CI runs that GitHub ends without running the in-run
+# settlement jobs (for example a run that fails with no failed job, or one whose
+# trailing settle jobs are never scheduled). workflow_run fires for every
+# completed Central CI dispatch run regardless of how it ended; the Agent State
+# cancel-if-active phase is idempotent, so runs already settled in-run are left
+# untouched and any still-active run becomes terminal.
+
+"on":
+  workflow_run:
+    workflows: ["Central CI dispatch"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  settle:
+    # Only this repository's own dispatcher runs, never forks, and never a
+    # successful run (success settles itself in-run).
+    if: >-
+      ${{
+        github.event.workflow_run.event == 'workflow_dispatch' &&
+        github.event.workflow_run.head_repository.full_name == github.repository &&
+        github.event.workflow_run.conclusion != 'success'
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out Central helpers from the default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Resolve Agent State run id and terminal status
+        id: resolve
+        shell: bash
+        env:
+          RUN_TITLE: ${{ github.event.workflow_run.display_title }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: |
+          set -Eeuo pipefail
+          # display_title is "Central CI dispatch <ci_run_id>" (dispatcher run-name).
+          pattern='^Central CI dispatch ([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$'
+          if [[ ! "${RUN_TITLE}" =~ ${pattern} ]]; then
+            echo "Run title carries no Agent State run id; nothing to settle." >&2
+            printf 'ci_run_id=\n' >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          printf 'ci_run_id=%s\n' "${BASH_REMATCH[1]}" >> "${GITHUB_OUTPUT}"
+          if test "${RUN_CONCLUSION}" = cancelled; then
+            printf 'status=cancelled\n' >> "${GITHUB_OUTPUT}"
+          else
+            printf 'status=failed\n' >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Settle still-active Agent State run
+        if: ${{ steps.resolve.outputs.ci_run_id != '' }}
+        uses: ./actions/agent-state
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: cancel-if-active
+          ci_run_id: ${{ steps.resolve.outputs.ci_run_id }}
+          status: ${{ steps.resolve.outputs.status }}
+          error_summary: >-
+            ${{ steps.resolve.outputs.status == 'cancelled'
+                && 'Central dispatch run was cancelled by GitHub before in-run settlement.'
+                || format('Central dispatch run ended {0} on GitHub before in-run settlement.', github.event.workflow_run.conclusion) }}

@@ -1,6 +1,8 @@
 # LEGACY_MIGRATION_RESIDUE: Concrete consumer identity below is retained only for still-live compatibility; do not add new identity-coupled behavior, and remove it only after the private migration ledger proves zero callers.
 name: Central CI dispatch
 
+run-name: Central CI dispatch ${{ inputs.ci_run_id }}
+
 "on":
   workflow_dispatch:
     inputs:
