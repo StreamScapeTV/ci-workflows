@@ -41,7 +41,7 @@ class IssueIdentity:
 @dataclass(frozen=True)
 class Projection:
     projection_id: str
-    claim_token: str
+    claim_ref: str
     operation: str
     dependent: IssueIdentity
     blocker: IssueIdentity
@@ -104,7 +104,7 @@ def parse_projection(value: object) -> Projection:
         raise ProjectionError("validation_failed", retryable=False)
     return Projection(
         projection_id=_uuid(value.get("projection_id")),
-        claim_token=_uuid(value.get("claim_token")),
+        claim_ref=_uuid(value.get("claim_ref")),
         operation=operation,
         dependent=_identity(value.get("dependent")),
         blocker=_identity(value.get("blocker")),
@@ -164,7 +164,7 @@ class AgentStateApi:
             "finish_github_issue_dependency_projection",
             {
                 "p_projection_id": projection.projection_id,
-                "p_claim_token": projection.claim_token,
+                "p_claim_ref": projection.claim_ref,
                 "p_result": result,
             },
         )
