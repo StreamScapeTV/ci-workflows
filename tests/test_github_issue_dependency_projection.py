@@ -54,7 +54,7 @@ def projection(
 ) -> mod.Projection:
     return mod.Projection(
         projection_id="11111111-1111-4111-8111-111111111111",
-        claim_token="22222222-2222-4222-8222-222222222222",
+        claim_ref="22222222-2222-4222-8222-222222222222",
         operation=operation,
         dependent=mod.IssueIdentity("a", 10, dependent_repository),
         blocker=mod.IssueIdentity("b", 20, blocker_repository),
@@ -119,7 +119,7 @@ class ProjectionBehaviorTests(unittest.TestCase):
     def test_claim_parser_accepts_only_fixed_streamscape_projection_shape(self) -> None:
         raw = {
             "projection_id": "11111111-1111-4111-8111-111111111111",
-            "claim_token": "22222222-2222-4222-8222-222222222222",
+            "claim_ref": "22222222-2222-4222-8222-222222222222",
             "operation": "add",
             "desired_active": True,
             "status": "claimed",
