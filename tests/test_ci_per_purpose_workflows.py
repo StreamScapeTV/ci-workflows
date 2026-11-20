@@ -212,39 +212,32 @@ class SecretAndLogTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 auth.build(Path(directory) / "c", github_git=False, registry_netrc=True, gradle_maven=False, environ={})
 
-    def test_stage_runner_streams_scrubbed_numbered_chunks_and_a_final_object(self):
+    def test_stage_runner_writes_a_scrubbed_growing_log_and_keeps_the_exit_code(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             source = git_repo({"gradlew": "#!/bin/sh\n"}, executable=("gradlew",))
-            # transition script prints a secret, proves the child never sees CI_SECRET_*, and fails
             (source / ".ci").mkdir()
             script = source / ".ci/build.sh"
             script.write_text('#!/bin/sh\necho "token=$LEAK_ME"\necho "child sees: ${CI_SECRET_TOKEN:-none}"\n'
                               'echo "op=$CI_OPERATION inputs=$CI_INPUTS_JSON"\nexit 3\n')
             script.chmod(0o755)
             subprocess.run(["git", "add", "-f", ".ci/build.sh"], cwd=source, check=True)
-            uploader = base / "upload.py"
-            uploader.write_text("import shutil, sys, pathlib\ndest = pathlib.Path(sys.argv[2]); dest.parent.mkdir(parents=True, exist_ok=True)\nshutil.copy(sys.argv[1], dest)\n")
-            store = base / "store"
             environ = dict(os.environ, LEAK_ME="supersecretvalue", CI_SECRET_TOKEN="supersecretvalue",
-                           CI_OPTIONS_JSON='{"build_configuration":"debug"}',
-                           CI_LOG_UPLOADER=json.dumps([sys.executable, str(uploader), "{path}", str(store) + "/{key}"]))
+                           CI_OPTIONS_JSON='{"build_configuration":"debug"}')
+            log = base / "stage.log"
             completed = subprocess.run(
                 [sys.executable, str(ROOT / "scripts/ci/ci_run_stage.py"), "--ecosystem", "gradle", "--stage", "build",
-                 "--source", str(source), "--contract", str(ROOT / "contracts/repository-ci-v1.json"), "--project", "proj",
-                 "--request-id", "req-0123456789", "--host-os", "linux", "--work-dir", str(base / "work"),
-                 "--log-dir", str(base / "log"), "--interval", "0.2"],
+                 "--source", str(source), "--contract", str(ROOT / "contracts/repository-ci-v1.json"),
+                 "--host-os", "linux", "--work-dir", str(base / "work"), "--log-path", str(log)],
                 env=environ, capture_output=True, text=True)
             self.assertEqual(completed.returncode, 3, completed.stderr)
-            prefix = store / "logs/proj/req-0123456789/build"
-            names = sorted(path.name for path in prefix.iterdir())
-            self.assertIn("final.log", names)
-            self.assertTrue(any(re.fullmatch(r"\d{6}\.log", name) for name in names), names)
-            merged = (prefix / "final.log").read_text()
-            self.assertNotIn("supersecretvalue", merged + completed.stdout)
-            self.assertIn("child sees: none", merged)
-            self.assertIn('inputs={"inputs":{"build_configuration":"debug"},"schemaVersion":1}', merged)
-            self.assertIn("exit 3", merged)
+            text = log.read_text()
+            self.assertNotIn("supersecretvalue", text + completed.stdout)
+            self.assertIn("child sees: none", text)
+            self.assertIn('inputs={"inputs":{"build_configuration":"debug"},"schemaVersion":1}', text)
+            self.assertIn("exit 3", text)
+            self.assertEqual(text, completed.stdout)
+            self.assertEqual(stat.S_IMODE(log.stat().st_mode), 0o600)
 
 
 class WorkflowShapeTests(unittest.TestCase):
@@ -272,7 +265,7 @@ class WorkflowShapeTests(unittest.TestCase):
         for path in self.all_paths():
             text = path.read_text()
             for forbidden in ("agent-state", "AGENT_STATE", "MIRROR", "CF_ACCESS", "ci_run_id", "claim_ci_run",
-                              "google-drive", "GOOGLE_DRIVE", "CI_PROGRESS", "secrets: inherit", "max-parallel"):
+                              "google-drive", "GOOGLE_DRIVE", "CI_PROGRESS", "CI_LOG_UPLOADER", "secrets: inherit", "max-parallel"):
                 self.assertNotIn(forbidden, text, f"{path.name}: {forbidden}")
 
     def test_third_party_actions_are_pinned_by_full_sha_and_local_actions_exist(self):
@@ -285,6 +278,9 @@ class WorkflowShapeTests(unittest.TestCase):
                     continue
                 if value.startswith("./central-ci/"):
                     self.assertTrue((ROOT / value[len("./central-ci/"):] / "action.yml").is_file(), value)
+                elif value.startswith("StreamScapeTV/ci-workflows/actions/"):
+                    # Central's own shared actions are consumed at main (the S3 uploader of the mirror/S3 change).
+                    self.assertRegex(value, r"^StreamScapeTV/ci-workflows/actions/[a-z0-9-]+@main$")
                 else:
                     self.assertRegex(value, SHA_PIN, f"{path.name}: {value}")
 
@@ -315,6 +311,18 @@ class WorkflowShapeTests(unittest.TestCase):
             for job in ("lint", "build", "test"):
                 self.assertEqual(document["jobs"][job]["uses"], f"./.github/workflows/ci-{name}-stage.yml")
                 self.assertEqual(document["jobs"][job]["with"]["stage"], job)
+
+    def test_each_stage_streams_logs_to_s3_around_the_run_and_stops_with_always(self):
+        for name in ECOSYSTEMS:
+            steps = yaml.safe_load((ROOT / f".github/workflows/ci-{name}-stage.yml").read_text())["jobs"]["stage"]["steps"]
+            streams = [(i, s) for i, s in enumerate(steps) if s.get("uses", "").endswith("/s3-log-stream@main")]
+            self.assertEqual([s["with"]["phase"] for _, s in streams], ["start", "stop"])
+            run = next(i for i, s in enumerate(steps) if s.get("id") == "run")
+            self.assertLess(streams[0][0], run)
+            self.assertGreater(streams[1][0], run)
+            self.assertEqual(streams[1][1]["if"], "${{ always() }}")
+            self.assertIn("inputs.request_id", streams[0][1]["with"]["request_id"])
+            self.assertIn("S3_GITHUB_TRANSPORT_ACCESS_KEY", streams[0][1]["with"]["s3_access_key"])
 
     def test_stage_runs_without_central_secrets_in_the_product_environment_and_only_trusted_cache_saves(self):
         for name in ECOSYSTEMS:

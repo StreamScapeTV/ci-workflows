@@ -51,7 +51,6 @@ jobs:
     outputs:
       stages: ${{ steps.validate.outputs.stages }}
       options: ${{ steps.validate.outputs.options }}
-      project: ${{ steps.validate.outputs.project }}
     steps:
       - name: Check out Central CI contract and helpers
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -81,7 +80,6 @@ jobs:
           {
             printf 'stages=%s\n' "$(jq -c '.stages' <<<"${result}")"
             printf 'options=%s\n' "$(jq -c '.options' <<<"${result}")"
-            printf 'project=%s\n' "${REPOSITORY#*/}"
           } >> "${GITHUB_OUTPUT}"
 
   lint:
@@ -90,7 +88,6 @@ jobs:
     uses: ./.github/workflows/ci-gradle-stage.yml
     with:
       request_id: ${{ inputs.request_id }}
-      project: ${{ needs.plan.outputs.project }}
       repository: ${{ inputs.repository }}
       ref: ${{ inputs.ref }}
       is_tag: ${{ inputs.is_tag }}
@@ -103,6 +100,8 @@ jobs:
       TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
       FORGEJO_REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
       CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+      S3_GITHUB_TRANSPORT_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+      S3_GITHUB_TRANSPORT_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
 
   build:
     needs: [plan, lint]
@@ -110,7 +109,6 @@ jobs:
     uses: ./.github/workflows/ci-gradle-stage.yml
     with:
       request_id: ${{ inputs.request_id }}
-      project: ${{ needs.plan.outputs.project }}
       repository: ${{ inputs.repository }}
       ref: ${{ inputs.ref }}
       is_tag: ${{ inputs.is_tag }}
@@ -123,6 +121,8 @@ jobs:
       TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
       FORGEJO_REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
       CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+      S3_GITHUB_TRANSPORT_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+      S3_GITHUB_TRANSPORT_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
 
   test:
     needs: [plan, build]
@@ -130,7 +130,6 @@ jobs:
     uses: ./.github/workflows/ci-gradle-stage.yml
     with:
       request_id: ${{ inputs.request_id }}
-      project: ${{ needs.plan.outputs.project }}
       repository: ${{ inputs.repository }}
       ref: ${{ inputs.ref }}
       is_tag: ${{ inputs.is_tag }}
@@ -143,3 +142,5 @@ jobs:
       TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
       FORGEJO_REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
       CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+      S3_GITHUB_TRANSPORT_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+      S3_GITHUB_TRANSPORT_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}

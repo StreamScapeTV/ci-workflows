@@ -50,16 +50,14 @@ names what the project must provide.
 
 ## Logs (S3, numbered chunks)
 
-`ci_run_stage.py` writes the scrubbed output of a stage every 5 s as
-`logs/<project>/<request_id>/<stage>/<seq>.log` (`<project>` = repository name; `<seq>` is
-zero-padded, e.g. `000001.log`) and a merged `final.log` per stage; the run's prefix is
-`logs/<project>/<request_id>/`. Upload is done by the shared S3 uploader through a hook: the
-repository variable `CI_LOG_UPLOADER` holds a JSON argv list with `{path}` and `{key}`
-placeholders. The uploader itself (and its `CI_SECRET_*`-named S3 credentials, which are redacted
-from the log and withheld from the product process but visible to the uploader) is being built by
-the ci-mirror-s3 session; **until it lands the hook is empty and logs stay in the GitHub step log
-(already scrubbed)**. The workflows must be wired to the uploader composite once it exists.
-Total chunk output is bounded (48 MiB; the final object keeps the last 8 MiB if truncated).
+`ci_run_stage.py` appends the scrubbed output of a stage to one growing file. The shared
+`actions/s3-log-stream` action (PR 1213, referenced at `@main`; **this PR needs 1213 merged first**) is
+started before the stage and stopped with `if: always()` after it: it uploads the file every 5 s as
+`logs/<project>/<request_id>/<stage>/<seq>.log` (`<project>` = repository name) and writes the merged
+`final.log` per stage; the run's prefix is `logs/<project>/<request_id>/`. Its credentials are the
+secrets `S3_GITHUB_TRANSPORT_ACCESS_KEY` / `S3_GITHUB_TRANSPORT_SECRET_KEY`; it connects Tailscale
+itself only when the endpoint is unreachable on a hosted runner. The `CI_SECRET_*` values of the
+start step are what it redacts, and the stage runner redacts the same values before writing.
 
 ## DECISION FOR THE OWNER: capabilities fixed per workflow
 
@@ -67,7 +65,7 @@ Each workflow hard-wires the credentials its purpose needs; nothing is resolved 
 
 | Workflow | Secrets (names only) | Tailscale | Not available |
 | --- | --- | --- | --- |
-| `ci-gradle` (all stages) | `SOURCE_APP_ID`, `SOURCE_APP_PRIVATE_KEY`, `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`, `FORGEJO_REGISTRY_USERNAME`, `CIW_MAVEN_PACKAGE_READ_TOKEN` (+ S3 uploader credentials later) | yes (checkout of private deps, Forgejo Maven, S3) | github.com Git credential, Docker Hub, fixtures, signing, registry write, backup S3, protected conformance |
+| `ci-gradle` (all stages) | `SOURCE_APP_ID`, `SOURCE_APP_PRIVATE_KEY`, `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`, `FORGEJO_REGISTRY_USERNAME`, `CIW_MAVEN_PACKAGE_READ_TOKEN`, `S3_GITHUB_TRANSPORT_ACCESS_KEY`, `S3_GITHUB_TRANSPORT_SECRET_KEY` | yes (checkout of private deps, Forgejo Maven, S3) | github.com Git credential, Docker Hub, fixtures, signing, registry write, backup S3, protected conformance |
 | `ci-xcode` lint, build | same names as Gradle | yes (Forgejo SwiftPM, S3) | Apple signing/App Store Connect, Docker Hub, fixtures, registry write |
 | `ci-xcode` test | same plus `STREAMSCAPE_*` / `XTREAM_*` fixtures, **only this job** | yes | same as above |
 
@@ -126,7 +124,7 @@ Xcode DerivedData cache can key on it directly.
 Parity table (legacy `(workflow_key, test_profile)` pair -> new ecosystem workflow, with a test that
 fails on an unmapped pair), python, node, maven, swiftpm/binary workflows, shared Docker image and
 Helm building blocks and their conventions pages, releases, cache-warm entries, DerivedData and
-Maven caches, wiring the S3 uploader, `INVENTORY.yaml` and secret-catalog updates, pinning
+Maven caches, `INVENTORY.yaml` and secret-catalog updates, pinning
 `tailscale/github-action` inside `actions/private-git`, the artifact (`.xcresult`) package of the
 old executor.
 
@@ -134,7 +132,6 @@ old executor.
 
 `python3 -m unittest tests.test_ci_per_purpose_workflows` (input validation, stage resolution for
 Gradle and Xcode conventions and transition scripts, cache keys/fallbacks/integration-branch rule/
-guard, scrub, auth files, an end-to-end run of the stage runner with a fake uploader proving chunk
-and final objects exist, the secret never reaches the product process or the log, and the exit code is
-kept; workflow shape: inputs, `run-name`, lanes, SHA pinning, secret scoping, no Agent State).
+guard, scrub, auth files, an end-to-end run of the stage runner proving the secret never reaches the
+product process or the log and the exit code is kept; S3 log stream start/stop placement; workflow shape: inputs, `run-name`, lanes, SHA pinning, secret scoping, no Agent State).
 `actionlint` is not installed on the authoring Mac and was not run. No workflow was dispatched.
