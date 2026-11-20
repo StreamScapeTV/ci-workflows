@@ -4,11 +4,11 @@ description: Store one file under the fixed logs/, screenshots/ or releases/ lay
 
 inputs:
   s3_endpoint:
-    description: S3 endpoint URL; pass the secret S3_ENDPOINT; empty falls back to the repository variable of the same name
+    description: S3 endpoint URL; pass the secret S3_ENDPOINT
     required: false
     default: ""
   s3_bucket:
-    description: S3 bucket name; pass the secret S3_BUCKET; empty falls back to the repository variable of the same name
+    description: S3 bucket name; pass the secret S3_BUCKET
     required: false
     default: ""
   kind:
@@ -65,8 +65,8 @@ runs:
     - id: probe
       shell: bash
       env:
-        S3_ENDPOINT: ${{ inputs.s3_endpoint || vars.S3_ENDPOINT }}
-        S3_BUCKET: ${{ inputs.s3_bucket || vars.S3_BUCKET }}
+        S3_ENDPOINT: ${{ inputs.s3_endpoint }}
+        S3_BUCKET: ${{ inputs.s3_bucket }}
         S3_GITHUB_TRANSPORT_ACCESS_KEY: ${{ inputs.s3_access_key }}
         S3_GITHUB_TRANSPORT_SECRET_KEY: ${{ inputs.s3_secret_key }}
       run: |
@@ -83,8 +83,8 @@ runs:
     - id: upload
       shell: bash
       env:
-        S3_ENDPOINT: ${{ inputs.s3_endpoint || vars.S3_ENDPOINT }}
-        S3_BUCKET: ${{ inputs.s3_bucket || vars.S3_BUCKET }}
+        S3_ENDPOINT: ${{ inputs.s3_endpoint }}
+        S3_BUCKET: ${{ inputs.s3_bucket }}
         S3_GITHUB_TRANSPORT_ACCESS_KEY: ${{ inputs.s3_access_key }}
         S3_GITHUB_TRANSPORT_SECRET_KEY: ${{ inputs.s3_secret_key }}
         UPLOAD_KIND: ${{ inputs.kind }}
