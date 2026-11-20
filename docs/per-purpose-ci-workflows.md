@@ -149,7 +149,8 @@ No new secret is invented by these workflows; they use names that already exist 
 | `S3_ENDPOINT` / `S3_BUCKET` | every stage workflow (live logs), legacy uploads | GitHub Actions secrets, mapped explicitly; also scrubbed from logs. A repository variable of the same name is only a fallback. |
 | `SOURCE_APP_ID` / `SOURCE_APP_PRIVATE_KEY` | every workflow | Token is scoped to the one source repository. |
 | `TS_OAUTH_CLIENT_ID` / `TS_OAUTH_SECRET` | every workflow | Private network for the registry and S3 endpoint. |
-| `FORGEJO_REGISTRY_USERNAME` / `CIW_MAVEN_PACKAGE_READ_TOKEN` | gradle, xcode, python | Private registry read access. |
+| `FORGEJO_REGISTRY_USERNAME` / `FORGEJO_REGISTRY_TOKEN` | node `release` operation only | Registry write; exists only in the publish step (`ci-oci-release-stage.yml`). Optional `DOCKERHUB_USERNAME` / `DOCKERHUB_READ_TOKEN` for authenticated base image pulls. |
+| `FORGEJO_REGISTRY_USERNAME` / `CIW_MAVEN_PACKAGE_READ_TOKEN` | gradle, xcode, python, node | Private registry read access. |
 | `STREAMSCAPE_*`, `XTREAM_*` fixture secrets | xcode `test` job only | Already used by the legacy path. |
 | Project setting: ecosystem workflow | runner/OpenProject | The project names `gradle`, `xcode` or `python`; nothing is auto-detected. |
 
@@ -169,3 +170,10 @@ Stage identifier: the stage id is `lint`, `test` or `build`. It is the `<stage>`
 `logs/<project>/<request_id>/<stage>/<seq>.log` (and `final.log`). The GitHub API names the jobs of a
 reusable workflow `<caller job> / <called job>`, here `lint / lint`, `test / test`, `build / build`; the
 stage id is the part before ` / `. A reader that needs the job name must match on that prefix.
+
+## Release (images and charts)
+
+`ci-node.yml` accepts operation `release` (lint, test, build, then release). The release stage is the reusable
+`ci-oci-release-stage.yml` with the building block `actions/ci-release` (`scripts/ci/ci_release.py`); other
+ecosystems can call it later. See `docs/ci-conventions/node.md` for the `.ci/release.json` declaration, the
+version authority (tag equal to the root `VERSION`, or `main`), the immutable publication and read-back.

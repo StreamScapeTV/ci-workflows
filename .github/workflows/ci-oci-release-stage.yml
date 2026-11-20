@@ -1,0 +1,184 @@
+# The release stage of an ecosystem workflow: build the images and Helm charts declared in the
+# tracked .ci/release.json and publish them (immutable, VERSION from the root VERSION file) to the
+# private Forgejo registry. The registry write credential exists only in the publish step; lint,
+# test and build stages never receive it. Called by ci-node.yml (and later by other ecosystems).
+name: Central CI release stage
+
+"on":
+  workflow_call:
+    inputs:
+      request_id:
+        type: string
+        required: true
+      repository:
+        type: string
+        required: true
+      ref:
+        type: string
+        required: true
+      is_tag:
+        type: string
+        required: true
+      stage:
+        type: string
+        required: true
+    secrets:
+      SOURCE_APP_ID:
+        required: true
+      SOURCE_APP_PRIVATE_KEY:
+        required: true
+      TS_OAUTH_CLIENT_ID:
+        required: true
+      TS_OAUTH_SECRET:
+        required: true
+      FORGEJO_REGISTRY_USERNAME:
+        required: true
+      FORGEJO_REGISTRY_TOKEN:
+        required: true
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_READ_TOKEN:
+        required: false
+      S3_GITHUB_TRANSPORT_ACCESS_KEY:
+        required: true
+      S3_GITHUB_TRANSPORT_SECRET_KEY:
+        required: true
+      S3_ENDPOINT:
+        required: false
+      S3_BUCKET:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  stage:
+    name: ${{ inputs.stage }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      HAS_DOCKERHUB_READ: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_READ_TOKEN != '' }}
+    steps:
+      - name: Check out Central CI contract and helpers
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          path: central-ci
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            actions
+            scripts/ci
+            contracts
+
+      - name: Set up source and private network
+        id: setup
+        uses: ./central-ci/actions/ci-setup
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          is_tag: ${{ inputs.is_tag }}
+          app_id: ${{ secrets.SOURCE_APP_ID }}
+          private_key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+
+      - name: Authenticate default Docker Hub image reads
+        if: ${{ env.HAS_DOCKERHUB_READ == 'true' }}
+        uses: ./central-ci/actions/dockerhub-read
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_READ_TOKEN: ${{ secrets.DOCKERHUB_READ_TOKEN }}
+
+      - name: Prepare the stage log file
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "${RUNNER_TEMP}/ci-work"
+          : > "${RUNNER_TEMP}/ci-work/stage.log"
+          chmod 600 "${RUNNER_TEMP}/ci-work/stage.log"
+
+      - name: Start live log stream to S3
+        uses: ./central-ci/actions/s3-log-stream
+        with:
+          phase: start
+          repository: ${{ inputs.repository }}
+          request_id: ${{ inputs.request_id }}
+          stage: ${{ inputs.stage }}
+          log_path: ${{ runner.temp }}/ci-work/stage.log
+          s3_access_key: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          s3_secret_key: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          s3_endpoint: ${{ secrets.S3_ENDPOINT }}
+          s3_bucket: ${{ secrets.S3_BUCKET }}
+          ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
+
+      - name: Build images and charts (no registry credential)
+        uses: ./central-ci/actions/ci-release
+        env:
+          CI_SECRET_SOURCE_TOKEN: ${{ steps.setup.outputs.token }}
+          CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          CI_SECRET_TAILSCALE_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          CI_SECRET_TAILSCALE_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          CI_SECRET_REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          CI_SECRET_REGISTRY_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
+          CI_SECRET_DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          CI_SECRET_DOCKERHUB_READ_TOKEN: ${{ secrets.DOCKERHUB_READ_TOKEN }}
+          CI_SECRET_S3_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          CI_SECRET_S3_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          CI_SECRET_S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          CI_SECRET_S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        with:
+          phase: build
+          ref: ${{ inputs.ref }}
+          is_tag: ${{ inputs.is_tag }}
+          work_dir: ${{ runner.temp }}/ci-work
+          log_path: ${{ runner.temp }}/ci-work/stage.log
+
+      - name: Publish immutable images and charts
+        uses: ./central-ci/actions/ci-release
+        env:
+          CI_REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          CI_REGISTRY_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
+          CI_SECRET_SOURCE_TOKEN: ${{ steps.setup.outputs.token }}
+          CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          CI_SECRET_TAILSCALE_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          CI_SECRET_TAILSCALE_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          CI_SECRET_REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          CI_SECRET_REGISTRY_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
+          CI_SECRET_DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          CI_SECRET_DOCKERHUB_READ_TOKEN: ${{ secrets.DOCKERHUB_READ_TOKEN }}
+          CI_SECRET_S3_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          CI_SECRET_S3_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          CI_SECRET_S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          CI_SECRET_S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        with:
+          phase: publish
+          ref: ${{ inputs.ref }}
+          is_tag: ${{ inputs.is_tag }}
+          work_dir: ${{ runner.temp }}/ci-work
+          log_path: ${{ runner.temp }}/ci-work/stage.log
+
+      - name: Stop live log stream and write the merged log
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: ./central-ci/actions/s3-log-stream
+        with:
+          phase: stop
+          repository: ${{ inputs.repository }}
+          request_id: ${{ inputs.request_id }}
+          stage: ${{ inputs.stage }}
+
+      - name: Remove Docker Hub read credentials
+        if: ${{ always() && env.HAS_DOCKERHUB_READ == 'true' }}
+        uses: ./central-ci/actions/dockerhub-read
+        with:
+          phase: cleanup
+
+      - name: Remove credentials, source and private logs
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          rm -rf -- "${RUNNER_TEMP}/central-registry-auth" "${RUNNER_TEMP}/ci-work" \
+            "${GITHUB_WORKSPACE}/source" "${GITHUB_WORKSPACE}/central-ci"

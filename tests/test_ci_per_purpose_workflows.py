@@ -33,7 +33,7 @@ auth = load("ci_registry_auth")
 stage = load("ci_stage")
 run_stage = load("ci_run_stage")
 CONTRACT = json.loads((ROOT / "contracts/repository-ci-v1.json").read_text())
-ECOSYSTEMS = ("gradle", "xcode", "python")
+ECOSYSTEMS = ("gradle", "xcode", "python", "node")
 CACHED = ("gradle", "xcode")  # python has no cache by owner decision
 SHA_PIN = re.compile(r"^[^@\s]+@[0-9a-f]{40}( #.*)?$")
 
@@ -100,6 +100,35 @@ class StageResolutionTests(unittest.TestCase):
             stage.resolve("gradle", "build", git_repo({"gradlew": "x"}), {})
         with self.assertRaises(SystemExit):  # a tracked but non executable script is refused, not skipped
             stage.resolve("gradle", "build", git_repo({".ci/build.sh": "x"}), {})
+
+    def test_node_conventions(self):
+        pkg = '{"scripts": {"typecheck": "tsc", "test": "node --test", "build": "next build"}}'
+        app = git_repo({"package.json": pkg, "package-lock.json": "{}"})
+        self.assertEqual(stage.resolve("node", "lint", app, {})["argv"][-1], "npm ci --no-audit --no-fund && npm run typecheck")
+        self.assertEqual(stage.resolve("node", "test", app, {})["argv"][-1], "npm ci --no-audit --no-fund && npm test")
+        self.assertEqual(stage.resolve("node", "build", app, {})["argv"][-1], "npm ci --no-audit --no-fund && npm run build")
+        linted = git_repo({"package.json": '{"scripts": {"lint": "eslint ."}}', "package-lock.json": "{}"})
+        self.assertIn("npm run lint", stage.resolve("node", "lint", linted, {})["argv"][-1])
+        bare = git_repo({"package.json": '{"scripts": {}}', "package-lock.json": "{}"})
+        for name in ("lint", "test", "build"):
+            self.assertEqual(stage.resolve("node", name, bare, {})["mode"], "skip")
+        with self.assertRaises(SystemExit):  # no lockfile
+            stage.resolve("node", "test", git_repo({"package.json": pkg}), {})
+        with self.assertRaises(SystemExit):
+            stage.resolve("node", "test", git_repo({"package.json": "{", "package-lock.json": "{}"}), {})
+        scripted = git_repo({"package.json": pkg, "package-lock.json": "{}", ".ci/test.sh": "#!/bin/sh\n"}, executable=(".ci/test.sh",))
+        self.assertEqual(stage.resolve("node", "test", scripted, {})["mode"], "script")
+
+    def test_release_is_an_operation_of_the_node_ecosystem_only(self):
+        ok = validate.validate(contract=CONTRACT, ecosystem="node", request_id="req-0123456789",
+                               repository="StreamScapeTV/example-app", ref="1.2.3", is_tag="true",
+                               operation="release", options_raw="{}")
+        self.assertEqual(ok["stages"], ["lint", "test", "build", "release"])
+        for ecosystem in ("gradle", "xcode", "python"):
+            with self.assertRaises(SystemExit):
+                validate.validate(contract=CONTRACT, ecosystem=ecosystem, request_id="req-0123456789",
+                                  repository="StreamScapeTV/example-app", ref="1.2.3", is_tag="true",
+                                  operation="release", options_raw="{}")
 
     def test_python_conventions(self):
         lib = git_repo({"pyproject.toml": "[tool.ruff]\n[project.optional-dependencies]\ndev=['pytest']\n", "tests/test_a.py": "x"})
@@ -295,7 +324,7 @@ class WorkflowShapeTests(unittest.TestCase):
             self.assertEqual(document["permissions"], {"contents": "read"})
             # safety net only: one pipeline per repository + ref, never cancels another request
             self.assertEqual(document["concurrency"], {"group": "ci-${{ inputs.repository }}-${{ inputs.ref }}", "cancel-in-progress": False})
-            self.assertEqual(list(document["jobs"]), ["plan", "lint", "test", "build"])
+            self.assertEqual(list(document["jobs"]), ["plan", "lint", "test", "build"] + (["release"] if name == "node" else []))
 
     def test_no_automatic_triggers(self):
         for name in ECOSYSTEMS:
@@ -333,6 +362,8 @@ class WorkflowShapeTests(unittest.TestCase):
         for name in ECOSYSTEMS:
             for suffix in ("", "-stage"):
                 text = (ROOT / f".github/workflows/ci-{name}{suffix}.yml").read_text()
+                if name == "node" and suffix == "":  # the release job (and only it) carries the publication secrets
+                    text = text.split("\n  release:\n")[0]
                 used = set(re.findall(r"secrets\.([A-Z0-9_]+)", text))
                 for token in forbidden:
                     self.assertFalse([item for item in used if token in item], (name, token))
@@ -345,6 +376,24 @@ class WorkflowShapeTests(unittest.TestCase):
             self.assertEqual(passes, job == "test", job)
             for secrets in (xcode["jobs"][job]["secrets"],):
                 self.assertNotIn("inherit", str(secrets))
+
+    def test_release_operation_runs_the_chain_and_the_write_credential_is_publish_only(self):
+        node = self.entry("node")
+        release = node["jobs"]["release"]
+        self.assertEqual(release["needs"], ["plan", "build"])
+        self.assertTrue(release["if"].endswith("&& needs.build.result == 'success' }}"))
+        self.assertIn("contains(fromJSON(needs.plan.outputs.stages), 'release')", release["if"])
+        self.assertEqual(release["uses"], "./.github/workflows/ci-oci-release-stage.yml")
+        self.assertNotIn("inherit", str(release["secrets"]))
+        stage = yaml.safe_load((ROOT / ".github/workflows/ci-oci-release-stage.yml").read_text())
+        steps = stage["jobs"]["stage"]["steps"]
+        holders = [s["name"] for s in steps if "CI_REGISTRY_TOKEN" in (s.get("env") or {})]
+        self.assertEqual(holders, ["Publish immutable images and charts"])
+        for text in ((ROOT / ".github/workflows/ci-node-stage.yml").read_text(),):
+            self.assertNotIn("FORGEJO_REGISTRY_TOKEN", text)
+        self.assertIn("always()", next(s for s in steps if s["name"].startswith("Stop live log"))["if"])
+        for gradle in ("gradle", "xcode", "python"):  # only node publishes today
+            self.assertNotIn("release", self.entry(gradle)["jobs"])
 
     def test_stage_jobs_are_separate_ordered_and_reusable_files_exist(self):
         for name in ECOSYSTEMS:
@@ -386,7 +435,7 @@ class WorkflowShapeTests(unittest.TestCase):
             text = path.read_text()
             document = yaml.safe_load(text)
             on = document.get("on") or document[True]
-            if path.name.startswith(("ci-gradle", "ci-xcode", "ci-python")):
+            if path.name.startswith(("ci-gradle", "ci-xcode", "ci-python", "ci-node", "ci-oci")):
                 self.assertNotIn("secrets: inherit", text, path.name)
             self.assertEqual(text.count("s3_secret_key:"), text.count("s3_endpoint: ${{ secrets.S3_ENDPOINT }}"), path.name)
             self.assertEqual(text.count("s3_secret_key:"), text.count("s3_bucket: ${{ secrets.S3_BUCKET }}"), path.name)
