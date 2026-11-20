@@ -24,7 +24,11 @@ MAX_OPTIONS_BYTES = 4096
 # Hierarchy lint < test < build: the top requested operation runs every operation below it as a stage.
 HIERARCHY = ("lint", "test", "build")
 OPERATIONS = {name: HIERARCHY[: index + 1] for index, name in enumerate(HIERARCHY)}
+# Ecosystems whose workflow also publishes (operation release runs lint, test, build, release).
+RELEASE_ECOSYSTEMS = ("node",)
+RELEASE_OPERATIONS = {**OPERATIONS, "release": (*HIERARCHY, "release")}
 EXTRA_FIELDS = {
+    "node": {},
     "xcode": {"scheme": {"type": "string", "maxLength": 64, "pattern": r"[A-Za-z0-9._-]{1,64}"}},
     "gradle": {},
     "python": {},
@@ -84,8 +88,9 @@ def validate(*, contract: dict, ecosystem: str, request_id: str, repository: str
         _fail("ref is outside the reviewed bound")
     if is_tag not in ("true", "false"):
         _fail("is_tag must be true or false")
-    if operation not in OPERATIONS:
-        _fail("operation must be one of: " + ", ".join(OPERATIONS))
+    operations_table = RELEASE_OPERATIONS if ecosystem in RELEASE_ECOSYSTEMS else OPERATIONS
+    if operation not in operations_table:
+        _fail("operation must be one of: " + ", ".join(operations_table))
     if len(options_raw.encode("utf-8")) > MAX_OPTIONS_BYTES:
         _fail("options exceed the reviewed bound")
     try:
@@ -99,7 +104,7 @@ def validate(*, contract: dict, ecosystem: str, request_id: str, repository: str
     fields = dict(semantic.get("fields") or {})
     operations = semantic.get("operations") or {}
     fields.update(EXTRA_FIELDS[ecosystem])
-    stages = list(OPERATIONS[operation])
+    stages = list(operations_table[operation])
     allowed = set(EXTRA_FIELDS[ecosystem])
     for stage in stages:
         spec = operations.get(stage)

@@ -1,0 +1,45 @@
+name: Central CI release (images and charts)
+description: >-
+  Build or publish the container images and Helm charts declared in .ci/release.json of the source
+  checked out at ./source (scripts/ci/ci_release.py). Central must be checked out at ./central-ci.
+  phase build uses no registry credential. phase publish needs CI_REGISTRY_USERNAME and
+  CI_REGISTRY_TOKEN (and CI_SECRET_* scrub values) in the env of the step that uses this action; the
+  product code never sees them. Versions come from the root VERSION file; names, tags and registry
+  paths are fixed (git.faruqi.dev/mimranfaruqi/<image>:<VERSION>, charts under helm-charts).
+inputs:
+  phase:
+    description: build or publish
+    required: true
+  ref:
+    required: true
+  is_tag:
+    required: true
+  work_dir:
+    required: true
+  log_path:
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Run the release phase
+      shell: bash
+      env:
+        RELEASE_PHASE: ${{ inputs.phase }}
+        RELEASE_REF: ${{ inputs.ref }}
+        RELEASE_IS_TAG: ${{ inputs.is_tag }}
+        RELEASE_WORK_DIR: ${{ inputs.work_dir }}
+        RELEASE_LOG_PATH: ${{ inputs.log_path }}
+      run: |
+        set -Eeuo pipefail
+        case "${RELEASE_PHASE}" in
+          build)
+            python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ci_release.py" build \
+              --source source --ref "${RELEASE_REF}" --is-tag "${RELEASE_IS_TAG}" \
+              --work-dir "${RELEASE_WORK_DIR}" --log-path "${RELEASE_LOG_PATH}"
+            ;;
+          publish)
+            python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/ci_release.py" publish \
+              --work-dir "${RELEASE_WORK_DIR}" --log-path "${RELEASE_LOG_PATH}"
+            ;;
+          *) echo "phase must be build or publish" >&2; exit 2 ;;
+        esac

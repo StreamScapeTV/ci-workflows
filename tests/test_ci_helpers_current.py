@@ -42,13 +42,13 @@ class CiHelperTests(_prior.CiHelperTests):
         actions = {p.name for p in (_prior.ROOT / "actions").iterdir() if p.is_dir()}
         legacy = {"agent-state", "s3-upload", "s3-log-stream", "private-git", "dockerhub-read"}
         # per-purpose workflow building blocks (docs/per-purpose-ci-workflows.md)
-        added = {"ci-setup", "ci-cache", "setup-tailscale"}
+        added = {"ci-setup", "ci-cache", "setup-tailscale", "ci-release"}
         self.assertTrue(legacy <= actions <= legacy | added, actions ^ (legacy | added))
 
     def test_workflows_use_no_reusable_prefix(self) -> None:
         every = {p.name for p in (_prior.ROOT / ".github/workflows").glob("*.yml")}
         # the per-purpose ecosystem workflows (ci-<ecosystem>[-stage].yml) are checked in test_ci_per_purpose_workflows
-        names = {n for n in every if not n.startswith(("ci-gradle", "ci-xcode", "ci-python"))}
+        names = {n for n in every if not n.startswith(("ci-gradle", "ci-xcode", "ci-python", "ci-node", "ci-oci"))}
         self.assertEqual(len(names), 18)
         self.assertIn("apple-credential-preflight.yml", names)
         self.assertNotIn("broker.yml", names)

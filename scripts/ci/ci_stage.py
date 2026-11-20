@@ -121,6 +121,25 @@ def python(source: Path, stage: str, options: dict):
     return {"mode": "convention", "argv": ["bash", "-ec", f"{venv} && {body}"]}
 
 
+def node(source: Path, stage: str, options: dict):
+    """Node convention: npm ci from the lockfile, then the package.json script of the stage."""
+    names = _tracked_names(source)
+    if "package.json" not in names or "package-lock.json" not in names:
+        _fail("Node convention: commit package.json and package-lock.json at the repository root")
+    try:
+        scripts = json.loads((source / "package.json").read_text(encoding="utf-8")).get("scripts") or {}
+    except (ValueError, AttributeError):
+        _fail("Node convention: package.json is not valid JSON")
+    if not isinstance(scripts, dict):
+        _fail("Node convention: package.json scripts must be an object")
+    wanted = {"lint": ("lint", "typecheck"), "test": ("test",), "build": ("build",)}[stage]
+    script = next((name for name in wanted if name in scripts), None)
+    if script is None:
+        return _skip(f"no {stage} convention: add a package.json script named {' or '.join(wanted)}")
+    run = "npm test" if script == "test" else f"npm run {script}"
+    return {"mode": "convention", "argv": ["bash", "-ec", f"npm ci --no-audit --no-fund && {run}"]}
+
+
 def resolve(ecosystem: str, stage: str, source: Path, options: dict, derived_data: str = "DerivedData"):
     if stage not in SCRIPT:
         _fail("unsupported stage")
@@ -131,6 +150,8 @@ def resolve(ecosystem: str, stage: str, source: Path, options: dict, derived_dat
         return gradle(source, stage, options)
     if ecosystem == "xcode":
         return xcode(source, stage, options, derived_data)
+    if ecosystem == "node":
+        return node(source, stage, options)
     if ecosystem == "python":
         return python(source, stage, options)
     _fail("unsupported ecosystem")

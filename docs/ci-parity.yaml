@@ -20,9 +20,9 @@ legacy_pairs:
   - {key: release.apple,         profile: swiftpm-package, target: ci-swiftpm, status: planned, tailscale: true}
   - {key: release.library-package, profile: publish,   target: ci-swiftpm, status: planned, tailscale: true}
   - {key: release.maven,         profile: publish,     target: ci-maven, status: planned, tailscale: true}
-  - {key: release.public-native-image-chart, profile: "*", target: ci-helm, status: planned, tailscale: false}
-  - {key: release.public-native-image-chart-primary, profile: "*", target: ci-helm, status: planned, tailscale: false}
-  - {key: release.public-native-image-chart-secondary, profile: "*", target: ci-helm, status: planned, tailscale: false}
+  - {key: release.public-native-image-chart, profile: "*", target: ci-node, status: implemented, tailscale: true}
+  - {key: release.public-native-image-chart-primary, profile: "*", target: ci-node, status: implemented, tailscale: true}
+  - {key: release.public-native-image-chart-secondary, profile: "*", target: ci-node, status: implemented, tailscale: true}
   - {key: oci.reproducibility,   profile: "*",         target: ci-docker, status: planned, tailscale: false}
   - {key: inspection.cluster,    profile: "*",         target: ci-cluster-inspect, status: planned, tailscale: true}
   - {key: validation.android,    profile: "*",         target: ci-gradle ui-test operation, status: planned, tailscale: true}
@@ -41,7 +41,7 @@ capabilities:
   "ephemeral Git HTTPS authentication": actions/ci-setup (ci_registry_auth.py --github-git)
   "ephemeral private HTTPS registry authentication": actions/ci-setup (ci_registry_auth.py --registry-netrc)
   "ephemeral Gradle private-Maven read authentication": ci-gradle-stage (ci_registry_auth.py --gradle-maven)
-  "authorized OCI image and Helm registry publication": ci-docker and ci-helm (planned)
+  "authorized OCI image and Helm registry publication": ci-oci-release-stage + actions/ci-release (ci-node release operation)
   "product and toolchain build/test/package commands": convention in scripts/ci/ci_stage.py or tracked .ci/<stage>.sh
   "product target, selector, UI-mode and release semantics": options in contracts/repository-ci-v1.json
   "toolchain bootstrap and hosted emulator/simulator setup for ordinary validation": ci-gradle-stage and ci-xcode-stage
