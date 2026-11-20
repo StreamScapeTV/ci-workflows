@@ -37,6 +37,10 @@ name: OCI reproducibility proof
         required: true
       S3_GITHUB_TRANSPORT_SECRET_KEY:
         required: true
+      S3_ENDPOINT:
+        required: false
+      S3_BUCKET:
+        required: false
 
 permissions:
   contents: read
@@ -371,6 +375,8 @@ jobs:
           CI_SECRET_AGENT_STATE_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
           CI_SECRET_S3_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
           CI_SECRET_S3_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          CI_SECRET_S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          CI_SECRET_S3_BUCKET: ${{ secrets.S3_BUCKET }}
         run: |
           set -Eeuo pipefail
           python3 - <<'PY'
@@ -408,6 +414,8 @@ jobs:
           content_type: text/plain
           s3_access_key: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
           s3_secret_key: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          s3_endpoint: ${{ secrets.S3_ENDPOINT }}
+          s3_bucket: ${{ secrets.S3_BUCKET }}
           ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
 

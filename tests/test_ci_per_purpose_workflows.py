@@ -381,6 +381,24 @@ class WorkflowShapeTests(unittest.TestCase):
                      "STREAMSCAPE_DEMO_PASSWORD", "XTREAM_URL", "XTREAM_USERNAME", "XTREAM_PASSWORD"):
             self.assertEqual(env[f"CI_SECRET_FIXTURE_{name}"], f"${{{{ secrets.{name} }}}}")
 
+    def test_s3_endpoint_and_bucket_are_explicit_secrets_everywhere(self):
+        for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+            text = path.read_text()
+            document = yaml.safe_load(text)
+            on = document.get("on") or document[True]
+            if path.name.startswith(("ci-gradle", "ci-xcode", "ci-python")):
+                self.assertNotIn("secrets: inherit", text, path.name)
+            self.assertEqual(text.count("s3_secret_key:"), text.count("s3_endpoint: ${{ secrets.S3_ENDPOINT }}"), path.name)
+            self.assertEqual(text.count("s3_secret_key:"), text.count("s3_bucket: ${{ secrets.S3_BUCKET }}"), path.name)
+            if "secrets.S3_ENDPOINT" in text and isinstance(on, dict) and "workflow_call" in on:
+                declared = on["workflow_call"]["secrets"]
+                for name in ("S3_ENDPOINT", "S3_BUCKET"):
+                    self.assertIn(name, declared, path.name)
+                    self.assertFalse(declared[name].get("required"), path.name)
+        for name in ECOSYSTEMS:  # entry workflows map them to the stage jobs
+            text = (ROOT / f".github/workflows/ci-{name}.yml").read_text()
+            self.assertEqual(text.count("S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}"), text.count("uses: ./.github/workflows/ci-"))
+
     def test_entry_input_contract_with_the_runner(self):
         for name in ECOSYSTEMS:
             document = self.entry(name)

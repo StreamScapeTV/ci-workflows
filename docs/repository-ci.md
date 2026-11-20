@@ -538,8 +538,10 @@ Existing private-registry publication checks and permissions still apply.
 
 Central writes private text logs, bounded evidence archives, screenshots and kept
 release archives to one bucket of the owner's S3 API, reached
-over Tailscale. The endpoint and bucket are not in this public repository: set the repository variables
-`S3_ENDPOINT` (https URL) and `S3_BUCKET`; the helper has no default and fails closed without them.
+over Tailscale. The endpoint and bucket are not in this public repository: the GitHub Actions secrets
+`S3_ENDPOINT` (https URL) and `S3_BUCKET` are mapped explicitly through every workflow (never `secrets: inherit`);
+a repository variable of the same name is only a fallback when the secret is empty. The helper has no default and
+fails closed without either.
 The credentials are the GitHub secrets `S3_GITHUB_TRANSPORT_ACCESS_KEY` and
 `S3_GITHUB_TRANSPORT_SECRET_KEY`. The shared `actions/s3-upload` action (script
 `scripts/ci/s3_put.py`, standard library SigV4) is the only writer and accepts only

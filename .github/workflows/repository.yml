@@ -88,6 +88,10 @@ name: Repository-owned CI
         required: false
       S3_GITHUB_TRANSPORT_SECRET_KEY:
         required: false
+      S3_ENDPOINT:
+        required: false
+      S3_BUCKET:
+        required: false
       TS_OAUTH_CLIENT_ID:
         required: false
       TS_OAUTH_SECRET:
@@ -1527,6 +1531,8 @@ jobs:
           content_type: text/plain
           s3_access_key: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
           s3_secret_key: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          s3_endpoint: ${{ secrets.S3_ENDPOINT }}
+          s3_bucket: ${{ secrets.S3_BUCKET }}
           ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
 
@@ -1562,12 +1568,16 @@ jobs:
           CHECKPOINT_SEED_SHA256: ${{ steps.log_seed.outputs.file_sha256 }}
           CHECKPOINT_S3_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
           CHECKPOINT_S3_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          CHECKPOINT_S3_ENDPOINT: ${{ secrets.S3_ENDPOINT || vars.S3_ENDPOINT }}
+          CHECKPOINT_S3_BUCKET: ${{ secrets.S3_BUCKET || vars.S3_BUCKET }}
           CI_SECRET_SOURCE_TOKEN: ${{ steps.source.outputs.token }}
           CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
           CI_SECRET_AGENT_STATE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
           CI_SECRET_AGENT_STATE_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
           CI_SECRET_S3_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
           CI_SECRET_S3_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          CI_SECRET_S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          CI_SECRET_S3_BUCKET: ${{ secrets.S3_BUCKET }}
           CI_SECRET_TAILSCALE_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           CI_SECRET_TAILSCALE_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
           CI_APPLE_TEAM_ID: ${{ needs.resolve_host.outputs.host_os == 'macos' && secrets.APPLE_TEAM_ID || '' }}
@@ -1727,6 +1737,8 @@ jobs:
             fi
             S3_GITHUB_TRANSPORT_ACCESS_KEY="${CHECKPOINT_S3_ACCESS_KEY}" \
             S3_GITHUB_TRANSPORT_SECRET_KEY="${CHECKPOINT_S3_SECRET_KEY}" \
+            S3_ENDPOINT="${CHECKPOINT_S3_ENDPOINT:-}" \
+            S3_BUCKET="${CHECKPOINT_S3_BUCKET:-}" \
             python3 central-ci/scripts/ci/repository_log_checkpoint.py \
               --log-path "${CI_LOG}" \
               --object-key "${CHECKPOINT_OBJECT_KEY}" \
@@ -1757,12 +1769,16 @@ jobs:
           unset \
             CHECKPOINT_S3_ACCESS_KEY \
             CHECKPOINT_S3_SECRET_KEY \
+            CHECKPOINT_S3_ENDPOINT \
+            CHECKPOINT_S3_BUCKET \
             CI_SECRET_SOURCE_TOKEN \
             CI_SECRET_SOURCE_PRIVATE_KEY \
             CI_SECRET_AGENT_STATE_URL \
             CI_SECRET_AGENT_STATE_KEY \
             CI_SECRET_S3_ACCESS_KEY \
             CI_SECRET_S3_SECRET_KEY \
+            CI_SECRET_S3_ENDPOINT \
+            CI_SECRET_S3_BUCKET \
             CI_SECRET_TAILSCALE_ID \
             CI_SECRET_TAILSCALE_SECRET \
             CI_SECRET_DOCKERHUB_USERNAME \
@@ -2093,6 +2109,8 @@ jobs:
           CI_SECRET_AGENT_STATE_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
           CI_SECRET_S3_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
           CI_SECRET_S3_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          CI_SECRET_S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          CI_SECRET_S3_BUCKET: ${{ secrets.S3_BUCKET }}
           CI_SECRET_TAILSCALE_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           CI_SECRET_TAILSCALE_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
           CI_SECRET_DOCKERHUB_USERNAME: ${{ needs.resolve_host.outputs.host_os == 'linux' && secrets.DOCKERHUB_USERNAME || '' }}
@@ -2586,6 +2604,8 @@ jobs:
           content_type: text/plain
           s3_access_key: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
           s3_secret_key: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          s3_endpoint: ${{ secrets.S3_ENDPOINT }}
+          s3_bucket: ${{ secrets.S3_BUCKET }}
           ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
 
@@ -2602,6 +2622,8 @@ jobs:
           content_type: application/zip
           s3_access_key: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
           s3_secret_key: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          s3_endpoint: ${{ secrets.S3_ENDPOINT }}
+          s3_bucket: ${{ secrets.S3_BUCKET }}
           ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
 

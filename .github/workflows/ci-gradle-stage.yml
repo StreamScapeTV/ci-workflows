@@ -41,6 +41,10 @@ name: Central CI Gradle stage
         required: true
       S3_GITHUB_TRANSPORT_SECRET_KEY:
         required: true
+      S3_ENDPOINT:
+        required: false
+      S3_BUCKET:
+        required: false
 
 permissions:
   contents: read
@@ -116,6 +120,8 @@ jobs:
           log_path: ${{ runner.temp }}/ci-work/stage.log
           s3_access_key: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
           s3_secret_key: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          s3_endpoint: ${{ secrets.S3_ENDPOINT }}
+          s3_bucket: ${{ secrets.S3_BUCKET }}
           ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
 

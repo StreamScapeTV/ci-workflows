@@ -4,11 +4,11 @@ description: "Live log streaming. phase start presigns the upload URLs in a shor
 
 inputs:
   s3_endpoint:
-    description: S3 endpoint URL; empty means the repository variable S3_ENDPOINT
+    description: S3 endpoint URL; pass the secret S3_ENDPOINT; empty falls back to the repository variable of the same name
     required: false
     default: ""
   s3_bucket:
-    description: S3 bucket name; empty means the repository variable S3_BUCKET
+    description: S3 bucket name; pass the secret S3_BUCKET; empty falls back to the repository variable of the same name
     required: false
     default: ""
   phase:

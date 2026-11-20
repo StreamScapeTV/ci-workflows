@@ -146,6 +146,7 @@ No new secret is invented by these workflows; they use names that already exist 
 | Item | Needed by | Note |
 | --- | --- | --- |
 | `S3_GITHUB_TRANSPORT_ACCESS_KEY` / `S3_GITHUB_TRANSPORT_SECRET_KEY` | every stage workflow (live logs) | Present only in the short presign step of `actions/s3-log-stream`; the key can be prefix-scoped to `logs/*` (put-only) because uploads use presigned URLs. A prefix-scoped key is recommended, not required. |
+| `S3_ENDPOINT` / `S3_BUCKET` | every stage workflow (live logs), legacy uploads | GitHub Actions secrets, mapped explicitly; also scrubbed from logs. A repository variable of the same name is only a fallback. |
 | `SOURCE_APP_ID` / `SOURCE_APP_PRIVATE_KEY` | every workflow | Token is scoped to the one source repository. |
 | `TS_OAUTH_CLIENT_ID` / `TS_OAUTH_SECRET` | every workflow | Private network for the registry and S3 endpoint. |
 | `FORGEJO_REGISTRY_USERNAME` / `CIW_MAVEN_PACKAGE_READ_TOKEN` | gradle, xcode, python | Private registry read access. |
