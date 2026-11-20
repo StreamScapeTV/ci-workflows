@@ -455,6 +455,17 @@ class WorkflowShapeTests(unittest.TestCase):
             for context in ("vars.", "secrets."):
                 self.assertNotRegex(text, r"\$\{\{[^}]*\b" + re.escape(context), f"{path.parent.name}: {context}")
 
+    def test_s3_actions_probe_with_the_endpoint_and_never_connect_tailscale_twice(self):
+        # Run 44821576370: the probe had no S3_ENDPOINT, said unreachable, and a second Tailscale install failed (OP 7160).
+        for name in ("s3-log-stream", "s3-upload"):
+            steps = yaml.safe_load((ROOT / "actions" / name / "action.yml").read_text())["runs"]["steps"]
+            probe = next(step for step in steps if step.get("id") == "probe")
+            self.assertEqual(probe["env"]["S3_ENDPOINT"], "${{ inputs.s3_endpoint }}", name)
+            self.assertIn("tailscale status", probe["run"], name)
+            connect = next(step for step in steps if "private-git" in step.get("uses", ""))
+            self.assertIn("steps.probe.outputs.joined != 'true'", connect["if"], name)
+            self.assertIn("steps.probe.outputs.reachable != 'true'", connect["if"], name)
+
     def test_stage_cleanup_keeps_the_local_actions_the_post_steps_reload(self):
         # Deleting central-ci before the post-job phase made the runner lose ci-setup's action.yml (run 44815453792).
         for name in ECOSYSTEMS + ("oci-release",):
