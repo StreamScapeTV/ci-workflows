@@ -1,0 +1,403 @@
+# Per-purpose Central CI entry workflow: Apple (Xcode/SwiftPM) lint, build and test on macOS.
+# Dispatched by ci-broker with exactly the Agent State CI run id. The run, not this file, names
+# repository, ref and profile. Credentials are fixed for this purpose (see
+# docs/per-purpose-ci-workflows.md): Agent State, source App, Tailscale, Forgejo registry read, the
+# log uploader, and the integration fixtures only for the `test` profile. No Apple signing,
+# App Store Connect, Docker Hub or publish secret is available here (build and macOS tests run
+# with CODE_SIGNING_ALLOWED=NO in the product scripts).
+name: Central CI Apple build
+
+run-name: Central CI Apple build ${{ inputs.ci_run_id }}
+
+"on":
+  workflow_dispatch:
+    inputs:
+      ci_run_id:
+        description: Agent State CI run UUID
+        type: string
+        required: true
+      host_class:
+        description: Server-resolved host class (macos-hosted or macos-high-capacity)
+        type: string
+        required: false
+        default: macos-hosted
+
+permissions:
+  contents: read
+
+env:
+  WORKFLOW_FILE: ci-apple-build.yml
+
+jobs:
+  claim:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      repository: ${{ steps.claim.outputs.repository }}
+      ref: ${{ steps.claim.outputs.ref }}
+      is_tag: ${{ steps.claim.outputs.is_tag }}
+      test_profile: ${{ steps.claim.outputs.test_profile }}
+      entrypoint: ${{ steps.validate.outputs.entrypoint }}
+      semantic_inputs_json: ${{ steps.validate.outputs.semantic_inputs_json }}
+      runs_on: ${{ steps.host.outputs.runs_on }}
+      host_class: ${{ steps.host.outputs.host_class }}
+      concurrency_key: ${{ steps.lane.outputs.concurrency_key }}
+      cancel_in_progress: ${{ steps.lane.outputs.cancel_in_progress }}
+    steps:
+      - name: Check out Central CI contract and helpers
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          path: central-ci
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            actions
+            scripts/ci
+            contracts
+
+      - name: Claim Agent State CI run
+        id: claim
+        uses: ./central-ci/actions/agent-state
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: claim
+          ci_run_id: ${{ inputs.ci_run_id }}
+
+      - name: Validate request for this purpose
+        id: validate
+        shell: bash
+        env:
+          WORKFLOW_KEY: ${{ steps.claim.outputs.workflow_key }}
+          TEST_PROFILE: ${{ steps.claim.outputs.test_profile }}
+          CLAIM_INPUTS_JSON: ${{ steps.claim.outputs.inputs_json }}
+        run: |
+          set -Eeuo pipefail
+          result="$(python3 central-ci/scripts/ci/ci_validate_inputs.py \
+            --contract central-ci/contracts/repository-ci-v1.json \
+            --allow lint,build,test \
+            --accept-workflow-key validation.repository \
+            --host-os macos)"
+          {
+            printf 'entrypoint=%s\n' "$(jq -r '.entrypoint' <<<"${result}")"
+            printf 'semantic_inputs_json=%s\n' "$(jq -r '.semantic_inputs_json' <<<"${result}")"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Resolve host class to a reviewed runner
+        id: host
+        shell: bash
+        env:
+          HOST_CLASS: ${{ inputs.host_class }}
+        run: |
+          set -Eeuo pipefail
+          case "${HOST_CLASS:-macos-hosted}" in
+            macos-hosted|"") host_class=macos-hosted; runs_on=macos-latest ;;
+            macos-high-capacity) host_class=macos-high-capacity; runs_on=macos-latest-xl ;;
+            *) echo "host_class is not a reviewed macOS class for this workflow" >&2; exit 2 ;;
+          esac
+          printf 'host_class=%s\nruns_on=%s\n' "${host_class}" "${runs_on}" >> "${GITHUB_OUTPUT}"
+
+      - name: Resolve bounded concurrency lane
+        id: lane
+        shell: bash
+        env:
+          SOURCE_REPOSITORY: ${{ steps.claim.outputs.repository }}
+          SOURCE_REF: ${{ steps.claim.outputs.ref }}
+          SOURCE_IS_TAG: ${{ steps.claim.outputs.is_tag }}
+          TEST_PROFILE: ${{ steps.claim.outputs.test_profile }}
+        run: python3 central-ci/scripts/ci/ci_lane.py
+
+  build:
+    needs: claim
+    runs-on: ${{ needs.claim.outputs.runs_on }}
+    timeout-minutes: 120
+    concurrency:
+      group: ci-apple-${{ needs.claim.outputs.concurrency_key }}
+      cancel-in-progress: ${{ needs.claim.outputs.cancel_in_progress == 'true' }}
+    steps:
+      - name: Initialize private execution paths
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          log="${RUNNER_TEMP}/central-ci.log"
+          log_dir="${RUNNER_TEMP}/ci-logs"
+          artifact_dir="${RUNNER_TEMP}/ci-artifacts"
+          progress="${RUNNER_TEMP}/ci-progress.txt"
+          mkdir -p "${log_dir}" "${artifact_dir}"
+          : > "${log}"
+          : > "${progress}"
+          chmod 600 "${log}" "${progress}"
+          chmod 700 "${log_dir}" "${artifact_dir}"
+          {
+            printf 'CI_LOG=%s\n' "${log}"
+            printf 'CI_LOG_DIR=%s\n' "${log_dir}"
+            printf 'CI_ARTIFACT_DIR=%s\n' "${artifact_dir}"
+            printf 'CI_PROGRESS_FILE=%s\n' "${progress}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Check out Central CI contract and helpers
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          path: central-ci
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            actions
+            scripts/ci
+            contracts
+
+      - name: Mark Agent State run as running
+        uses: ./central-ci/actions/agent-state
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: start
+          ci_run_id: ${{ inputs.ci_run_id }}
+
+      - name: Check out exact source and attest entrypoint
+        id: source
+        uses: ./central-ci/actions/ci-source
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          repository: ${{ needs.claim.outputs.repository }}
+          ref: ${{ needs.claim.outputs.ref }}
+          is_tag: ${{ needs.claim.outputs.is_tag }}
+          entrypoint: ${{ needs.claim.outputs.entrypoint }}
+          ci_run_id: ${{ inputs.ci_run_id }}
+          app_id: ${{ secrets.SOURCE_APP_ID }}
+          private_key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+
+      - name: Connect private network
+        uses: ./central-ci/actions/setup-tailscale
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+
+      - name: Configure ephemeral Git and registry authentication
+        id: auth
+        shell: bash
+        env:
+          GITHUB_SOURCE_TOKEN: ${{ steps.source.outputs.token }}
+          REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          REGISTRY_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+        run: python3 central-ci/scripts/ci/ci_registry_auth.py --github-git --registry-netrc
+
+      - name: Expose isolated netrc to native SwiftPM resolution
+        shell: bash
+        run: python3 central-ci/scripts/ci/repository_macos_netrc.py install
+
+      - name: Materialize integration-test fixtures (test profile only)
+        if: ${{ needs.claim.outputs.test_profile == 'test' }}
+        shell: bash
+        env:
+          STREAMSCAPE_API_BASE: ${{ secrets.STREAMSCAPE_API_BASE }}
+          STREAMSCAPE_EMAIL: ${{ secrets.STREAMSCAPE_EMAIL }}
+          STREAMSCAPE_PASSWORD: ${{ secrets.STREAMSCAPE_PASSWORD }}
+          STREAMSCAPE_DEMO_EMAIL: ${{ secrets.STREAMSCAPE_DEMO_EMAIL }}
+          STREAMSCAPE_DEMO_PASSWORD: ${{ secrets.STREAMSCAPE_DEMO_PASSWORD }}
+          XTREAM_URL: ${{ secrets.XTREAM_URL }}
+          XTREAM_USERNAME: ${{ secrets.XTREAM_USERNAME }}
+          XTREAM_PASSWORD: ${{ secrets.XTREAM_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          python3 central-ci/scripts/ci/repository_test_fixtures.py
+          printf 'CI_TEST_FIXTURE_FILE=%s\n' "${RUNNER_TEMP}/central-test-fixtures.json" >> "${GITHUB_ENV}"
+
+      - name: Resolve SwiftPM cache identity
+        id: cache
+        if: ${{ runner.environment == 'github-hosted' }}
+        shell: bash
+        env:
+          SOURCE_REPOSITORY: ${{ needs.claim.outputs.repository }}
+          SOURCE_REF: ${{ needs.claim.outputs.ref }}
+          SOURCE_IS_TAG: ${{ needs.claim.outputs.is_tag }}
+        run: |
+          set -Eeuo pipefail
+          native_home="$(python3 -c 'import os, pwd; print(pwd.getpwuid(os.getuid()).pw_dir)')"
+          python3 central-ci/scripts/ci/ci_cache.py identity --kind swiftpm --source source --home "${native_home}"
+
+      - name: Restore SwiftPM caches
+        id: cache_restore
+        if: ${{ steps.cache.outputs.enabled == 'true' }}
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.cache.outputs.paths }}
+          key: ${{ steps.cache.outputs.key }}
+          restore-keys: ${{ steps.cache.outputs.restore_keys }}
+
+      - name: Record SwiftPM cache restoration
+        if: ${{ steps.cache.outputs.enabled == 'true' }}
+        shell: bash
+        env:
+          CACHE_HIT: ${{ steps.cache_restore.outputs.cache-hit }}
+          MATCHED_KEY: ${{ steps.cache_restore.outputs.cache-matched-key }}
+          TRUST: ${{ steps.cache.outputs.trust }}
+        run: |
+          {
+            printf '\n===== swiftpm-cache =====\n'
+            printf 'exact_hit=%s\nmatched_key=%s\nref_trust=%s\n' "${CACHE_HIT:-false}" "${MATCHED_KEY:-none}" "${TRUST}"
+          } >> "${CI_LOG}"
+
+      - name: Execute fixed repository-owned entrypoint
+        id: execute
+        shell: bash
+        env:
+          ENTRYPOINT: ${{ needs.claim.outputs.entrypoint }}
+          OPERATION: ${{ needs.claim.outputs.test_profile }}
+          HOST_CLASS: ${{ needs.claim.outputs.host_class }}
+          NORMALIZED_INPUTS: ${{ needs.claim.outputs.semantic_inputs_json }}
+          AUTH_HOME: ${{ steps.auth.outputs.auth_home }}
+          AUTH_GIT_CONFIG: ${{ steps.auth.outputs.git_config }}
+        run: |
+          set -Eeuo pipefail
+          export HOME="${AUTH_HOME}"
+          export GIT_CONFIG_GLOBAL="${AUTH_GIT_CONFIG}"
+          export GIT_TERMINAL_PROMPT=0
+          export CI_HOST_OS=macos
+          export CI_HOST_CLASS="${HOST_CLASS}"
+          export CI_OPERATION="${OPERATION}"
+          export CI_INPUTS_JSON="${NORMALIZED_INPUTS}"
+          set +e
+          (
+            cd source
+            "./${ENTRYPOINT}"
+          ) 2>&1 | python3 central-ci/scripts/ci/repository_log_capture.py \
+            --log-path "${CI_LOG}" --overlap-bytes 65536
+          statuses=("${PIPESTATUS[@]}")
+          set -e
+          product_status="${statuses[0]}"
+          capture_status="${statuses[1]}"
+          if test "${product_status}" -ne 0; then
+            echo "repository-owned ${OPERATION} operation failed; inspect the private CI log" >&2
+            exit "${product_status}"
+          fi
+          test "${capture_status}" -eq 0 || { echo "private log capture failed" >&2; exit "${capture_status}"; }
+
+      - name: Check SwiftPM cache is safe to save
+        id: cache_guard
+        if: >-
+          ${{ steps.execute.outcome == 'success'
+              && steps.cache.outputs.save_allowed == 'true'
+              && steps.cache_restore.outputs.cache-hit != 'true' }}
+        shell: bash
+        env:
+          CI_SECRET_SOURCE_TOKEN: ${{ steps.source.outputs.token }}
+          CI_SECRET_REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          CI_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+          CACHE_PATHS: ${{ steps.cache.outputs.paths }}
+        run: |
+          set -Eeuo pipefail
+          args=()
+          while IFS= read -r cache_path; do
+            test -z "${cache_path}" || args+=(--path "${cache_path}")
+          done <<< "${CACHE_PATHS}"
+          python3 central-ci/scripts/ci/ci_cache.py guard "${args[@]+"${args[@]}"}"
+
+      - name: Save SwiftPM caches (integration refs only)
+        if: ${{ steps.cache_guard.outputs.save_allowed == 'true' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.cache.outputs.paths }}
+          key: ${{ steps.cache.outputs.key }}
+
+      - name: Scrub and retain private CI log
+        id: evidence
+        if: ${{ always() }}
+        uses: ./central-ci/actions/ci-evidence
+        env:
+          CI_SECRET_SOURCE_TOKEN: ${{ steps.source.outputs.token }}
+          CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          CI_SECRET_AGENT_STATE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          CI_SECRET_AGENT_STATE_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          CI_SECRET_DRIVE_FOLDER: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+          CI_SECRET_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          CI_SECRET_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          CI_SECRET_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          CI_SECRET_TAILSCALE_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          CI_SECRET_TAILSCALE_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          CI_SECRET_REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          CI_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+          CI_SECRET_FIXTURE_STREAMSCAPE_API_BASE: ${{ needs.claim.outputs.test_profile == 'test' && secrets.STREAMSCAPE_API_BASE || '' }}
+          CI_SECRET_FIXTURE_STREAMSCAPE_EMAIL: ${{ needs.claim.outputs.test_profile == 'test' && secrets.STREAMSCAPE_EMAIL || '' }}
+          CI_SECRET_FIXTURE_STREAMSCAPE_PASSWORD: ${{ needs.claim.outputs.test_profile == 'test' && secrets.STREAMSCAPE_PASSWORD || '' }}
+          CI_SECRET_FIXTURE_STREAMSCAPE_DEMO_EMAIL: ${{ needs.claim.outputs.test_profile == 'test' && secrets.STREAMSCAPE_DEMO_EMAIL || '' }}
+          CI_SECRET_FIXTURE_STREAMSCAPE_DEMO_PASSWORD: ${{ needs.claim.outputs.test_profile == 'test' && secrets.STREAMSCAPE_DEMO_PASSWORD || '' }}
+          CI_SECRET_FIXTURE_XTREAM_URL: ${{ needs.claim.outputs.test_profile == 'test' && secrets.XTREAM_URL || '' }}
+          CI_SECRET_FIXTURE_XTREAM_USERNAME: ${{ needs.claim.outputs.test_profile == 'test' && secrets.XTREAM_USERNAME || '' }}
+          CI_SECRET_FIXTURE_XTREAM_PASSWORD: ${{ needs.claim.outputs.test_profile == 'test' && secrets.XTREAM_PASSWORD || '' }}
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+          SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
+          SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          repository: ${{ needs.claim.outputs.repository }}
+          ref: ${{ needs.claim.outputs.ref }}
+          ci_run_id: ${{ inputs.ci_run_id }}
+          lane: apple-${{ needs.claim.outputs.test_profile }}
+          log_path: ${{ env.CI_LOG }}
+          file_name: ${{ github.run_id }}-${{ github.run_attempt }}-apple-${{ needs.claim.outputs.test_profile }}.txt
+
+      - name: Remove native netrc, credentials, source and private evidence
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cleanup_status=0
+          if test -f "${RUNNER_TEMP}/central-registry-auth/native-netrc.json"; then
+            python3 central-ci/scripts/ci/repository_macos_netrc.py cleanup || cleanup_status=$?
+          fi
+          rm -rf -- "${RUNNER_TEMP}/central-registry-auth" "${RUNNER_TEMP}/ci-logs" "${RUNNER_TEMP}/ci-artifacts"
+          rm -f -- "${RUNNER_TEMP}/central-test-fixtures.json" "${CI_LOG}" "${CI_PROGRESS_FILE}"
+          rm -rf -- "${GITHUB_WORKSPACE}/source"
+          exit "${cleanup_status}"
+
+      - name: Finish Agent State run
+        if: ${{ always() }}
+        uses: ./central-ci/actions/agent-state
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: finish
+          ci_run_id: ${{ inputs.ci_run_id }}
+          status: ${{ job.status == 'success' && 'succeeded' || (job.status == 'cancelled' && 'cancelled' || 'failed') }}
+
+      - name: Remove Central helper checkout
+        if: ${{ always() }}
+        shell: bash
+        run: rm -rf -- "${GITHUB_WORKSPACE}/central-ci"
+
+  settle:
+    needs: [claim, build]
+    if: ${{ always() && needs.build.result != 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out Central CI helpers
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          path: central-ci
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: actions
+
+      - name: Settle an unfinished Agent State run
+        uses: ./central-ci/actions/agent-state
+        env:
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+        with:
+          phase: cancel-if-active
+          ci_run_id: ${{ inputs.ci_run_id }}
+          status: ${{ needs.build.result == 'cancelled' && 'cancelled' || 'failed' }}

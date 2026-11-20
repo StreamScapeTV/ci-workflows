@@ -1,0 +1,13 @@
+name: Set up Tailscale
+description: >-
+  The one place per-purpose workflows reach the private network (Forgejo registry and Git at
+  git.faruqi.dev). Thin wrapper over actions/private-git so call sites do not change when the
+  mechanism does. Requires Central checked out at ./central-ci and TS_OAUTH_CLIENT_ID and
+  TS_OAUTH_SECRET in the env of the step that uses this action. Self-hosted runners that already
+  have persistent access only verify reachability.
+
+runs:
+  using: composite
+  steps:
+    - name: Connect reviewed private network
+      uses: ./central-ci/actions/private-git
