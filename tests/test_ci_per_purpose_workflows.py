@@ -7,13 +7,16 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts/ci"))
 
 
 def load(name: str):
@@ -24,72 +27,97 @@ def load(name: str):
 
 
 validate = load("ci_validate_inputs")
-lane = load("ci_lane")
 cache = load("ci_cache")
 scrub = load("ci_scrub_log")
 auth = load("ci_registry_auth")
+stage = load("ci_stage")
+run_stage = load("ci_run_stage")
 CONTRACT = json.loads((ROOT / "contracts/repository-ci-v1.json").read_text())
-ENTRY = {
-    "android": ROOT / ".github/workflows/ci-android-build.yml",
-    "apple": ROOT / ".github/workflows/ci-apple-build.yml",
-}
+ECOSYSTEMS = ("gradle", "xcode")
 SHA_PIN = re.compile(r"^[^@\s]+@[0-9a-f]{40}( #.*)?$")
 
 
-def git_repo(files: dict) -> Path:
+def git_repo(files: dict, executable=()) -> Path:
     directory = Path(tempfile.mkdtemp())
     subprocess.run(["git", "init", "-q", str(directory)], check=True)
     for name, content in files.items():
         path = directory / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
+        if name in executable:
+            path.chmod(0o755)
     subprocess.run(["git", "add", "."], cwd=directory, check=True)
     return directory
 
 
-class InputValidationTests(unittest.TestCase):
-    def check(self, profile, claim, **kwargs):
-        arguments = dict(contract=CONTRACT, operation=profile, allowed_operations={"lint", "build", "test"},
-                         host_os="linux", claim_inputs_raw=json.dumps(claim),
-                         workflow_key="validation.repository", accepted_workflow_keys={"validation.repository"})
-        arguments.update(kwargs)
+class RequestValidationTests(unittest.TestCase):
+    def check(self, ecosystem="gradle", **overrides):
+        arguments = dict(contract=CONTRACT, ecosystem=ecosystem, request_id="req-0123456789",
+                         repository="StreamScapeTV/example-app", ref="develop", is_tag="false",
+                         profile="build", options_raw="{}")
+        arguments.update(overrides)
         return validate.validate(**arguments)
 
-    def test_valid_build_maps_to_fixed_entrypoint_and_normalized_inputs(self):
-        result = self.check("build", {"host_os": "linux", "semantic_inputs": '{"build_configuration":"debug"}'})
-        self.assertEqual(result["entrypoint"], ".ci/build.sh")
-        self.assertEqual(json.loads(result["semantic_inputs_json"]),
-                         {"schemaVersion": 1, "inputs": {"build_configuration": "debug"}})
+    def test_profiles_expand_to_ordered_stages(self):
+        self.assertEqual(self.check(profile="check")["stages"], ["lint", "build", "test"])
+        self.assertEqual(self.check(profile="test")["stages"], ["test"])
 
-    def test_workflow_key_operation_os_and_unknown_fields_fail_closed(self):
+    def test_requests_outside_the_reviewed_bound_fail_closed(self):
+        bad = [
+            dict(repository="evil/repo"), dict(repository="StreamScapeTV/" + "x y"), dict(request_id="x"),
+            dict(ref=""), dict(ref="a\nb"), dict(is_tag="maybe"), dict(profile="release"),
+            dict(options_raw='{"command":"rm -rf /"}'), dict(options_raw='["x"]'),
+            dict(options_raw='{"test_selectors":["--evil"]}', profile="test"),
+            dict(options_raw='{"build_configuration":"debug","build_configuration":"release"}'),
+            dict(options_raw='{"test_selectors":["a.B"]}', profile="build"),
+            dict(options_raw="x" * 5000),
+        ]
+        for overrides in bad:
+            with self.subTest(overrides=overrides), self.assertRaises(SystemExit):
+                self.check(**overrides)
+
+    def test_options_project_onto_the_fields_each_stage_accepts(self):
+        result = self.check("xcode", profile="check", options_raw=json.dumps(
+            {"scheme": "App", "product_target": "macos", "build_configuration": "debug", "test_selectors": ["A.B"]}))
+        build = validate.stage_inputs(CONTRACT, "build", result["options"])
+        self.assertEqual(build, {"schemaVersion": 1, "inputs": {"product_target": "macos", "build_configuration": "debug"}})
+        self.assertNotIn("scheme", json.dumps(validate.stage_inputs(CONTRACT, "test", result["options"])))
         with self.assertRaises(SystemExit):
-            self.check("build", {}, workflow_key="release.repository")
-        with self.assertRaises(SystemExit):
-            self.check("full", {})
-        with self.assertRaises(SystemExit):
-            self.check("build", {"host_os": "macos"})
-        with self.assertRaises(SystemExit):
-            self.check("build", {"semantic_inputs": '{"command":"rm -rf /"}'})
-        with self.assertRaises(SystemExit):
-            self.check("test", {"semantic_inputs": '{"test_selectors":["--evil"]}'})
-        with self.assertRaises(SystemExit):
-            self.check("build", {"semantic_inputs": '{"build_configuration":"debug","build_configuration":"release"}'})
+            self.check("gradle", options_raw='{"scheme":"App"}')
 
 
-class LaneTests(unittest.TestCase):
-    def test_lanes_follow_legacy_supersession_semantics(self):
-        key, cancel = lane.lane("o/r", "feature", "false", "ci-android-build.yml", "test")
-        other, _ = lane.lane("o/r", "feature", "false", "ci-android-build.yml", "full")
-        self.assertTrue(cancel)
-        self.assertEqual(key, other)  # ordinary validation shares one lane per repository/ref
-        build, _ = lane.lane("o/r", "feature", "false", "ci-android-build.yml", "build")
-        self.assertNotEqual(key, build)  # cheap lint/build has its own lane
-        tag_key, tag_cancel = lane.lane("o/r", "1.0_1", "true", "ci-android-build.yml", "build")
-        self.assertFalse(tag_cancel)
-        legacy_prefix_free = lane.lane("o/r", "feature", "false", "x.yml", "test")[0]
-        self.assertEqual(len(legacy_prefix_free), 64)
+class StageResolutionTests(unittest.TestCase):
+    def test_gradle_convention_and_transition_script(self):
+        plain = git_repo({"gradlew": "#!/bin/sh\n", "gradle/wrapper/gradle-wrapper.properties": "x"}, executable=("gradlew",))
+        self.assertEqual(stage.resolve("gradle", "build", plain, {})["argv"], ["./gradlew", "--no-daemon", "assemble"])
+        self.assertEqual(stage.resolve("gradle", "test", plain, {})["argv"][-1], "test")
+        self.assertEqual(stage.resolve("gradle", "lint", plain, {})["argv"][-3:], ["check", "-x", "test"])
+        scripted = git_repo({"gradlew": "x", ".ci/build.sh": "#!/bin/sh\n"}, executable=(".ci/build.sh",))
+        self.assertEqual(stage.resolve("gradle", "build", scripted, {}), {"mode": "script", "argv": ["./.ci/build.sh"]})
+        with self.assertRaises(SystemExit):  # non executable gradlew and no script
+            stage.resolve("gradle", "build", git_repo({"gradlew": "x"}), {})
+        with self.assertRaises(SystemExit):  # a tracked but non executable script is refused, not skipped
+            stage.resolve("gradle", "build", git_repo({".ci/build.sh": "x"}), {})
+
+    def test_xcode_conventions(self):
+        package = git_repo({"Package.swift": "// swift-tools-version:5.9"})
+        self.assertEqual(stage.resolve("xcode", "test", package, {})["argv"], ["swift", "test", "-c", "debug"])
+        project = git_repo({"App.xcodeproj/project.pbxproj": "x"})
+        argv = stage.resolve("xcode", "build", project, {"scheme": "App", "product_target": "ios", "build_configuration": "release"}, "/dd")["argv"]
+        self.assertEqual(argv[:3], ["xcodebuild", "-project", "App.xcodeproj"])
+        self.assertIn("Release", argv)
+        self.assertIn("generic/platform=iOS Simulator", argv)
+        self.assertIn("CODE_SIGNING_ALLOWED=NO", argv)
+        for options in ({}, {"scheme": "App"}):
+            with self.assertRaises(SystemExit):
+                stage.resolve("xcode", "build", project, options)
+        with self.assertRaises(SystemExit):  # simulator tests are not standardised
+            stage.resolve("xcode", "test", project, {"scheme": "App", "product_target": "ios"})
         with self.assertRaises(SystemExit):
-            lane.lane("bad", "x", "false", "a.yml", "build")
+            stage.resolve("xcode", "lint", project, {})
+        both = git_repo({"A.xcodeproj/project.pbxproj": "x", "B.xcodeproj/project.pbxproj": "x"})
+        with self.assertRaises(SystemExit):
+            stage.resolve("xcode", "build", both, {"scheme": "A", "product_target": "macos"})
 
 
 class CacheIdentityTests(unittest.TestCase):
@@ -103,41 +131,40 @@ class CacheIdentityTests(unittest.TestCase):
             "app/src/Main.kt": "fun main() {}\n",
         })
 
-    def identity(self, root, ref="develop", is_tag="false"):
-        return cache.identity("gradle", root, "o/r", ref, is_tag, "Linux", "X64", Path("/home/gradle"), self.today)
+    def identity(self, root, ref="develop", is_tag="false", integration="develop"):
+        return cache.identity("gradle", root, "o/r", ref, is_tag, "Linux", "X64", Path("/home/gradle"), self.today, integration)
 
-    def test_key_has_prefix_fallbacks_and_ignores_application_source(self):
+    def test_key_is_narrow_has_prefix_fallbacks_and_ignores_application_source(self):
         root = self.gradle_repo()
         before = self.identity(root)
         (root / "app/src/Main.kt").write_text("fun main() { println() }\n")
         self.assertEqual(before["key"], self.identity(root)["key"])
         self.assertIn("g9.7.1", before["key"])
-        self.assertTrue(before["key"].endswith("2026w47"))
+        self.assertTrue(before["key"].endswith("202611"))
         keys = before["restore_keys"].split("\n")
         self.assertEqual(keys[0], before["exact_prefix"])
         self.assertTrue(before["key"].startswith(keys[0]) and keys[0].startswith(keys[1]))
         (root / "gradle/libs.versions.toml").write_text("[versions]\nkotlin='2.1'\n")
         changed = self.identity(root)
         self.assertNotEqual(before["key"], changed["key"])
-        self.assertEqual(before["restore_keys"].split("\n")[1], changed["restore_keys"].split("\n")[1])
-
-    def test_gradle_version_change_starts_a_new_generation_and_paths_are_fixed(self):
-        old, new = self.identity(self.gradle_repo("9.7.1")), self.identity(self.gradle_repo("9.8.0"))
-        self.assertNotEqual(old["restore_keys"].split("\n")[1], new["restore_keys"].split("\n")[1])
-        self.assertEqual(old["paths"].split("\n"), [
+        self.assertEqual(keys[1], changed["restore_keys"].split("\n")[1])
+        self.assertEqual(self.identity(root)["paths"].split("\n"), [
             "/home/gradle/caches/modules-2", "/home/gradle/caches/build-cache-1", "/home/gradle/wrapper/dists"])
 
-    def test_only_integration_branches_may_save(self):
+    def test_only_the_integration_branch_saves(self):
         root = self.gradle_repo()
         self.assertEqual(self.identity(root, "develop")["save_allowed"], "true")
-        self.assertEqual(self.identity(root, "main")["save_allowed"], "true")
-        self.assertEqual(self.identity(root, "issue-1-feature")["save_allowed"], "false")
-        self.assertEqual(self.identity(root, "develop", "true")["save_allowed"], "false")  # a tag named like a branch
+        self.assertEqual(self.identity(root, "main", integration="main")["save_allowed"], "true")
+        self.assertEqual(self.identity(root, "main", integration="develop")["save_allowed"], "false")
+        self.assertEqual(self.identity(root, "issue-1-x")["save_allowed"], "false")
+        self.assertEqual(self.identity(root, "develop", "true")["save_allowed"], "false")  # a tag named develop
         self.assertEqual(self.identity(root, "1.0_1", "true")["save_allowed"], "false")
+        with self.assertRaises(SystemExit):
+            self.identity(root, integration="release")
 
-    def test_swiftpm_identity_matches_resolved_and_skips_projects_without_packages(self):
-        self.assertEqual(cache.identity("swiftpm", git_repo({"a.swift": "x"}), "o/r", "develop", "false",
-                                        "macOS", "ARM64", Path("/Users/r"), self.today), {"enabled": "false"})
+    def test_swiftpm_identity(self):
+        none = cache.identity("swiftpm", git_repo({"a.swift": "x"}), "o/r", "develop", "false", "macOS", "ARM64", Path("/Users/r"), self.today)
+        self.assertEqual(none, {"enabled": "false"})
         root = git_repo({"App.xcworkspace/xcshareddata/swiftpm/Package.resolved": '{"pins":[1]}'})
         first = cache.identity("swiftpm", root, "o/r", "develop", "false", "macOS", "ARM64", Path("/Users/r"), self.today)
         (root / "App.xcworkspace/xcshareddata/swiftpm/Package.resolved").write_text('{"pins":[2]}')
@@ -160,14 +187,12 @@ class CacheIdentityTests(unittest.TestCase):
             self.assertEqual(cache.guard([root / "ok"], []), (False, "cache path contains a symlink"))
 
 
-class SecretHandlingTests(unittest.TestCase):
-    def test_scrub_redacts_plain_json_url_and_base64_forms_but_not_short_values(self):
+class SecretAndLogTests(unittest.TestCase):
+    def test_scrub_redacts_forms_but_not_short_values(self):
         secret = 'p@ss"word/1234'
         data = "\n".join([secret, json.dumps(secret)[1:-1], base64.b64encode(secret.encode()).decode(), "abc"]).encode()
-        forms = set()
-        for form in scrub.variants(secret):
-            forms.add(form)
-        cleaned, count = scrub.scrub(data, list(forms | scrub.variants("abc")))
+        forms = list(scrub.variants(secret) | scrub.variants("abc"))
+        cleaned, count = scrub.scrub(data, forms)
         self.assertNotIn(b"word/1234", cleaned)
         self.assertNotIn(base64.b64encode(secret.encode()), cleaned)
         self.assertIn(b"abc", cleaned)
@@ -178,44 +203,82 @@ class SecretHandlingTests(unittest.TestCase):
             environ = {"GITHUB_SOURCE_TOKEN": "gh-token-value", "REGISTRY_USERNAME": "bot", "REGISTRY_READ_TOKEN": "reg-token-value"}
             result = auth.build(Path(directory) / "a", github_git=False, registry_netrc=True, gradle_maven=True, environ=environ)
             home = Path(result["auth_home"])
-            netrc = (home / ".netrc").read_text()
-            self.assertIn("git.faruqi.dev", netrc)
-            self.assertNotIn("github.com", netrc)
-            self.assertEqual(oct((home / ".netrc").stat().st_mode & 0o777), "0o600")
+            self.assertIn("git.faruqi.dev", (home / ".netrc").read_text())
+            self.assertNotIn("github.com", (home / ".netrc").read_text())
+            self.assertEqual(stat.S_IMODE((home / ".netrc").stat().st_mode), 0o600)
             self.assertIn("centralRegistryReadToken", (home / ".gradle/gradle.properties").read_text())
             apple = auth.build(Path(directory) / "b", github_git=True, registry_netrc=True, gradle_maven=False, environ=environ)
             self.assertFalse((Path(apple["auth_home"]) / ".gradle").exists())
             with self.assertRaises(SystemExit):
                 auth.build(Path(directory) / "c", github_git=False, registry_netrc=True, gradle_maven=False, environ={})
 
+    def test_stage_runner_streams_scrubbed_numbered_chunks_and_a_final_object(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = git_repo({"gradlew": "#!/bin/sh\n"}, executable=("gradlew",))
+            # transition script prints a secret, proves the child never sees CI_SECRET_*, and fails
+            (source / ".ci").mkdir()
+            script = source / ".ci/build.sh"
+            script.write_text('#!/bin/sh\necho "token=$LEAK_ME"\necho "child sees: ${CI_SECRET_TOKEN:-none}"\n'
+                              'echo "op=$CI_OPERATION inputs=$CI_INPUTS_JSON"\nexit 3\n')
+            script.chmod(0o755)
+            subprocess.run(["git", "add", "-f", ".ci/build.sh"], cwd=source, check=True)
+            uploader = base / "upload.py"
+            uploader.write_text("import shutil, sys, pathlib\ndest = pathlib.Path(sys.argv[2]); dest.parent.mkdir(parents=True, exist_ok=True)\nshutil.copy(sys.argv[1], dest)\n")
+            store = base / "store"
+            environ = dict(os.environ, LEAK_ME="supersecretvalue", CI_SECRET_TOKEN="supersecretvalue",
+                           CI_OPTIONS_JSON='{"build_configuration":"debug"}',
+                           CI_LOG_UPLOADER=json.dumps([sys.executable, str(uploader), "{path}", str(store) + "/{key}"]))
+            completed = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/ci/ci_run_stage.py"), "--ecosystem", "gradle", "--stage", "build",
+                 "--source", str(source), "--contract", str(ROOT / "contracts/repository-ci-v1.json"), "--project", "proj",
+                 "--request-id", "req-0123456789", "--host-os", "linux", "--work-dir", str(base / "work"),
+                 "--log-dir", str(base / "log"), "--interval", "0.2"],
+                env=environ, capture_output=True, text=True)
+            self.assertEqual(completed.returncode, 3, completed.stderr)
+            prefix = store / "logs/proj/req-0123456789/build"
+            names = sorted(path.name for path in prefix.iterdir())
+            self.assertIn("final.log", names)
+            self.assertTrue(any(re.fullmatch(r"\d{6}\.log", name) for name in names), names)
+            merged = (prefix / "final.log").read_text()
+            self.assertNotIn("supersecretvalue", merged + completed.stdout)
+            self.assertIn("child sees: none", merged)
+            self.assertIn('inputs={"inputs":{"build_configuration":"debug"},"schemaVersion":1}', merged)
+            self.assertIn("exit 3", merged)
+
 
 class WorkflowShapeTests(unittest.TestCase):
-    def documents(self):
-        return {name: yaml.safe_load(path.read_text()) for name, path in ENTRY.items()}
+    def entry(self, name):
+        return yaml.safe_load((ROOT / f".github/workflows/ci-{name}.yml").read_text())
 
-    def uses(self, document):
-        for job in document["jobs"].values():
-            for step in job["steps"]:
-                if "uses" in step:
-                    yield step["uses"]
+    def all_paths(self):
+        return [*[ROOT / f".github/workflows/ci-{n}{s}.yml" for n in ECOSYSTEMS for s in ("", "-stage")],
+                *(ROOT / "actions").glob("ci-*/action.yml"), ROOT / "actions/setup-tailscale/action.yml"]
 
-    def test_entry_workflows_take_the_run_id_and_least_privilege(self):
-        for name, document in self.documents().items():
+    def test_entry_workflows_take_runner_inputs_and_name_the_request_in_run_name(self):
+        for name in ECOSYSTEMS:
+            document = self.entry(name)
             on = document.get("on") or document[True]
             self.assertEqual(set(on), {"workflow_dispatch"})
             inputs = on["workflow_dispatch"]["inputs"]
-            self.assertEqual(set(inputs), {"ci_run_id", "host_class"})
-            self.assertTrue(inputs["ci_run_id"]["required"])
+            self.assertEqual(set(inputs), {"request_id", "repository", "ref", "is_tag", "profile", "options"})
+            self.assertIn("inputs.request_id", document["run-name"])
             self.assertEqual(document["permissions"], {"contents": "read"})
-            for job in document["jobs"].values():
-                self.assertNotIn("secrets", job)
-                self.assertNotIn("permissions", job)
+            self.assertIn(name, document["concurrency"]["group"])
+            self.assertEqual(document["concurrency"]["cancel-in-progress"], "${{ inputs.is_tag != 'true' }}")
+            self.assertEqual(list(document["jobs"]), ["plan", "lint", "build", "test"])
+
+    def test_workflows_never_call_agent_state_or_drive_or_a_global_cap(self):
+        for path in self.all_paths():
+            text = path.read_text()
+            for forbidden in ("agent-state", "AGENT_STATE", "MIRROR", "CF_ACCESS", "ci_run_id", "claim_ci_run",
+                              "google-drive", "GOOGLE_DRIVE", "CI_PROGRESS", "secrets: inherit", "max-parallel"):
+                self.assertNotIn(forbidden, text, f"{path.name}: {forbidden}")
 
     def test_third_party_actions_are_pinned_by_full_sha_and_local_actions_exist(self):
-        paths = [*ENTRY.values(), *(ROOT / "actions").glob("ci-*/action.yml"), ROOT / "actions/setup-tailscale/action.yml"]
-        for path in paths:
+        for path in self.all_paths():
             document = yaml.safe_load(path.read_text())
-            steps = document["runs"]["steps"] if "runs" in document else [s for j in document["jobs"].values() for s in j["steps"]]
+            steps = document["runs"]["steps"] if "runs" in document else [s for j in document["jobs"].values() for s in j.get("steps", [])]
             for step in steps:
                 value = step.get("uses")
                 if value is None:
@@ -225,42 +288,44 @@ class WorkflowShapeTests(unittest.TestCase):
                 else:
                     self.assertRegex(value, SHA_PIN, f"{path.name}: {value}")
 
-    def test_no_secrets_inherit_and_no_forbidden_secrets_per_purpose(self):
-        forbidden = {
-            "android": ["DOCKERHUB", "APPLE_", "APP_STORE", "STREAMSCAPE_", "XTREAM_", "REGISTRY_WRITE", "FORGEJO_REGISTRY_TOKEN",
-                        "BACKUP_S3", "PROTECTED_DEPLOYED", "CLUSTER_INSPECTOR"],
-            "apple": ["DOCKERHUB", "APPLE_", "APP_STORE", "REGISTRY_WRITE", "FORGEJO_REGISTRY_TOKEN", "BACKUP_S3",
-                      "PROTECTED_DEPLOYED", "CLUSTER_INSPECTOR"],
-        }
-        for name, path in ENTRY.items():
-            text = path.read_text()
-            self.assertNotIn("secrets: inherit", text)
-            used = set(re.findall(r"secrets\.([A-Z0-9_]+)", text))
-            for token in forbidden[name]:
-                self.assertFalse([item for item in used if token in item], (name, token))
-        # fixtures only inside the Apple test profile
-        apple = ENTRY["apple"].read_text()
-        for line in apple.splitlines():
-            if "secrets.STREAMSCAPE_" in line or "secrets.XTREAM_" in line:
-                self.assertTrue("test_profile == 'test'" in line or line.strip().startswith(("STREAMSCAPE_", "XTREAM_")), line)
+    def test_secrets_are_scoped_per_purpose_and_fixtures_only_reach_the_xcode_test_stage(self):
+        forbidden = ["DOCKERHUB", "APPLE_", "APP_STORE", "REGISTRY_WRITE", "FORGEJO_REGISTRY_TOKEN", "BACKUP_S3",
+                     "PROTECTED_DEPLOYED", "CLUSTER_INSPECTOR"]
+        for name in ECOSYSTEMS:
+            for suffix in ("", "-stage"):
+                text = (ROOT / f".github/workflows/ci-{name}{suffix}.yml").read_text()
+                used = set(re.findall(r"secrets\.([A-Z0-9_]+)", text))
+                for token in forbidden:
+                    self.assertFalse([item for item in used if token in item], (name, token))
+        gradle = (ROOT / ".github/workflows/ci-gradle.yml").read_text() + (ROOT / ".github/workflows/ci-gradle-stage.yml").read_text()
+        self.assertNotIn("STREAMSCAPE_", gradle)
+        self.assertNotIn("XTREAM_", gradle)
+        xcode = self.entry("xcode")
+        for job in ("lint", "build", "test"):
+            passes = "STREAMSCAPE_EMAIL" in xcode["jobs"][job]["secrets"]
+            self.assertEqual(passes, job == "test", job)
+            for secrets in (xcode["jobs"][job]["secrets"],):
+                self.assertNotIn("inherit", str(secrets))
 
-    def test_each_job_settles_agent_state_and_only_integration_refs_save_cache(self):
-        for name, document in self.documents().items():
-            text = ENTRY[name].read_text()
-            self.assertIn("phase: finish", text)
-            self.assertIn("phase: cancel-if-active", text)
-            self.assertIn("steps.cache.outputs.save_allowed == 'true'", text)
-            self.assertIn("steps.execute.outcome == 'success'", text)
-            self.assertEqual(document["jobs"]["settle"]["needs"], ["claim", "build"])
-            self.assertIn("cancel-in-progress", document["jobs"]["build"]["concurrency"])
-            self.assertTrue(document["jobs"]["build"]["concurrency"]["group"].startswith(f"ci-{name}-"))
+    def test_stage_jobs_are_separate_ordered_and_reusable_files_exist(self):
+        for name in ECOSYSTEMS:
+            document = self.entry(name)
+            self.assertEqual(document["jobs"]["build"]["needs"], ["plan", "lint"])
+            self.assertEqual(document["jobs"]["test"]["needs"], ["plan", "build"])
+            for job in ("lint", "build", "test"):
+                self.assertEqual(document["jobs"][job]["uses"], f"./.github/workflows/ci-{name}-stage.yml")
+                self.assertEqual(document["jobs"][job]["with"]["stage"], job)
 
-    def test_product_process_runs_without_central_secrets_in_its_step_env(self):
-        for name, document in self.documents().items():
-            step = next(s for s in document["jobs"]["build"]["steps"] if s.get("id") == "execute")
-            for value in step["env"].values():
-                self.assertNotIn("secrets.", str(value))
-                self.assertNotIn("steps.source.outputs.token", str(value))
+    def test_stage_runs_without_central_secrets_in_the_product_environment_and_only_trusted_cache_saves(self):
+        for name in ECOSYSTEMS:
+            text = (ROOT / f".github/workflows/ci-{name}-stage.yml").read_text()
+            self.assertIn("phase: restore", text)
+            self.assertIn("phase: save", text)
+            run = text.split("- name: Run stage")[1].split("- name:")[0]
+            self.assertNotIn("inputs.", run.split("run: |")[1], "no workflow input is interpolated into shell")
+        action = (ROOT / "actions/ci-cache/action.yml").read_text()
+        self.assertIn("lookup-only: true", action)
+        self.assertIn("save_allowed == 'true'", action)
 
 
 if __name__ == "__main__":

@@ -4,13 +4,15 @@
 ``identity`` derives the actions/cache keys. Design rules (see docs/per-purpose-ci-workflows.md):
 
 * The key names the repository, OS/arch and the toolchain generation (Gradle version) plus a
-  fingerprint of tracked dependency inputs and an ISO week. It never names the commit, branch,
+  fingerprint of tracked dependency inputs and an month. It never names the commit, branch,
   test selector or workflow run.
-* ``restore-keys`` fall back first to the same fingerprint of an older week, then to any entry of
+* ``restore-keys`` fall back first to the same fingerprint of an older month, then to any entry of
   the same repository/toolchain. A dependency change therefore starts from the previous cache and
   downloads only the difference, instead of starting cold.
-* Only integration refs (``TRUSTED_REFS``) may save. Feature branches and tags only restore. A
-  moving branch therefore cannot plant bytes that later runs of other refs restore.
+* Only the integration branch may save: ``develop``, or ``main`` for a repository that has no
+  ``develop``. Other branches, pull requests and tags only restore, so they cannot plant bytes that
+  later runs restore. The 10 GB budget is shared by the whole organization, so keys are narrow
+  (one entry per repository, toolchain generation, dependency fingerprint and month).
 
 ``guard`` refuses to save a cache directory that contains symlinks, is too large or contains a
 configured credential value.
@@ -26,8 +28,7 @@ import re
 import subprocess
 import sys
 
-# One reviewed place for the product integration refs that may seed shared caches.
-TRUSTED_REFS = frozenset(("develop", "main"))
+INTEGRATION_BRANCHES = ("develop", "main")
 MAX_CACHE_BYTES = 4 * 1024 * 1024 * 1024
 MAX_CACHE_FILES = 200_000
 MAX_SCAN_FILE_BYTES = 8 * 1024 * 1024
@@ -104,18 +105,19 @@ def swiftpm_fingerprint(root: Path):
     return digest.hexdigest()
 
 
-def trust_of(ref: str, is_tag: str) -> str:
-    return "trusted" if is_tag == "false" and ref in TRUSTED_REFS else "untrusted"
+def trust_of(ref: str, is_tag: str, integration_branch: str) -> str:
+    if integration_branch not in INTEGRATION_BRANCHES:
+        raise SystemExit("integration branch must be develop or main")
+    return "trusted" if is_tag == "false" and ref == integration_branch else "untrusted"
 
 
 def identity(kind: str, root: Path, repository: str, ref: str, is_tag: str, runner_os: str,
-             runner_arch: str, home: Path, today: datetime.date) -> dict:
+             runner_arch: str, home: Path, today: datetime.date, integration_branch: str = "develop") -> dict:
     if REPOSITORY.fullmatch(repository) is None:
         raise SystemExit("cache repository is outside the reviewed bound")
     if is_tag not in ("true", "false"):
         raise SystemExit("cache source kind is invalid")
-    iso = today.isocalendar()
-    week = f"{iso[0]}w{iso[1]:02d}"
+    period = f"{today.year}{today.month:02d}"
     repo = hashlib.sha256(repository.encode()).hexdigest()[:16]
     arch = re.sub(r"[^A-Za-z0-9]", "", runner_arch)
     osname = re.sub(r"[^A-Za-z0-9]", "", runner_os)
@@ -134,13 +136,13 @@ def identity(kind: str, root: Path, repository: str, ref: str, is_tag: str, runn
         paths = [base / "artifacts", base / "repositories"]
     else:
         raise SystemExit("unsupported cache kind")
-    trust = trust_of(ref, is_tag)
+    trust = trust_of(ref, is_tag, integration_branch)
     return {
         "enabled": "true",
         "trust": trust,
         "save_allowed": "true" if trust == "trusted" else "false",
         "fingerprint": fingerprint,
-        "key": f"{prefix}{fingerprint}-{week}",
+        "key": f"{prefix}{fingerprint}-{period}",
         "restore_keys": f"{prefix}{fingerprint}-\n{prefix}",
         "exact_prefix": f"{prefix}{fingerprint}-",
         "paths": "\n".join(str(path) for path in paths),
@@ -206,6 +208,7 @@ def main(argv=None) -> int:
             args.kind, Path(args.source), os.environ["SOURCE_REPOSITORY"], os.environ["SOURCE_REF"],
             os.environ["SOURCE_IS_TAG"], os.environ["RUNNER_OS"], os.environ["RUNNER_ARCH"],
             Path(args.home), datetime.datetime.now(datetime.timezone.utc).date(),
+            os.environ.get("INTEGRATION_BRANCH", "develop"),
         )
         _write_output(values)
         return 0

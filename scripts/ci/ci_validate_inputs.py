@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Validate one per-purpose CI request against the reviewed repository-ci-v1 contract.
+"""Validate one ecosystem CI request (workflow_dispatch inputs) before any credential is used.
 
-The Agent State CI run carries ``workflow_key``/``test_profile``/``inputs``. A per-purpose
-workflow is bound to a fixed set of operations (``--allow``) and one host OS (``--host-os``).
-This helper re-uses the reviewed semantic-input schema from ``contracts/repository-ci-v1.json``
-so that no new input surface is invented. It prints one JSON object on stdout:
-``{"entrypoint": ".ci/build.sh", "semantic_inputs_json": "{...}"}``.
+The agent runner dispatches an ecosystem workflow with ``request_id``, ``repository``, ``ref``,
+``is_tag``, ``profile`` and ``options`` (a JSON object string). Nothing here talks to Agent State.
+``options`` are checked against the reviewed semantic-input schema of
+``contracts/repository-ci-v1.json`` (the same fields the product ``.ci`` scripts already accept)
+plus a few ecosystem specific fields. Arbitrary commands, environment maps, runner labels and
+secret names are not representable.
+
+Prints one JSON object: ``{"stages": [...], "options": {...}}``.
 """
 from __future__ import annotations
 
@@ -16,7 +19,16 @@ from pathlib import Path
 import re
 import sys
 
-MAX_RAW_BYTES = 16384
+ORGANIZATION = "StreamScapeTV"
+MAX_OPTIONS_BYTES = 4096
+STAGES = ("lint", "build", "test")
+PROFILES = {"lint": ("lint",), "build": ("build",), "test": ("test",), "check": STAGES}
+EXTRA_FIELDS = {
+    "xcode": {"scheme": {"type": "string", "maxLength": 64, "pattern": r"[A-Za-z0-9._-]{1,64}"}},
+    "gradle": {},
+}
+REPOSITORY = re.compile(ORGANIZATION + r"/[A-Za-z0-9_.-]{1,100}")
+REQUEST_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{7,63}")
 
 
 def _fail(message: str):
@@ -32,116 +44,93 @@ def _reject_duplicates(pairs):
     return result
 
 
-def _load(raw: str, label: str):
-    try:
-        return json.loads(raw, object_pairs_hook=_reject_duplicates)
-    except (json.JSONDecodeError, ValueError):
-        _fail(f"{label} must be one unambiguous JSON object")
-
-
-def _validate_field(fields: dict, name: str, value) -> None:
-    field = fields[name]
+def _validate_field(field: dict, name: str, value) -> None:
     kind = field.get("type")
     if kind == "string":
-        pattern = field.get("pattern")
-        limit = field.get("maxLength")
+        limit, pattern = field.get("maxLength"), field.get("pattern")
         if not isinstance(value, str) or not isinstance(limit, int) or not 1 <= len(value) <= limit:
-            _fail(f"semantic field {name} is outside the reviewed bound")
+            _fail(f"option {name} is outside the reviewed bound")
         if not isinstance(pattern, str) or re.fullmatch(pattern, value) is None:
-            _fail(f"semantic field {name} is outside the reviewed bound")
+            _fail(f"option {name} is outside the reviewed bound")
     elif kind == "enum":
         if not isinstance(value, str) or value not in field.get("values", []):
-            _fail(f"semantic field {name} is outside the reviewed enum")
+            _fail(f"option {name} is outside the reviewed enum")
     elif kind == "string-list":
         if not isinstance(value, list) or len(value) > min(int(field.get("maxItems", 0)), 128):
-            _fail(f"semantic field {name} must be a bounded string list")
-        pattern = field.get("itemPattern")
-        limit = field.get("itemMaxLength")
+            _fail(f"option {name} must be a bounded string list")
+        pattern, limit = field.get("itemPattern"), field.get("itemMaxLength")
         for item in value:
             if not isinstance(item, str) or not isinstance(limit, int) or not 1 <= len(item) <= limit:
-                _fail(f"semantic field {name} contains an invalid item")
+                _fail(f"option {name} contains an invalid item")
             if not isinstance(pattern, str) or re.fullmatch(pattern, item) is None:
-                _fail(f"semantic field {name} contains an invalid item")
+                _fail(f"option {name} contains an invalid item")
             if field.get("rejectLeadingDash") is True and item.startswith("-"):
-                _fail(f"semantic field {name} contains a leading-dash item")
+                _fail(f"option {name} contains a leading-dash item")
     else:
-        _fail(f"semantic field {name} has an unsupported type")
+        _fail(f"option {name} has an unsupported type")
 
 
-def validate(*, contract: dict, operation: str, allowed_operations: set, host_os: str,
-             claim_inputs_raw: str, workflow_key: str, accepted_workflow_keys: set) -> dict:
-    if workflow_key not in accepted_workflow_keys:
-        _fail("CI run workflow_key is not accepted by this per-purpose workflow")
-    if operation not in allowed_operations:
-        _fail("CI run test_profile is not an operation of this per-purpose workflow")
-    if host_os not in {"linux", "macos"}:
-        _fail("host OS must be linux or macos")
-    if len(claim_inputs_raw.encode("utf-8")) > MAX_RAW_BYTES:
-        _fail("CI run inputs exceed the reviewed bound")
-    claim = _load(claim_inputs_raw or "{}", "CI run inputs")
-    if not isinstance(claim, dict):
-        _fail("CI run inputs must be one JSON object")
-    # The OS belongs to the workflow, not to the caller. A conflicting legacy host_os is refused.
-    requested_os = claim.get("host_os")
-    if requested_os not in (None, "", host_os):
-        _fail("CI run host_os conflicts with the host OS of this workflow")
-    raw_semantic = claim.get("semantic_inputs", "{}")
-    if not isinstance(raw_semantic, str):
-        _fail("CI run semantic_inputs must be one JSON string")
+def validate(*, contract: dict, ecosystem: str, request_id: str, repository: str, ref: str,
+             is_tag: str, profile: str, options_raw: str) -> dict:
+    if ecosystem not in EXTRA_FIELDS:
+        _fail("unsupported ecosystem")
+    if REQUEST_ID.fullmatch(request_id) is None:
+        _fail("request_id is outside the reviewed bound")
+    if REPOSITORY.fullmatch(repository) is None:
+        _fail(f"repository must be one {ORGANIZATION}/<name> repository")
+    if not 1 <= len(ref) <= 255 or any(ord(c) < 32 or ord(c) == 127 for c in ref):
+        _fail("ref is outside the reviewed bound")
+    if is_tag not in ("true", "false"):
+        _fail("is_tag must be true or false")
+    if profile not in PROFILES:
+        _fail("profile must be one of: " + ", ".join(PROFILES))
+    if len(options_raw.encode("utf-8")) > MAX_OPTIONS_BYTES:
+        _fail("options exceed the reviewed bound")
+    try:
+        options = json.loads(options_raw or "{}", object_pairs_hook=_reject_duplicates)
+    except (json.JSONDecodeError, ValueError):
+        _fail("options must be one unambiguous JSON object")
+    if not isinstance(options, dict):
+        _fail("options must be one JSON object")
 
-    semantic = contract.get("semanticInputs")
-    adoption = contract.get("adoption")
-    if not isinstance(semantic, dict) or not isinstance(adoption, dict) or contract.get("schemaVersion") != 1:
-        _fail("repository CI contract is invalid")
-    if len(raw_semantic.encode("utf-8")) > min(int(semantic.get("maxRawBytes", 0)), MAX_RAW_BYTES):
-        _fail("semantic inputs exceed the reviewed bound")
-    values = _load(raw_semantic, "semantic inputs")
-    if not isinstance(values, dict):
-        _fail("semantic inputs must be one JSON object")
+    semantic = contract.get("semanticInputs") or {}
+    fields = dict(semantic.get("fields") or {})
+    operations = semantic.get("operations") or {}
+    fields.update(EXTRA_FIELDS[ecosystem])
+    stages = list(PROFILES[profile])
+    allowed = set(EXTRA_FIELDS[ecosystem])
+    for stage in stages:
+        spec = operations.get(stage)
+        if not isinstance(spec, dict):
+            _fail("semantic operation schema is missing")
+        allowed |= set(spec.get("allowed", []))
+    if set(options) - allowed:
+        _fail("options contain a field this profile does not accept")
+    for name, value in options.items():
+        _validate_field(fields[name], name, value)
+    return {"stages": stages, "options": options}
 
-    entrypoint = (adoption.get("fixedEntrypoints") or {}).get(operation)
-    if not isinstance(entrypoint, str) or not re.fullmatch(r"\.ci/[a-z0-9-]+\.sh", entrypoint):
-        _fail("fixed entrypoint is not defined by the reviewed contract")
-    spec = (semantic.get("operations") or {}).get(operation)
-    fields = semantic.get("fields") or {}
-    if not isinstance(spec, dict):
-        _fail("semantic operation schema is missing")
-    allowed = set(spec.get("allowed", []))
-    required = set(spec.get("required", []))
-    if set(values) - allowed:
-        _fail("semantic inputs contain an unknown field")
-    if required - set(values):
-        _fail("semantic inputs omit a required field")
-    for name, value in values.items():
-        _validate_field(fields, name, value)
-    normalized = json.dumps({"schemaVersion": 1, "inputs": values}, sort_keys=True, separators=(",", ":"))
-    return {"entrypoint": entrypoint, "semantic_inputs_json": normalized, "inputs": values}
+
+def stage_inputs(contract: dict, stage: str, options: dict) -> dict:
+    """Project the validated options onto the fields the product script of one stage accepts."""
+    allowed = set(((contract.get("semanticInputs") or {}).get("operations") or {}).get(stage, {}).get("allowed", []))
+    return {"schemaVersion": 1, "inputs": {key: value for key, value in options.items() if key in allowed}}
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--contract", required=True)
-    parser.add_argument("--allow", required=True, help="comma separated operations")
-    parser.add_argument("--accept-workflow-key", action="append", required=True)
-    parser.add_argument("--host-os", required=True)
-    parser.add_argument("--reject-product-target", action="append", default=[])
+    parser.add_argument("--ecosystem", required=True)
     args = parser.parse_args(argv)
-    contract_path = Path(args.contract)
-    if contract_path.is_symlink() or not contract_path.is_file():
+    path = Path(args.contract)
+    if path.is_symlink() or not path.is_file():
         _fail("repository CI contract must be one regular file")
     result = validate(
-        contract=json.loads(contract_path.read_text(encoding="utf-8")),
-        operation=os.environ["TEST_PROFILE"],
-        allowed_operations={item for item in args.allow.split(",") if item},
-        host_os=args.host_os,
-        claim_inputs_raw=os.environ.get("CLAIM_INPUTS_JSON", "{}"),
-        workflow_key=os.environ["WORKFLOW_KEY"],
-        accepted_workflow_keys=set(args.accept_workflow_key),
+        contract=json.loads(path.read_text(encoding="utf-8")), ecosystem=args.ecosystem,
+        request_id=os.environ["REQUEST_ID"], repository=os.environ["REPOSITORY"], ref=os.environ["REF"],
+        is_tag=os.environ["IS_TAG"], profile=os.environ["PROFILE"], options_raw=os.environ.get("OPTIONS", "{}"),
     )
-    if result["inputs"].get("product_target") in set(args.reject_product_target):
-        _fail("product_target is not an operation of this per-purpose workflow")
-    result.pop("inputs")
-    json.dump(result, sys.stdout, sort_keys=True)
+    json.dump(result, sys.stdout, sort_keys=True, separators=(",", ":"))
     sys.stdout.write("\n")
     return 0
 

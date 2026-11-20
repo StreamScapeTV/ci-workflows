@@ -1,0 +1,151 @@
+# One stage (lint, build or test) of the Gradle ecosystem (Android and JVM). Called by ci-gradle.yml.
+# Credentials are fixed for this purpose and passed explicitly (never inherited wholesale).
+name: Central CI Gradle stage
+
+"on":
+  workflow_call:
+    inputs:
+      request_id:
+        type: string
+        required: true
+      project:
+        type: string
+        required: true
+      repository:
+        type: string
+        required: true
+      ref:
+        type: string
+        required: true
+      is_tag:
+        type: string
+        required: true
+      stage:
+        type: string
+        required: true
+      options:
+        type: string
+        required: false
+        default: "{}"
+    secrets:
+      SOURCE_APP_ID:
+        required: true
+      SOURCE_APP_PRIVATE_KEY:
+        required: true
+      TS_OAUTH_CLIENT_ID:
+        required: true
+      TS_OAUTH_SECRET:
+        required: true
+      FORGEJO_REGISTRY_USERNAME:
+        required: true
+      CIW_MAVEN_PACKAGE_READ_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  stage:
+    name: ${{ inputs.stage }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out Central CI contract and helpers
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          path: central-ci
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            actions
+            scripts/ci
+            contracts
+
+      - name: Set up source, private network and registry authentication
+        id: setup
+        uses: ./central-ci/actions/ci-setup
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          REGISTRY_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          is_tag: ${{ inputs.is_tag }}
+          app_id: ${{ secrets.SOURCE_APP_ID }}
+          private_key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          registry_netrc: "true"
+          gradle_maven: "true"
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Restore Gradle caches
+        uses: ./central-ci/actions/ci-cache
+        with:
+          phase: restore
+          kind: gradle
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          is_tag: ${{ inputs.is_tag }}
+          home: ${{ steps.setup.outputs.auth_home }}/.gradle
+          token: ${{ steps.setup.outputs.token }}
+
+      - name: Run stage
+        id: run
+        shell: bash
+        env:
+          CI_OPTIONS_JSON: ${{ inputs.options }}
+          CI_LOG_UPLOADER: ${{ vars.CI_LOG_UPLOADER }}
+          CI_SECRET_SOURCE_TOKEN: ${{ steps.setup.outputs.token }}
+          CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          CI_SECRET_TAILSCALE_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          CI_SECRET_TAILSCALE_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          CI_SECRET_REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          CI_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+          STAGE: ${{ inputs.stage }}
+          PROJECT: ${{ inputs.project }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          AUTH_HOME: ${{ steps.setup.outputs.auth_home }}
+          GIT_CONFIG_PATH: ${{ steps.setup.outputs.git_config }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "${RUNNER_TEMP}/ci-work"
+          python3 central-ci/scripts/ci/ci_run_stage.py \
+            --ecosystem gradle \
+            --stage "${STAGE}" \
+            --source source \
+            --contract central-ci/contracts/repository-ci-v1.json \
+            --project "${PROJECT}" \
+            --request-id "${REQUEST_ID}" \
+            --host-os linux \
+            --work-dir "${RUNNER_TEMP}/ci-work" \
+            --log-dir "${RUNNER_TEMP}/ci-log" \
+            --home "${AUTH_HOME}" \
+            --gradle-user-home "${AUTH_HOME}/.gradle" \
+            --git-config "${GIT_CONFIG_PATH}"
+
+      - name: Save Gradle caches (integration branch only)
+        if: ${{ success() }}
+        uses: ./central-ci/actions/ci-cache
+        with:
+          phase: save
+          kind: gradle
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          is_tag: ${{ inputs.is_tag }}
+          home: ${{ steps.setup.outputs.auth_home }}/.gradle
+          token: ${{ steps.setup.outputs.token }}
+          secrets_to_guard: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+
+      - name: Remove credentials, source and private logs
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          rm -rf -- "${RUNNER_TEMP}/central-registry-auth" "${RUNNER_TEMP}/ci-work" "${RUNNER_TEMP}/ci-log" \
+            "${GITHUB_WORKSPACE}/source" "${GITHUB_WORKSPACE}/central-ci"

@@ -1,0 +1,153 @@
+# Ecosystem workflow: Xcode and Swift. Dispatched directly by the agent runner, which finds
+# the run by the request id in run-name. No Agent State, no broker. A project that follows the
+# Xcode/Swift standard (docs/ci-conventions/xcode.md) needs no .ci directory; a tracked
+# .ci/<stage>.sh is still honoured during the transition.
+name: Central CI Xcode
+
+run-name: CI xcode ${{ inputs.request_id }}
+
+"on":
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: Request id chosen by the agent runner (appears in run-name and the log prefix)
+        type: string
+        required: true
+      repository:
+        description: StreamScapeTV/<name>
+        type: string
+        required: true
+      ref:
+        description: Branch or tag name
+        type: string
+        required: true
+      is_tag:
+        description: "true or false"
+        type: string
+        required: true
+      profile:
+        description: lint, build, test or check (lint, build and test stages in order)
+        type: string
+        required: true
+      options:
+        description: JSON object of reviewed semantic options
+        type: string
+        required: false
+        default: "{}"
+
+permissions:
+  contents: read
+
+# One lane per repository + ref + purpose: a newer run supersedes an older one (never for tags).
+concurrency:
+  group: ci-xcode-${{ inputs.repository }}-${{ inputs.ref }}-${{ inputs.profile }}
+  cancel-in-progress: ${{ inputs.is_tag != 'true' }}
+
+jobs:
+  plan:
+    name: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      stages: ${{ steps.validate.outputs.stages }}
+      options: ${{ steps.validate.outputs.options }}
+      project: ${{ steps.validate.outputs.project }}
+    steps:
+      - name: Check out Central CI contract and helpers
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          path: central-ci
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci
+            contracts
+
+      - name: Validate request
+        id: validate
+        shell: bash
+        env:
+          REQUEST_ID: ${{ inputs.request_id }}
+          REPOSITORY: ${{ inputs.repository }}
+          REF: ${{ inputs.ref }}
+          IS_TAG: ${{ inputs.is_tag }}
+          PROFILE: ${{ inputs.profile }}
+          OPTIONS: ${{ inputs.options }}
+        run: |
+          set -Eeuo pipefail
+          result="$(python3 central-ci/scripts/ci/ci_validate_inputs.py \
+            --contract central-ci/contracts/repository-ci-v1.json --ecosystem xcode)"
+          {
+            printf 'stages=%s\n' "$(jq -c '.stages' <<<"${result}")"
+            printf 'options=%s\n' "$(jq -c '.options' <<<"${result}")"
+            printf 'project=%s\n' "${REPOSITORY#*/}"
+          } >> "${GITHUB_OUTPUT}"
+
+  lint:
+    needs: plan
+    if: ${{ contains(fromJSON(needs.plan.outputs.stages), 'lint') }}
+    uses: ./.github/workflows/ci-xcode-stage.yml
+    with:
+      request_id: ${{ inputs.request_id }}
+      project: ${{ needs.plan.outputs.project }}
+      repository: ${{ inputs.repository }}
+      ref: ${{ inputs.ref }}
+      is_tag: ${{ inputs.is_tag }}
+      stage: lint
+      options: ${{ needs.plan.outputs.options }}
+    secrets:
+      SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
+      SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+      TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+      FORGEJO_REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+      CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+
+  build:
+    needs: [plan, lint]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && contains(fromJSON(needs.plan.outputs.stages), 'build') && needs.lint.result != 'failure' && needs.lint.result != 'cancelled' }}
+    uses: ./.github/workflows/ci-xcode-stage.yml
+    with:
+      request_id: ${{ inputs.request_id }}
+      project: ${{ needs.plan.outputs.project }}
+      repository: ${{ inputs.repository }}
+      ref: ${{ inputs.ref }}
+      is_tag: ${{ inputs.is_tag }}
+      stage: build
+      options: ${{ needs.plan.outputs.options }}
+    secrets:
+      SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
+      SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+      TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+      FORGEJO_REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+      CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+
+  test:
+    needs: [plan, build]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && contains(fromJSON(needs.plan.outputs.stages), 'test') && needs.build.result != 'failure' && needs.build.result != 'cancelled' }}
+    uses: ./.github/workflows/ci-xcode-stage.yml
+    with:
+      request_id: ${{ inputs.request_id }}
+      project: ${{ needs.plan.outputs.project }}
+      repository: ${{ inputs.repository }}
+      ref: ${{ inputs.ref }}
+      is_tag: ${{ inputs.is_tag }}
+      stage: test
+      options: ${{ needs.plan.outputs.options }}
+    secrets:
+      SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
+      SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+      TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+      FORGEJO_REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+      CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+      STREAMSCAPE_API_BASE: ${{ secrets.STREAMSCAPE_API_BASE }}
+      STREAMSCAPE_EMAIL: ${{ secrets.STREAMSCAPE_EMAIL }}
+      STREAMSCAPE_PASSWORD: ${{ secrets.STREAMSCAPE_PASSWORD }}
+      STREAMSCAPE_DEMO_EMAIL: ${{ secrets.STREAMSCAPE_DEMO_EMAIL }}
+      STREAMSCAPE_DEMO_PASSWORD: ${{ secrets.STREAMSCAPE_DEMO_PASSWORD }}
+      XTREAM_URL: ${{ secrets.XTREAM_URL }}
+      XTREAM_USERNAME: ${{ secrets.XTREAM_USERNAME }}
+      XTREAM_PASSWORD: ${{ secrets.XTREAM_PASSWORD }}

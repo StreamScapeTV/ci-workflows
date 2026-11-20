@@ -1,33 +1,34 @@
-name: Central CI source
+name: Central CI setup
 description: >-
-  Mint the read-only GitHub App token, check out the exact requested branch or tag into ./source,
-  attest the SHA and the fixed tracked entrypoint, and record the observed SHA in Agent State.
-  The caller must have checked out Central at ./central-ci (the local agent-state action is used
-  from there) and must pass AGENT_STATE_SUPABASE_URL/AGENT_STATE_SUPABASE_SECRET_KEY in the env of
-  the step that uses this action.
+  Common first steps of an ecosystem stage: read-only GitHub App token, exact source checkout into
+  ./source, private network (Tailscale) and ephemeral Git/registry authentication. Central must be
+  checked out at ./central-ci. Pass TS_OAUTH_CLIENT_ID, TS_OAUTH_SECRET and, for registry
+  authentication, REGISTRY_USERNAME and REGISTRY_READ_TOKEN in the env of the step that uses this
+  action. This action never talks to Agent State.
 
 inputs:
   repository:
-    description: Source repository (owner/name)
     required: true
   ref:
-    description: Branch or tag name without refs/ prefix
     required: true
   is_tag:
-    description: "true or false"
-    required: true
-  entrypoint:
-    description: Fixed tracked repository entrypoint, for example .ci/build.sh
-    required: true
-  ci_run_id:
-    description: Agent State CI run UUID
     required: true
   app_id:
-    description: Source GitHub App id
     required: true
   private_key:
-    description: Source GitHub App private key
     required: true
+  github_git:
+    description: "true to give Git/netrc access to github.com"
+    required: false
+    default: "false"
+  registry_netrc:
+    description: "true to give netrc access to the Forgejo registry"
+    required: false
+    default: "false"
+  gradle_maven:
+    description: "true to write the Gradle private-Maven properties"
+    required: false
+    default: "false"
 
 outputs:
   source_sha:
@@ -35,6 +36,10 @@ outputs:
   token:
     description: Read-only source token (masked)
     value: ${{ steps.token.outputs.token }}
+  auth_home:
+    value: ${{ steps.auth.outputs.auth_home }}
+  git_config:
+    value: ${{ steps.auth.outputs.git_config }}
 
 runs:
   using: composite
@@ -67,6 +72,9 @@ runs:
         git check-ref-format "${full_ref}" >/dev/null || { echo "CI requested ref is not a valid Git ref" >&2; exit 2; }
         printf 'full_ref=%s\n' "${full_ref}" >> "${GITHUB_OUTPUT}"
 
+    - name: Connect private network
+      uses: ./central-ci/actions/setup-tailscale
+
     - name: Check out exact repository source
       uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       with:
@@ -77,27 +85,29 @@ runs:
         fetch-depth: 1
         persist-credentials: false
 
-    - name: Verify exact source and fixed tracked entrypoint
+    - name: Verify exact source
       id: verify
       shell: bash
-      env:
-        ENTRYPOINT: ${{ inputs.entrypoint }}
       run: |
         set -Eeuo pipefail
-        [[ "${ENTRYPOINT}" =~ ^\.ci/[a-z0-9-]+\.sh$ ]] || { echo "entrypoint is not a fixed .ci script" >&2; exit 2; }
         source_sha="$(git -C source rev-parse HEAD)"
         [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]] || exit 2
         test -z "$(git -C source status --porcelain --untracked-files=all)" || { echo "source checkout is not clean" >&2; exit 2; }
-        git -C source ls-files --error-unmatch -- "${ENTRYPOINT}" >/dev/null || { echo "entrypoint is not tracked" >&2; exit 2; }
-        mode="$(git -C source ls-files -s -- "${ENTRYPOINT}" | awk 'NR==1 {print $1}')"
-        test "${mode}" = 100755 || { echo "entrypoint must be tracked mode 100755" >&2; exit 2; }
-        path="source/${ENTRYPOINT}"
-        test -f "${path}" && test ! -L "${path}" && test -x "${path}" || { echo "entrypoint must be a regular executable file" >&2; exit 2; }
         printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
+        printf 'Observed source %s\n' "${source_sha}"
 
-    - name: Record observed source SHA
-      uses: ./central-ci/actions/agent-state
-      with:
-        phase: observe-source
-        ci_run_id: ${{ inputs.ci_run_id }}
-        observed_source_sha: ${{ steps.verify.outputs.source_sha }}
+    - name: Configure ephemeral Git and registry authentication
+      id: auth
+      shell: bash
+      env:
+        GITHUB_SOURCE_TOKEN: ${{ steps.token.outputs.token }}
+        USE_GITHUB_GIT: ${{ inputs.github_git }}
+        USE_REGISTRY_NETRC: ${{ inputs.registry_netrc }}
+        USE_GRADLE_MAVEN: ${{ inputs.gradle_maven }}
+      run: |
+        set -Eeuo pipefail
+        flags=()
+        test "${USE_GITHUB_GIT}" = true && flags+=(--github-git)
+        test "${USE_REGISTRY_NETRC}" = true && flags+=(--registry-netrc)
+        test "${USE_GRADLE_MAVEN}" = true && flags+=(--gradle-maven)
+        python3 central-ci/scripts/ci/ci_registry_auth.py "${flags[@]+"${flags[@]}"}"
