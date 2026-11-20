@@ -42,6 +42,8 @@ class MavenWorkflowTests(unittest.TestCase):
                 "AGENT_STATE_SUPABASE_SECRET_KEY",
                 "S3_GITHUB_TRANSPORT_ACCESS_KEY",
                 "S3_GITHUB_TRANSPORT_SECRET_KEY",
+                "S3_ENDPOINT",
+                "S3_BUCKET",
                 "TS_OAUTH_CLIENT_ID",
                 "TS_OAUTH_SECRET",
                 "MAVEN_PUBLISH_USERNAME",

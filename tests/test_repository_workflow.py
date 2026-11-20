@@ -2178,6 +2178,8 @@ printf 'GIT_TERMINAL_PROMPT=%s\\n' "${GIT_TERMINAL_PROMPT:-}"
             "TS_OAUTH_SECRET",
             "S3_GITHUB_TRANSPORT_ACCESS_KEY",
             "S3_GITHUB_TRANSPORT_SECRET_KEY",
+            "S3_ENDPOINT",
+            "S3_BUCKET",
             "AGENT_STATE_SUPABASE_URL",
             "AGENT_STATE_SUPABASE_SECRET_KEY",
         ):
