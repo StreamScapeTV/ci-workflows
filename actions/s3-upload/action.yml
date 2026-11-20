@@ -45,11 +45,11 @@ inputs:
     description: S3_GITHUB_TRANSPORT_SECRET_KEY
     required: true
   ts_oauth_client_id:
-    description: TS_OAUTH_CLIENT_ID, used only when the S3 endpoint is not yet reachable on a GitHub-hosted runner
+    description: TS_OAUTH_CLIENT_ID, used only when the S3 endpoint is not reachable and this runner has not joined the private network yet (never a second connection)
     required: false
     default: ""
   ts_oauth_secret:
-    description: TS_OAUTH_SECRET, used only when the S3 endpoint is not yet reachable on a GitHub-hosted runner
+    description: TS_OAUTH_SECRET, used only when the S3 endpoint is not reachable and this runner has not joined the private network yet (never a second connection)
     required: false
     default: ""
 
@@ -72,9 +72,11 @@ runs:
       run: |
         set -Eeuo pipefail
         printf 'reachable=%s\n' "$(python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/s3_put.py" probe)" >> "${GITHUB_OUTPUT}"
+        if command -v tailscale >/dev/null 2>&1 && tailscale status >/dev/null 2>&1; then joined=true; else joined=false; fi
+        printf 'joined=%s\n' "${joined}" >> "${GITHUB_OUTPUT}"
 
     - name: Connect private network for the S3 endpoint
-      if: ${{ steps.probe.outputs.reachable != 'true' && runner.environment == 'github-hosted' }}
+      if: ${{ steps.probe.outputs.reachable != 'true' && steps.probe.outputs.joined != 'true' && runner.environment == 'github-hosted' }}
       uses: StreamScapeTV/ci-workflows/actions/private-git@main
       env:
         TS_OAUTH_CLIENT_ID: ${{ inputs.ts_oauth_client_id }}
