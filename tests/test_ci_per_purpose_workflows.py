@@ -346,6 +346,7 @@ class WorkflowShapeTests(unittest.TestCase):
             self.assertEqual(streams[1][1]["if"], "${{ always() }}")
             self.assertTrue(streams[1][1]["continue-on-error"], "an S3 outage must not red the stage")
             self.assertNotIn("env", streams[0][1], "the background uploader process gets no credentials in its environment")
+            self.assertEqual(set(streams[1][1]["with"]), {"phase", "repository", "request_id", "stage"}, "stop needs no credential")
             self.assertIn("inputs.request_id", streams[0][1]["with"]["request_id"])
             self.assertIn("S3_GITHUB_TRANSPORT_ACCESS_KEY", streams[0][1]["with"]["s3_access_key"])
 

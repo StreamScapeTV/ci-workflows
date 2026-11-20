@@ -199,8 +199,6 @@ jobs:
           repository: ${{ inputs.repository }}
           request_id: ${{ inputs.request_id }}
           stage: ${{ inputs.stage }}
-          s3_access_key: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
-          s3_secret_key: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
 
       - name: Save SwiftPM caches (integration branch only)
         if: ${{ success() }}

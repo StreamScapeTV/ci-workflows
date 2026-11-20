@@ -54,10 +54,13 @@ names what the project must provide.
 `actions/s3-log-stream` action (PR 1213, referenced at `@main`; **this PR needs 1213 merged first**) is
 started before the stage and stopped with `if: always()` after it: it uploads the file every 5 s as
 `logs/<project>/<request_id>/<stage>/<seq>.log` (`<project>` = repository name) and writes the merged
-`final.log` per stage; the run's prefix is `logs/<project>/<request_id>/`. Its credentials are the
-secrets `S3_GITHUB_TRANSPORT_ACCESS_KEY` / `S3_GITHUB_TRANSPORT_SECRET_KEY`; it connects Tailscale
-itself only when the endpoint is unreachable on a hosted runner. The `CI_SECRET_*` values of the
-start step are what it redacts, and the stage runner redacts the same values before writing.
+`final.log` per stage; the run's prefix is `logs/<project>/<request_id>/`. The S3 key
+(`S3_GITHUB_TRANSPORT_ACCESS_KEY` / `S3_GITHUB_TRANSPORT_SECRET_KEY`) lives only in the short start
+step that presigns the PUT URLs of this request's own log objects (6 h expiry); the background
+uploader and the product code in the same job never see a bucket key (a leaked URL can only overwrite
+this request's log objects). The stage runner redacts every `CI_SECRET_*` value before it writes
+the log. No new S3 key is needed. A cancelled run still flushes: the stop step runs with
+`if: always()`, writes the partial `final.log`, and an S3 outage there never reds the stage.
 
 ## DECISION FOR THE OWNER: capabilities fixed per workflow
 
