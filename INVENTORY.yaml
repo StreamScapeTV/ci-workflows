@@ -23,6 +23,7 @@ actions:
   agent_state: actions/agent-state/action.yml
   private_git: actions/private-git/action.yml
   s3_upload: actions/s3-upload/action.yml
+  s3_log_stream: actions/s3-log-stream/action.yml
   dockerhub_read: actions/dockerhub-read/action.yml
 scripts:
   hosted_macos_dns: actions/private-git/macos_dns.py

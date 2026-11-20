@@ -7,11 +7,9 @@ name: Cancel exact authorized workflow
         type: string
         required: true
     secrets:
-      MIRROR_API_KEY:
+      AGENT_STATE_SUPABASE_URL:
         required: true
-      CF_ACCESS_CLIENT_ID:
-        required: true
-      CF_ACCESS_CLIENT_SECRET:
+      AGENT_STATE_SUPABASE_SECRET_KEY:
         required: true
 
 permissions:
@@ -31,10 +29,8 @@ jobs:
       - name: Start cancellation maintenance execution
         uses: ./actions/agent-state
         env:
-          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
-          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
         with:
           phase: start
           ci_run_id: ${{ inputs.ci_run_id }}
@@ -42,19 +38,15 @@ jobs:
         env:
           CI_RUN_ID: ${{ inputs.ci_run_id }}
           GH_TOKEN: ${{ github.token }}
-          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
-          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
         run: python3 scripts/ci/ci_cancel.py
       - name: Settle cancellation maintenance execution
         if: ${{ always() }}
         uses: ./actions/agent-state
         env:
-          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
-          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}

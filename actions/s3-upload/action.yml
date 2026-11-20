@@ -1,6 +1,6 @@
 name: Upload file to the Central S3 transport bucket
 
-description: Store one file under the fixed logs/, screenshots/ or releases/ layout of the owner's S3 bucket, reached over Tailscale.
+description: Store one file under the fixed logs/, screenshots/ or releases/ layout (key = <kind>/<project>/<id>[/<stage>]/<file_name>) of the owner's S3 bucket, reached over Tailscale.
 
 inputs:
   kind:
@@ -9,9 +9,13 @@ inputs:
   repository:
     description: Full GitHub repository name (owner/name); only the name becomes the project segment
     required: true
-  scope:
-    description: "Path below the project: ci_run_id for logs, capture profile for screenshots, plain release version for releases"
+  id:
+    description: "request_id (or older ci_run_id) for logs, capture id for screenshots, plain release version for releases"
     required: true
+  stage:
+    description: "Optional stage folder below the id (logs/<project>/<id>/<stage>/<file>)"
+    required: false
+    default: ""
   file_path:
     description: Local file to upload
     required: true
@@ -73,14 +77,15 @@ runs:
         S3_GITHUB_TRANSPORT_SECRET_KEY: ${{ inputs.s3_secret_key }}
         UPLOAD_KIND: ${{ inputs.kind }}
         UPLOAD_REPOSITORY: ${{ inputs.repository }}
-        UPLOAD_SCOPE: ${{ inputs.scope }}
+        UPLOAD_ID: ${{ inputs.id }}
+        UPLOAD_STAGE: ${{ inputs.stage }}
         UPLOAD_FILE_PATH: ${{ inputs.file_path }}
         UPLOAD_FILE_NAME: ${{ inputs.file_name }}
         UPLOAD_CONTENT_TYPE: ${{ inputs.content_type }}
         UPLOAD_IMMUTABLE: ${{ inputs.immutable }}
       run: |
         set -Eeuo pipefail
-        args=(put --kind "${UPLOAD_KIND}" --repository "${UPLOAD_REPOSITORY}" --scope "${UPLOAD_SCOPE}"
+        args=(put --kind "${UPLOAD_KIND}" --repository "${UPLOAD_REPOSITORY}" --id "${UPLOAD_ID}" --stage "${UPLOAD_STAGE}"
           --file-path "${UPLOAD_FILE_PATH}" --file-name "${UPLOAD_FILE_NAME}" --content-type "${UPLOAD_CONTENT_TYPE}")
         if test "${UPLOAD_IMMUTABLE}" = true; then args+=(--immutable); fi
         python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/s3_put.py" "${args[@]}"

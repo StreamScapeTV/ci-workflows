@@ -38,9 +38,8 @@ class MavenWorkflowTests(unittest.TestCase):
             {
                 "SOURCE_APP_ID",
                 "SOURCE_APP_PRIVATE_KEY",
-                "MIRROR_API_KEY",
-                "CF_ACCESS_CLIENT_ID",
-                "CF_ACCESS_CLIENT_SECRET",
+                "AGENT_STATE_SUPABASE_URL",
+                "AGENT_STATE_SUPABASE_SECRET_KEY",
                 "S3_GITHUB_TRANSPORT_ACCESS_KEY",
                 "S3_GITHUB_TRANSPORT_SECRET_KEY",
                 "TS_OAUTH_CLIENT_ID",
@@ -141,10 +140,8 @@ class MavenWorkflowTests(unittest.TestCase):
                         "SOURCE_REPOSITORY": "ExampleOrg/example-repository",
                         "SOURCE_REF": "2.1.9",
                         "SOURCE_IS_TAG": "true",
-                        "AGENT_STATE_URL": "https://agent-state.invalid",
-                        "AGENT_STATE_API_KEY": "fixture-secret",
-                        "CF_ACCESS_CLIENT_ID": "fixture-cf-id",
-                        "CF_ACCESS_CLIENT_SECRET": "fixture-cf-secret",
+                        "AGENT_STATE_SUPABASE_URL": "https://agent-state.invalid",
+                        "AGENT_STATE_SUPABASE_SECRET_KEY": "fixture-secret",
                         "GITHUB_OUTPUT": str(output),
                     },
                     capture_output=True,
@@ -564,7 +561,7 @@ esac
             self.assertEqual(step["if"], "${{ steps.evidence.outputs.produced == 'true' }}")
             self.assertEqual(step["with"]["repository"], "${{ inputs.repository || github.repository }}")
             self.assertEqual(step["with"]["kind"], "releases")
-            self.assertEqual(step["with"]["scope"], "${{ steps.evidence.outputs.publication_id }}")
+            self.assertEqual(step["with"]["id"], "${{ steps.evidence.outputs.publication_id }}")
             self.assertEqual(step["with"]["file_name"], file_name)
             self.assertTrue(step["with"]["immutable"])
         self.assertNotIn("latest", str(archive).lower())

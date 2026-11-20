@@ -101,10 +101,8 @@ def http(method, url, headers, payload=None, expected=(200,)):
 
 def main():
     require(os.environ["GITHUB_REPOSITORY"] == CENTRAL, "unexpected Central repository")
-    base = os.environ["AGENT_STATE_URL"].rstrip("/")
-    headers = {"apikey": os.environ["AGENT_STATE_API_KEY"],
-               "CF-Access-Client-Id": os.environ["CF_ACCESS_CLIENT_ID"],
-               "CF-Access-Client-Secret": os.environ["CF_ACCESS_CLIENT_SECRET"],
+    base = os.environ["AGENT_STATE_SUPABASE_URL"].rstrip("/")
+    headers = {"apikey": os.environ["AGENT_STATE_SUPABASE_SECRET_KEY"],
                "Content-Type": "application/json", "Content-Profile": "agent_api", "Accept-Profile": "agent_api"}
 
     def rpc(name, payload):

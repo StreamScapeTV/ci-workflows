@@ -74,7 +74,6 @@ FORBIDDEN_ENV_PREFIXES = (
     "ACTIONS_",
     "AGENT_STATE_",
     "S3_GITHUB_TRANSPORT_",
-    "CF_ACCESS_",
     "TS_OAUTH_",
     "REGISTRY_",
     "LD_",
@@ -677,7 +676,7 @@ def run(args: argparse.Namespace) -> int:
     child_env = os.environ.copy()
     for key in list(child_env):
         if key.startswith(("CI_SECRET_", "CHECKPOINT_S3_")) or key in {
-            "AGENT_STATE_URL", "AGENT_STATE_API_KEY", "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET",
+            "AGENT_STATE_SUPABASE_URL", "AGENT_STATE_SUPABASE_SECRET_KEY",
             "S3_GITHUB_TRANSPORT_ACCESS_KEY", "S3_GITHUB_TRANSPORT_SECRET_KEY",
             "TS_OAUTH_CLIENT_ID", "TS_OAUTH_SECRET", "REGISTRY_USERNAME", "REGISTRY_READ_TOKEN", "REGISTRY_WRITE_TOKEN",
         }:

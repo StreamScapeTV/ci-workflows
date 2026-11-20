@@ -86,9 +86,8 @@ class LibraryPackageReleaseWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(readiness["with"]["expected_source_sha"], "${{ needs.plan.outputs.source_sha }}")
         for secret in (
-            "MIRROR_API_KEY",
-            "CF_ACCESS_CLIENT_ID",
-            "CF_ACCESS_CLIENT_SECRET",
+            "AGENT_STATE_SUPABASE_URL",
+            "AGENT_STATE_SUPABASE_SECRET_KEY",
             "TS_OAUTH_CLIENT_ID",
             "TS_OAUTH_SECRET",
             "REGISTRY_USERNAME",
@@ -107,9 +106,8 @@ class LibraryPackageReleaseWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(prepare["with"]["ci_run_id"], "")
         for secret in (
-            "MIRROR_API_KEY",
-            "CF_ACCESS_CLIENT_ID",
-            "CF_ACCESS_CLIENT_SECRET",
+            "AGENT_STATE_SUPABASE_URL",
+            "AGENT_STATE_SUPABASE_SECRET_KEY",
             "TS_OAUTH_CLIENT_ID",
             "TS_OAUTH_SECRET",
             "REGISTRY_USERNAME",
@@ -126,9 +124,8 @@ class LibraryPackageReleaseWorkflowTests(unittest.TestCase):
             "${{ inputs.ci_run_id }}",
         )
         self.assertEqual(apple["with"]["expected_source_sha"], "${{ needs.plan.outputs.source_sha }}")
-        self.assertIn("MIRROR_API_KEY", apple["secrets"])
-        self.assertIn("CF_ACCESS_CLIENT_ID", apple["secrets"])
-        self.assertIn("CF_ACCESS_CLIENT_SECRET", apple["secrets"])
+        self.assertIn("AGENT_STATE_SUPABASE_URL", apple["secrets"])
+        self.assertIn("AGENT_STATE_SUPABASE_SECRET_KEY", apple["secrets"])
         maven = jobs["maven"]
         self.assertIn("apple_swiftpm", maven["needs"])
         self.assertEqual(maven["with"]["build_number"], "${{ inputs.ref }}")
@@ -138,9 +135,8 @@ class LibraryPackageReleaseWorkflowTests(unittest.TestCase):
             "${{ inputs.ci_run_id }}",
         )
         self.assertEqual(maven["with"]["expected_source_sha"], "${{ needs.plan.outputs.source_sha }}")
-        self.assertIn("MIRROR_API_KEY", maven["secrets"])
-        self.assertIn("CF_ACCESS_CLIENT_ID", maven["secrets"])
-        self.assertIn("CF_ACCESS_CLIENT_SECRET", maven["secrets"])
+        self.assertIn("AGENT_STATE_SUPABASE_URL", maven["secrets"])
+        self.assertIn("AGENT_STATE_SUPABASE_SECRET_KEY", maven["secrets"])
 
     def test_only_aggregate_finishes_outer_agent_state_row(self) -> None:
         finish = self.workflow["jobs"]["finish"]

@@ -80,11 +80,9 @@ name: Repository-owned CI
         required: true
       SOURCE_APP_PRIVATE_KEY:
         required: true
-      MIRROR_API_KEY:
+      AGENT_STATE_SUPABASE_URL:
         required: false
-      CF_ACCESS_CLIENT_ID:
-        required: false
-      CF_ACCESS_CLIENT_SECRET:
+      AGENT_STATE_SUPABASE_SECRET_KEY:
         required: false
       S3_GITHUB_TRANSPORT_ACCESS_KEY:
         required: false
@@ -146,21 +144,15 @@ jobs:
           SOURCE_IS_TAG: ${{ inputs.source_is_tag }}
           OPERATION: ${{ inputs.operation }}
           LEGACY_HOST_OS: ${{ inputs.host_os }}
-          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
-          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
         run: |
           set -Eeuo pipefail
-          : "${AGENT_STATE_URL:?Agent State URL is required for repository host resolution}"
-          : "${AGENT_STATE_API_KEY:?Agent State secret is required for repository host resolution}"
-          : "${CF_ACCESS_CLIENT_ID:?Cloudflare Access client id is required}"
-          : "${CF_ACCESS_CLIENT_SECRET:?Cloudflare Access client secret is required}"
+          : "${AGENT_STATE_SUPABASE_URL:?Agent State URL is required for repository host resolution}"
+          : "${AGENT_STATE_SUPABASE_SECRET_KEY:?Agent State secret is required for repository host resolution}"
 
           headers=(
-            -H "apikey: ${AGENT_STATE_API_KEY}"
-            -H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}"
-            -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}"
+            -H "apikey: ${AGENT_STATE_SUPABASE_SECRET_KEY}"
             -H "Content-Type: application/json"
             -H "Content-Profile: agent_api"
             -H "Accept-Profile: agent_api"
@@ -169,7 +161,7 @@ jobs:
             curl --fail --silent --show-error \
               "${headers[@]}" \
               --data "$2" \
-              "${AGENT_STATE_URL%/}/rest/v1/rpc/$1"
+              "${AGENT_STATE_SUPABASE_URL%/}/rest/v1/rpc/$1"
           }
           emit_host() {
             local host_class="$1"
@@ -417,10 +409,8 @@ jobs:
         if: ${{ inputs.ci_run_id != '' }}
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
         env:
-          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
-          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
         with:
           phase: start
           ci_run_id: ${{ inputs.ci_run_id }}
@@ -715,10 +705,8 @@ jobs:
         if: ${{ inputs.ci_run_id != '' }}
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
         env:
-          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
-          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
         with:
           phase: observe-source
           ci_run_id: ${{ inputs.ci_run_id }}
@@ -754,10 +742,8 @@ jobs:
           OBSERVED_SOURCE_SHA: ${{ steps.source_identity.outputs.source_sha }}
           NORMALIZED_INPUTS: ${{ steps.request.outputs.semantic_inputs_json }}
           CONTRACT: ${{ github.workspace }}/central-ci/contracts/repository-ci-v1.json
-          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
-          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
         run: |
           set -Eeuo pipefail
 
@@ -827,21 +813,17 @@ jobs:
             exit 0
           fi
 
-          : "${AGENT_STATE_URL:?Agent State URL is required for trusted repository capabilities}"
-          : "${AGENT_STATE_API_KEY:?Agent State secret is required for trusted repository capabilities}"
-          : "${CF_ACCESS_CLIENT_ID:?Cloudflare Access client id is required}"
-          : "${CF_ACCESS_CLIENT_SECRET:?Cloudflare Access client secret is required}"
+          : "${AGENT_STATE_SUPABASE_URL:?Agent State URL is required for trusted repository capabilities}"
+          : "${AGENT_STATE_SUPABASE_SECRET_KEY:?Agent State secret is required for trusted repository capabilities}"
 
           headers=(
-            -H "apikey: ${AGENT_STATE_API_KEY}"
-            -H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}"
-            -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}"
+            -H "apikey: ${AGENT_STATE_SUPABASE_SECRET_KEY}"
             -H "Content-Type: application/json"
             -H "Content-Profile: agent_api"
             -H "Accept-Profile: agent_api"
           )
           rpc() {
-            curl --fail --silent --show-error               "${headers[@]}"               --data "$2"               "${AGENT_STATE_URL%/}/rest/v1/rpc/$1"
+            curl --fail --silent --show-error               "${headers[@]}"               --data "$2"               "${AGENT_STATE_SUPABASE_URL%/}/rest/v1/rpc/$1"
           }
 
           claim_response="$(rpc claim_ci_run "$(jq -cn --arg id "${capability_run_id}" '{p_ci_run_id:$id}')")"
@@ -1496,19 +1478,15 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
-          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
           PROGRESS_CI_RUN_ID: ${{ steps.progress_owner.outputs.ci_run_id }}
         run: |
           set -Eeuo pipefail
           credentials="$(jq -cn \
-            --arg url "${AGENT_STATE_URL}" \
-            --arg key "${AGENT_STATE_API_KEY}" \
-            --arg cf_id "${CF_ACCESS_CLIENT_ID}" \
-            --arg cf_secret "${CF_ACCESS_CLIENT_SECRET}" \
-            '{url:$url,key:$key,cf_access_client_id:$cf_id,cf_access_client_secret:$cf_secret}')"
+            --arg url "${AGENT_STATE_SUPABASE_URL}" \
+            --arg key "${AGENT_STATE_SUPABASE_SECRET_KEY}" \
+            '{url:$url,key:$key}')"
           relay_pid_file="${RUNNER_TEMP}/central-repository-progress-relay.pid"
           relay_state="${RUNNER_TEMP}/central-repository-progress-relay-state.json"
           relay_stdout="${RUNNER_TEMP}/central-repository-progress-relay.stdout"
@@ -1543,7 +1521,7 @@ jobs:
         with:
           kind: logs
           repository: ${{ inputs.repository }}
-          scope: ${{ inputs.ci_run_id || github.run_id }}
+          id: ${{ inputs.ci_run_id || github.run_id }}
           file_path: ${{ runner.temp }}/central-repository-ci-log-checkpoint-seed.txt
           file_name: ${{ github.run_id }}-${{ github.run_attempt }}-repository-${{ inputs.operation }}-${{ needs.resolve_host.outputs.host_os }}.txt
           content_type: text/plain
@@ -1586,10 +1564,8 @@ jobs:
           CHECKPOINT_S3_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
           CI_SECRET_SOURCE_TOKEN: ${{ steps.source.outputs.token }}
           CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-          CI_SECRET_AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
-          CI_SECRET_AGENT_STATE_KEY: ${{ secrets.MIRROR_API_KEY }}
-          CI_SECRET_CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CI_SECRET_CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          CI_SECRET_AGENT_STATE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          CI_SECRET_AGENT_STATE_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
           CI_SECRET_S3_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
           CI_SECRET_S3_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
           CI_SECRET_TAILSCALE_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
@@ -1629,8 +1605,6 @@ jobs:
             export CI_SECRET_DOCKERHUB_AUTH_B64="$(printf '%s:%s' "${CI_SECRET_DOCKERHUB_USERNAME}" "${CI_SECRET_DOCKERHUB_READ_TOKEN}" | base64 | tr -d '\r\n')"
           fi
           protected_agent_state_key="${CI_SECRET_AGENT_STATE_KEY:-}"
-          protected_cf_access_id="${CI_SECRET_CF_ACCESS_CLIENT_ID:-}"
-          protected_cf_access_secret="${CI_SECRET_CF_ACCESS_CLIENT_SECRET:-}"
           protected_https_target="${CI_SECRET_PROTECTED_DEPLOYED_HTTPS_TARGET:-}"
           protected_wss_target="${CI_SECRET_PROTECTED_DEPLOYED_WSS_TARGET:-}"
           protected_http_scenario="${CI_SECRET_PROTECTED_DEPLOYED_HTTP_SCENARIO:-}"
@@ -1787,8 +1761,6 @@ jobs:
             CI_SECRET_SOURCE_PRIVATE_KEY \
             CI_SECRET_AGENT_STATE_URL \
             CI_SECRET_AGENT_STATE_KEY \
-            CI_SECRET_CF_ACCESS_CLIENT_ID \
-            CI_SECRET_CF_ACCESS_CLIENT_SECRET \
             CI_SECRET_S3_ACCESS_KEY \
             CI_SECRET_S3_SECRET_KEY \
             CI_SECRET_TAILSCALE_ID \
@@ -1839,8 +1811,7 @@ jobs:
                 echo "protected deployed conformance requires one exact Agent State binding" >&2
                 exit 2
               }
-              test -n "${protected_agent_state_url}" && test -n "${protected_agent_state_key}" \
-                && test -n "${protected_cf_access_id}" && test -n "${protected_cf_access_secret}" || {
+              test -n "${protected_agent_state_url}" && test -n "${protected_agent_state_key}" || {
                 echo "protected deployed conformance requires Agent State access" >&2
                 exit 2
               }
@@ -1850,8 +1821,6 @@ jobs:
               rm -f -- "${protected_state_file}"
               project_response="$(curl --fail --silent --show-error \
                 -H "apikey: ${protected_agent_state_key}" \
-                -H "CF-Access-Client-Id: ${protected_cf_access_id}" \
-                -H "CF-Access-Client-Secret: ${protected_cf_access_secret}" \
                 -H "Content-Type: application/json" \
                 -H "Content-Profile: agent_api" \
                 -H "Accept-Profile: agent_api" \
@@ -2120,10 +2089,8 @@ jobs:
         env:
           CI_SECRET_SOURCE_TOKEN: ${{ steps.source.outputs.token }}
           CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-          CI_SECRET_AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
-          CI_SECRET_AGENT_STATE_KEY: ${{ secrets.MIRROR_API_KEY }}
-          CI_SECRET_CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CI_SECRET_CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          CI_SECRET_AGENT_STATE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          CI_SECRET_AGENT_STATE_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
           CI_SECRET_S3_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
           CI_SECRET_S3_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
           CI_SECRET_TAILSCALE_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
@@ -2613,7 +2580,7 @@ jobs:
         with:
           kind: logs
           repository: ${{ inputs.repository }}
-          scope: ${{ inputs.ci_run_id || github.run_id }}
+          id: ${{ inputs.ci_run_id || github.run_id }}
           file_path: ${{ runner.temp }}/central-repository-ci.log
           file_name: ${{ github.run_id }}-${{ github.run_attempt }}-repository-${{ inputs.operation }}-${{ needs.resolve_host.outputs.host_os }}.txt
           content_type: text/plain
@@ -2629,7 +2596,7 @@ jobs:
         with:
           kind: logs
           repository: ${{ inputs.repository }}
-          scope: ${{ inputs.ci_run_id || github.run_id }}
+          id: ${{ inputs.ci_run_id || github.run_id }}
           file_path: ${{ steps.evidence.outputs.archive }}
           file_name: ${{ github.run_id }}-${{ github.run_attempt }}-repository-${{ inputs.operation }}-${{ needs.resolve_host.outputs.host_os }}-evidence.zip
           content_type: application/zip
@@ -2847,10 +2814,8 @@ jobs:
         if: ${{ always() && inputs.ci_run_id != '' }}
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
         env:
-          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
-          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}

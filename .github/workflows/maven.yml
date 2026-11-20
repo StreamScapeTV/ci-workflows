@@ -39,11 +39,9 @@ name: Maven publication
         required: false
       SOURCE_APP_PRIVATE_KEY:
         required: false
-      MIRROR_API_KEY:
+      AGENT_STATE_SUPABASE_URL:
         required: false
-      CF_ACCESS_CLIENT_ID:
-        required: false
-      CF_ACCESS_CLIENT_SECRET:
+      AGENT_STATE_SUPABASE_SECRET_KEY:
         required: false
       S3_GITHUB_TRANSPORT_ACCESS_KEY:
         required: false
@@ -92,10 +90,8 @@ jobs:
           SOURCE_REPOSITORY: ${{ inputs.repository }}
           SOURCE_REF: ${{ inputs.ref }}
           SOURCE_IS_TAG: ${{ inputs.source_is_tag }}
-          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
-          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
         run: |
           set -Eeuo pipefail
           emit_host() {
@@ -118,25 +114,21 @@ jobs:
             exit 0
           fi
 
-          : "${AGENT_STATE_URL:?Agent State URL is required for trusted Maven host resolution}"
-          : "${AGENT_STATE_API_KEY:?Agent State secret is required for trusted Maven host resolution}"
-          : "${CF_ACCESS_CLIENT_ID:?Cloudflare Access client id is required}"
-          : "${CF_ACCESS_CLIENT_SECRET:?Cloudflare Access client secret is required}"
+          : "${AGENT_STATE_SUPABASE_URL:?Agent State URL is required for trusted Maven host resolution}"
+          : "${AGENT_STATE_SUPABASE_SECRET_KEY:?Agent State secret is required for trusted Maven host resolution}"
           test -n "${SOURCE_REPOSITORY}" && test -n "${SOURCE_REF}" && test "${SOURCE_IS_TAG}" = true || {
             echo "trusted Maven aggregate host resolution requires one immutable repository tag" >&2
             exit 2
           }
 
           headers=(
-            -H "apikey: ${AGENT_STATE_API_KEY}"
-            -H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}"
-            -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}"
+            -H "apikey: ${AGENT_STATE_SUPABASE_SECRET_KEY}"
             -H "Content-Type: application/json"
             -H "Content-Profile: agent_api"
             -H "Accept-Profile: agent_api"
           )
           rpc() {
-            curl --fail --silent --show-error               "${headers[@]}"               --data "$2"               "${AGENT_STATE_URL%/}/rest/v1/rpc/$1"
+            curl --fail --silent --show-error               "${headers[@]}"               --data "$2"               "${AGENT_STATE_SUPABASE_URL%/}/rest/v1/rpc/$1"
           }
 
           claim="$(rpc claim_ci_run "$(jq -cn --arg id "${TRUSTED_CAPABILITY_CI_RUN_ID}" '{p_ci_run_id:$id}')")"
@@ -184,10 +176,8 @@ jobs:
         if: ${{ inputs.ci_run_id != '' }}
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
         env:
-          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
-          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
         with:
           phase: start
           ci_run_id: ${{ inputs.ci_run_id }}
@@ -240,10 +230,8 @@ jobs:
         if: ${{ inputs.ci_run_id != '' }}
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
         env:
-          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
-          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
         with:
           phase: observe-source
           ci_run_id: ${{ inputs.ci_run_id }}
@@ -474,10 +462,8 @@ jobs:
           CI_SECRET_SOURCE_TOKEN: ${{ steps.source.outputs.token }}
           CI_SECRET_GITHUB_TOKEN: ${{ github.token }}
           CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-          CI_SECRET_AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
-          CI_SECRET_AGENT_STATE_KEY: ${{ secrets.MIRROR_API_KEY }}
-          CI_SECRET_CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CI_SECRET_CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          CI_SECRET_AGENT_STATE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          CI_SECRET_AGENT_STATE_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
           CI_SECRET_S3_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
           CI_SECRET_S3_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
           CI_SECRET_TAILSCALE_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
@@ -511,7 +497,7 @@ jobs:
         with:
           kind: logs
           repository: ${{ inputs.repository || github.repository }}
-          scope: ${{ inputs.ci_run_id || github.run_id }}
+          id: ${{ inputs.ci_run_id || github.run_id }}
           file_path: ${{ runner.temp }}/central-ci.log
           file_name: ${{ github.run_id }}-${{ github.run_attempt }}.txt
           content_type: text/plain
@@ -527,7 +513,7 @@ jobs:
         with:
           kind: releases
           repository: ${{ inputs.repository || github.repository }}
-          scope: ${{ steps.evidence.outputs.publication_id }}
+          id: ${{ steps.evidence.outputs.publication_id }}
           file_path: ${{ runner.temp }}/maven-publication-evidence/publication.zip
           file_name: publication.zip
           content_type: application/zip
@@ -544,7 +530,7 @@ jobs:
         with:
           kind: releases
           repository: ${{ inputs.repository || github.repository }}
-          scope: ${{ steps.evidence.outputs.publication_id }}
+          id: ${{ steps.evidence.outputs.publication_id }}
           file_path: ${{ runner.temp }}/maven-publication-evidence/manifest.json
           file_name: manifest.json
           content_type: application/json
@@ -588,10 +574,8 @@ jobs:
         if: ${{ always() && inputs.ci_run_id != '' }}
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
         env:
-          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
-          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}

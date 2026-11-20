@@ -60,10 +60,8 @@ jobs:
         if: ${{ steps.resolve.outputs.ci_run_id != '' }}
         uses: ./actions/agent-state
         env:
-          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
-          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
         with:
           phase: cancel-if-active
           ci_run_id: ${{ steps.resolve.outputs.ci_run_id }}

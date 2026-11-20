@@ -124,8 +124,6 @@ def result_for(error: ProjectionError | None = None) -> dict[str, str]:
 class AgentStateApi:
     url: str
     secret: str
-    cf_access_client_id: str
-    cf_access_client_secret: str
     opener: object = urllib.request
 
     def _rpc(self, function: str, payload: dict[str, object]) -> dict[str, object]:
@@ -135,8 +133,6 @@ class AgentStateApi:
             method="POST",
             headers={
                 "apikey": self.secret,
-                "CF-Access-Client-Id": self.cf_access_client_id,
-                "CF-Access-Client-Secret": self.cf_access_client_secret,
                 "Content-Type": "application/json",
                 "Content-Profile": "agent_api",
                 "Accept-Profile": "agent_api",
@@ -338,10 +334,8 @@ def _write_output(name: str, value: str) -> None:
 
 def claim_command() -> int:
     state = AgentStateApi(
-        _required_environment("AGENT_STATE_URL"),
-        _required_environment("AGENT_STATE_API_KEY"),
-        _required_environment("CF_ACCESS_CLIENT_ID"),
-        _required_environment("CF_ACCESS_CLIENT_SECRET"),
+        _required_environment("AGENT_STATE_SUPABASE_URL"),
+        _required_environment("AGENT_STATE_SUPABASE_SECRET_KEY"),
     )
     response = state.claim()
     if response["code"] == "no_work":
@@ -367,10 +361,8 @@ def claim_command() -> int:
 
 def apply_command() -> int:
     state = AgentStateApi(
-        _required_environment("AGENT_STATE_URL"),
-        _required_environment("AGENT_STATE_API_KEY"),
-        _required_environment("CF_ACCESS_CLIENT_ID"),
-        _required_environment("CF_ACCESS_CLIENT_SECRET"),
+        _required_environment("AGENT_STATE_SUPABASE_URL"),
+        _required_environment("AGENT_STATE_SUPABASE_SECRET_KEY"),
     )
     token = _required_environment("GITHUB_ISSUES_TOKEN")
     try:

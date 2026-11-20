@@ -22,11 +22,9 @@ name: Delete repository branch
         required: true
       SOURCE_APP_PRIVATE_KEY:
         required: true
-      MIRROR_API_KEY:
+      AGENT_STATE_SUPABASE_URL:
         required: false
-      CF_ACCESS_CLIENT_ID:
-        required: false
-      CF_ACCESS_CLIENT_SECRET:
+      AGENT_STATE_SUPABASE_SECRET_KEY:
         required: false
 
 permissions:
@@ -48,10 +46,8 @@ jobs:
       - name: Mark Agent State run as running
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
         env:
-          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
-          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
         with:
           phase: start
           ci_run_id: ${{ inputs.ci_run_id }}
@@ -273,10 +269,8 @@ jobs:
       - name: Finish Agent State run
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
         env:
-          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
-          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
+          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}

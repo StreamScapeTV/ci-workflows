@@ -1,6 +1,6 @@
 name: Agent State CI
 
-description: Small shared Agent State helper (self-hosted instance behind Cloudflare Access) for Central CI claim/start/source-observation/finish/settlement calls.
+description: Small shared Agent State helper for Central CI claim/start/source-observation/finish/settlement calls.
 
 inputs:
   phase:
@@ -59,14 +59,10 @@ runs:
         DIAGNOSTIC_STATUS: ${{ inputs.diagnostic_status }}
       run: |
         set -Eeuo pipefail
-        : "${AGENT_STATE_URL:?AGENT_STATE_URL is required (the self-hosted Agent State tunnel URL)}"
-        : "${AGENT_STATE_API_KEY:?AGENT_STATE_API_KEY is required}"
-        : "${CF_ACCESS_CLIENT_ID:?CF_ACCESS_CLIENT_ID is required}"
-        : "${CF_ACCESS_CLIENT_SECRET:?CF_ACCESS_CLIENT_SECRET is required}"
+        : "${AGENT_STATE_SUPABASE_URL:?AGENT_STATE_SUPABASE_URL is required}"
+        : "${AGENT_STATE_SUPABASE_SECRET_KEY:?AGENT_STATE_SUPABASE_SECRET_KEY is required}"
         headers=(
-          -H "apikey: ${AGENT_STATE_API_KEY}"
-          -H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}"
-          -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}"
+          -H "apikey: ${AGENT_STATE_SUPABASE_SECRET_KEY}"
           -H "Content-Type: application/json"
           -H "Content-Profile: agent_api"
           -H "Accept-Profile: agent_api"
@@ -93,7 +89,7 @@ runs:
               --write-out '%{http_code}' \
               "${headers[@]}" \
               --data "${payload}" \
-              "${AGENT_STATE_URL%/}/rest/v1/rpc/${rpc_name}")"
+              "${AGENT_STATE_SUPABASE_URL%/}/rest/v1/rpc/${rpc_name}")"
             curl_status=$?
             set -e
 

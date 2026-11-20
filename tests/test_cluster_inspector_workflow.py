@@ -137,9 +137,8 @@ class ClusterInspectorWorkflowTests(unittest.TestCase):
             {
                 "SOURCE_APP_ID",
                 "SOURCE_APP_PRIVATE_KEY",
-                "MIRROR_API_KEY",
-                "CF_ACCESS_CLIENT_ID",
-                "CF_ACCESS_CLIENT_SECRET",
+                "AGENT_STATE_SUPABASE_URL",
+                "AGENT_STATE_SUPABASE_SECRET_KEY",
                 "S3_GITHUB_TRANSPORT_ACCESS_KEY",
                 "S3_GITHUB_TRANSPORT_SECRET_KEY",
                 "TS_OAUTH_CLIENT_ID",

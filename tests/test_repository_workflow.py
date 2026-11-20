@@ -249,10 +249,8 @@ class RepositoryWorkflowTests(unittest.TestCase):
                     "OBSERVED_SOURCE_SHA": observed_source_sha,
                     "NORMALIZED_INPUTS": json.dumps(normalized_inputs, sort_keys=True, separators=(",", ":")),
                     "CONTRACT": str(CONTRACT),
-                    "AGENT_STATE_URL": "https://agent-state.invalid",
-                    "AGENT_STATE_API_KEY": "fixture-secret",
-                    "CF_ACCESS_CLIENT_ID": "fixture-cf-id",
-                    "CF_ACCESS_CLIENT_SECRET": "fixture-cf-secret",
+                    "AGENT_STATE_SUPABASE_URL": "https://agent-state.invalid",
+                    "AGENT_STATE_SUPABASE_SECRET_KEY": "fixture-secret",
                     "GITHUB_OUTPUT": str(output),
                 },
                 text=True,
@@ -1778,7 +1776,6 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertLess(script.index('"./${ENTRYPOINT}"'), script.index("get_project_state"))
         self.assertLess(script.index("get_project_state"), script.index("protected_deployed_conformance.py materialize"))
         self.assertLess(script.index("protected_deployed_conformance.py materialize"), script.index("protected_deployed_conformance.py run"))
-        self.assertIn("CF-Access-Client-Id", script)
         cleanup = self.steps_by_name["Cleanup ephemeral registry and repository evidence"]["run"]
         self.assertIn("central-protected-deployed-conformance", cleanup)
         self.assertIn("central-protected-deployed-project-state.json", cleanup)
@@ -2181,9 +2178,8 @@ printf 'GIT_TERMINAL_PROMPT=%s\\n' "${GIT_TERMINAL_PROMPT:-}"
             "TS_OAUTH_SECRET",
             "S3_GITHUB_TRANSPORT_ACCESS_KEY",
             "S3_GITHUB_TRANSPORT_SECRET_KEY",
-            "MIRROR_API_KEY",
-            "CF_ACCESS_CLIENT_ID",
-            "CF_ACCESS_CLIENT_SECRET",
+            "AGENT_STATE_SUPABASE_URL",
+            "AGENT_STATE_SUPABASE_SECRET_KEY",
         ):
             self.assertNotIn(forbidden, execute_env)
 

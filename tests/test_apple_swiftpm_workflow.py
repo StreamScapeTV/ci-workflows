@@ -28,8 +28,8 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
         self.assertEqual(
             set(call["secrets"]),
             {
-                "SOURCE_APP_ID", "SOURCE_APP_PRIVATE_KEY", "MIRROR_API_KEY",
-                "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET",
+                "SOURCE_APP_ID", "SOURCE_APP_PRIVATE_KEY", "AGENT_STATE_SUPABASE_URL",
+                "AGENT_STATE_SUPABASE_SECRET_KEY",
                 "S3_GITHUB_TRANSPORT_ACCESS_KEY", "S3_GITHUB_TRANSPORT_SECRET_KEY",
                 "TS_OAUTH_CLIENT_ID", "TS_OAUTH_SECRET", "PACKAGE_PUBLISH_USERNAME",
                 "PACKAGE_PUBLISH_TOKEN", "PACKAGE_READ_TOKEN",
@@ -138,10 +138,8 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
                     **os.environ,
                     "PATH": f"{fake_bin}:{os.environ['PATH']}",
                     "PROJECT_STATE_RESPONSE": json.dumps(project_response),
-                    "AGENT_STATE_URL": "https://agent-state.invalid",
-                    "AGENT_STATE_API_KEY": "fixture-secret",
-                    "CF_ACCESS_CLIENT_ID": "fixture-cf-id",
-                    "CF_ACCESS_CLIENT_SECRET": "fixture-cf-secret",
+                    "AGENT_STATE_SUPABASE_URL": "https://agent-state.invalid",
+                    "AGENT_STATE_SUPABASE_SECRET_KEY": "fixture-secret",
                     "LIFECYCLE_CI_RUN_ID": "11111111-1111-4111-8111-111111111111",
                     "TRUSTED_CAPABILITY_CI_RUN_ID": "",
                     "SOURCE_REPOSITORY": "StreamScapeTV/example-swift",

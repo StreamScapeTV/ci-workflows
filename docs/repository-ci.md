@@ -543,23 +543,22 @@ over Tailscale with the GitHub secrets `S3_GITHUB_TRANSPORT_ACCESS_KEY` and
 `scripts/ci/s3_put.py`, standard library SigV4) is the only writer and accepts only
 these key layouts:
 
-- `logs/<project>/<ci_run_id>/<file>`
-- `screenshots/<project>/<scope>/<file>`
+- `logs/<project>/<request_id>/<stage>/<seq>.log` live chunks plus `final.log` per stage (`actions/s3-log-stream`)
+- `logs/<project>/<request_id>/<file>` one-object logs of the older workflows
+- `screenshots/<project>/<id>/<file>`
 - `releases/<project>/<release version>/<file>` (plain version, no hashes)
+
+`actions/s3-log-stream` (`phase: start` before the stage, `phase: stop` with `if: always()` after it)
+uploads the scrubbed, growing log as zero-padded numbered chunks every few seconds (S3 has no append)
+and one merged `final.log` when the stage ends, so an agent can list the prefix and read the last chunk.
+The scrub covers every `CI_SECRET_*` environment value and the S3 credentials, and holds back the last
+bytes of each round so a secret split across two chunks is never exposed.
 
 When the endpoint is not yet reachable on a GitHub-hosted runner, the action connects
 the reviewed Tailscale capability first. Log text is scrubbed of configured secrets
-before upload exactly as before. The finish call of an Android run records the log's
-object key in the CI run's `diagnostic_key`. Retention is a bucket lifecycle rule set by
+before upload exactly as before. Older workflows keep their Agent State calls; Android's finish records the log's object key as `diagnostic_key`. Retention is a bucket lifecycle rule set by
 the owner on the bucket, not a Central workflow. A failed upload is a failed run; there is
 no issue-comment fallback.
-
-### Agent State access
-
-Central reaches the self-hosted Agent State instance through the Cloudflare tunnel host in
-the variable `MIRROR_URL`, path `/rest/v1/` only. Every call sends the Supabase API key
-(`secrets.MIRROR_API_KEY`) and the Cloudflare Access service token
-(`secrets.CF_ACCESS_CLIENT_ID`, `secrets.CF_ACCESS_CLIENT_SECRET`).
 
 ### Native test selector lists
 

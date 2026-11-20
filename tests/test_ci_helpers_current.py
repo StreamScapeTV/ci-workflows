@@ -18,7 +18,7 @@ class CiHelperTests(_prior.CiHelperTests):
             set(inventory["workflows"]),
             {"apple", "apple_credential_preflight", "repository", "repository_plan", "apple_binary", "apple_swiftpm", "library_package_release", "android", "cluster_inspector", "maven", "public_native_image_chart", "oci_reproducibility", "branch_delete", "ci_cancel", "central_dispatch", "central_ci_settle", "github_issue_dependency_projection", "self_check"},
         )
-        self.assertEqual(set(inventory["actions"]), {"agent_state", "s3_upload", "private_git", "dockerhub_read"})
+        self.assertEqual(set(inventory["actions"]), {"agent_state", "s3_upload", "s3_log_stream", "private_git", "dockerhub_read"})
         self.assertEqual(set(inventory["scripts"]), {"ci_cancel", "s3_put", "oci_reproducibility", "github_issue_dependency_projection", "repository_log_checkpoint", "repository_log_capture", "repository_test_fixtures", "repository_log_timeline", "repository_progress_relay", "repository_runtime_probe", "repository_execution_plan", "protected_deployed_conformance", "repository_apple_physical_device", "repository_macos_netrc", "apple_credential_preflight", "swiftpm_binary", "apple_dependency_cache", "hosted_macos_dns"})
         self.assertEqual(set(inventory["contracts"]), {"repository_ci_v1"})
         self.assertEqual(inventory["contracts"]["repository_ci_v1"], "contracts/repository-ci-v1.json")
@@ -40,7 +40,7 @@ class CiHelperTests(_prior.CiHelperTests):
 
     def test_only_three_custom_actions_exist(self) -> None:
         actions = {p.name for p in (_prior.ROOT / "actions").iterdir() if p.is_dir()}
-        self.assertEqual(actions, {"agent-state", "s3-upload", "private-git", "dockerhub-read"})
+        self.assertEqual(actions, {"agent-state", "s3-upload", "s3-log-stream", "private-git", "dockerhub-read"})
 
     def test_workflows_use_no_reusable_prefix(self) -> None:
         names = {p.name for p in (_prior.ROOT / ".github/workflows").glob("*.yml")}

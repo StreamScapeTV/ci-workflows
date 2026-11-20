@@ -19,7 +19,7 @@ class AppleLogCheckpointTests(unittest.TestCase):
     def test_seed_and_terminal_upload_share_exact_private_object_identity(self):
         seed = STEPS['Seed stable private Apple CI log object']
         final = STEPS['Upload CI log to S3']
-        for key in ('kind', 'repository', 'scope', 'file_name', 'content_type'):
+        for key in ('kind', 'repository', 'id', 'file_name', 'content_type'):
             self.assertEqual(seed['with'][key], final['with'][key])
         self.assertTrue(seed['continue-on-error'])
         names = list(STEPS)

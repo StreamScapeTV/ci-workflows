@@ -408,46 +408,5 @@ class RepositoryProgressRelayTests(unittest.TestCase):
         self.assertFalse(protocol["progressReportingAffectsCiResult"])
 
 
-class RelayCloudflareCredentialsTests(unittest.TestCase):
-    def test_credentials_require_cloudflare_access_pair_and_headers_are_sent(self) -> None:
-        import io
-        import json as _json
-        import importlib
-
-        relay = importlib.import_module("repository_progress_relay")
-        good = _json.dumps({"url": "https://mirror.example.invalid/", "key": "k",
-                            "cf_access_client_id": "id", "cf_access_client_secret": "secret"})
-        self.assertEqual(relay.read_credentials(io.StringIO(good + "\n")),
-                         ("https://mirror.example.invalid", "k", "id", "secret"))
-        legacy = _json.dumps({"url": "https://mirror.example.invalid", "key": "k"})
-        with self.assertRaises(relay.ReportError):
-            relay.read_credentials(io.StringIO(legacy + "\n"))
-        seen = []
-
-        class Response:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_a):
-                return False
-
-            def read(self):
-                return b'{"ok":true}'
-
-        class Opener:
-            def urlopen(self, request, timeout):
-                seen.append(request)
-                return Response()
-
-        reporter = relay.AgentStateReporter("https://mirror.example.invalid", "k", "id", "secret", opener=Opener())
-        try:
-            reporter.report("00000000-0000-4000-8000-000000000001", {})
-        except relay.ReportError:
-            pass
-        self.assertEqual(seen[0].get_header("Cf-access-client-id"), "id")
-        self.assertEqual(seen[0].get_header("Cf-access-client-secret"), "secret")
-        self.assertEqual(seen[0].get_header("Apikey"), "k")
-
-
 if __name__ == "__main__":
     unittest.main()
