@@ -16,6 +16,8 @@ import s3_put  # noqa: E402
 ENV = {
     "S3_GITHUB_TRANSPORT_ACCESS_KEY": "AKIAIOSFODNN7EXAMPLE",
     "S3_GITHUB_TRANSPORT_SECRET_KEY": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    "S3_ENDPOINT": "https://s3.example.test",
+    "S3_BUCKET": "example-bucket",
 }
 NOW = dt.datetime(2013, 5, 24, tzinfo=dt.timezone.utc)
 
@@ -109,7 +111,7 @@ class ClientTest(unittest.TestCase):
         self.client(opener).put("logs/r/1/f.txt", b"hello", "text/plain")
         request = opener.requests[0]
         self.assertEqual(request.method, "PUT")
-        self.assertEqual(request.full_url, "https://s3.nas.faruqi.dev/github-transport/logs/r/1/f.txt")
+        self.assertEqual(request.full_url, "https://s3.example.test/example-bucket/logs/r/1/f.txt")
         flat = repr(request.headers)
         self.assertIn("AWS4-HMAC-SHA256", flat)
         self.assertNotIn(ENV["S3_GITHUB_TRANSPORT_SECRET_KEY"], flat)
@@ -251,7 +253,7 @@ class StreamTests(unittest.TestCase):
             uploads = []
 
             def opener(request, timeout):
-                uploads.append((request.get_method(), request.full_url.split("/github-transport/")[1]))
+                uploads.append((request.get_method(), request.full_url.split("/example-bucket/")[1]))
                 return Response()
 
             def finish_later():
@@ -349,7 +351,7 @@ class PresignTests(unittest.TestCase):
             self.assertEqual(sorted(document["urls"]), ["000000.log", "000001.log", "000002.log", "final.log"])
             self.assertEqual(urls_file.stat().st_mode & 0o777, 0o600)
             self.assertNotIn(ENV["S3_GITHUB_TRANSPORT_SECRET_KEY"], urls_file.read_text())
-            self.assertTrue(all("X-Amz-Expires=3600" in url and "/github-transport/logs/example-repo/req-7/build/" in url
+            self.assertTrue(all("X-Amz-Expires=3600" in url and "/example-bucket/logs/example-repo/req-7/build/" in url
                                 for url in document["urls"].values()))
             opener = FakeOpener(Response(), Response(), Response(), Response())
             client = s3_put.PresignedClient(document["urls"], project="example-repo", request_id="req-7", stage="build", opener=opener)

@@ -3,6 +3,14 @@ name: Upload file to the Central S3 transport bucket
 description: Store one file under the fixed logs/, screenshots/ or releases/ layout (key = <kind>/<project>/<id>[/<stage>]/<file_name>) of the owner's S3 bucket, reached over Tailscale.
 
 inputs:
+  s3_endpoint:
+    description: S3 endpoint URL; empty means the repository variable S3_ENDPOINT
+    required: false
+    default: ""
+  s3_bucket:
+    description: S3 bucket name; empty means the repository variable S3_BUCKET
+    required: false
+    default: ""
   kind:
     description: "Fixed object class: logs, screenshots or releases"
     required: true
@@ -57,6 +65,8 @@ runs:
     - id: probe
       shell: bash
       env:
+        S3_ENDPOINT: ${{ inputs.s3_endpoint || vars.S3_ENDPOINT }}
+        S3_BUCKET: ${{ inputs.s3_bucket || vars.S3_BUCKET }}
         S3_GITHUB_TRANSPORT_ACCESS_KEY: ${{ inputs.s3_access_key }}
         S3_GITHUB_TRANSPORT_SECRET_KEY: ${{ inputs.s3_secret_key }}
       run: |
@@ -73,6 +83,8 @@ runs:
     - id: upload
       shell: bash
       env:
+        S3_ENDPOINT: ${{ inputs.s3_endpoint || vars.S3_ENDPOINT }}
+        S3_BUCKET: ${{ inputs.s3_bucket || vars.S3_BUCKET }}
         S3_GITHUB_TRANSPORT_ACCESS_KEY: ${{ inputs.s3_access_key }}
         S3_GITHUB_TRANSPORT_SECRET_KEY: ${{ inputs.s3_secret_key }}
         UPLOAD_KIND: ${{ inputs.kind }}

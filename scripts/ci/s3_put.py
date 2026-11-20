@@ -49,8 +49,6 @@ import urllib.request
 from pathlib import Path
 from typing import Callable, Mapping
 
-DEFAULT_ENDPOINT = "https://s3.nas.faruqi.dev"
-DEFAULT_BUCKET = "github-transport"
 DEFAULT_REGION = "us-east-1"
 KINDS = ("logs", "screenshots", "releases")
 MAX_OBJECT_BYTES = 256 * 1024 * 1024
@@ -144,8 +142,11 @@ class Client:
         self.secret_key = environ.get("S3_GITHUB_TRANSPORT_SECRET_KEY", "")
         if not self.access_key or not self.secret_key:
             raise S3Error("missing_credentials")
-        self.endpoint = environ.get("S3_ENDPOINT", DEFAULT_ENDPOINT).rstrip("/")
-        self.bucket = environ.get("S3_BUCKET", DEFAULT_BUCKET)
+        self.endpoint = environ.get("S3_ENDPOINT", "").rstrip("/")
+        self.bucket = environ.get("S3_BUCKET", "")
+        if not self.endpoint or not self.bucket:
+            # No default: the host and bucket are private topology and live in repository variables.
+            raise S3Error("missing_endpoint_or_bucket")
         self.region = environ.get("S3_REGION", DEFAULT_REGION)
         if not self.endpoint.startswith("https://"):
             raise S3Error("endpoint_must_be_https")
@@ -414,6 +415,8 @@ def run_stream(streamer: LogStreamer, stop: threading.Event, *, interval: float 
 def endpoint_reachable(endpoint: str, timeout: float = 8) -> bool:
     """Unauthenticated TCP reachability of the S3 endpoint (needs no credential)."""
     parsed = urllib.parse.urlsplit(endpoint)
+    if not parsed.hostname:
+        return False
     try:
         with socket.create_connection((parsed.hostname, parsed.port or 443), timeout=timeout):
             return True
@@ -469,7 +472,7 @@ def main(argv: list[str] | None = None, environ: Mapping[str, str] = os.environ)
     args = parser.parse_args(argv)
     try:
         if args.command == "probe":
-            endpoint = environ.get("S3_ENDPOINT", DEFAULT_ENDPOINT).rstrip("/")
+            endpoint = environ.get("S3_ENDPOINT", "").rstrip("/")
             print("true" if endpoint_reachable(endpoint) else "false")
             return 0
         if args.command == "presign":
