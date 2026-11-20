@@ -88,6 +88,39 @@ def xcode(source: Path, stage: str, options: dict, derived_data: str = "DerivedD
     return {"mode": "convention", "argv": argv}
 
 
+def python(source: Path, stage: str, options: dict):
+    """Python convention: an isolated venv, dependencies from the tracked manifest, standard tools."""
+    names = _tracked_names(source)
+    top = {n for n in names if "/" not in n}
+    text = ""
+    for name in sorted(top):
+        if name == "pyproject.toml" or (name.startswith("requirements") and name.endswith(".txt")):
+            text += (source / name).read_text(encoding="utf-8", errors="replace")
+    if "pyproject.toml" not in top and not any(n.startswith("requirements") for n in top):
+        _fail("Python convention: provide pyproject.toml or requirements.txt")
+    venv = "python3 -m venv .ci-venv && . .ci-venv/bin/activate && python -m pip install --quiet --upgrade pip"
+    if "requirements-dev.txt" in top:
+        deps = "python -m pip install --quiet -r requirements-dev.txt"
+    elif "requirements.txt" in top:
+        deps = "python -m pip install --quiet -r requirements.txt"
+    else:
+        deps = "(python -m pip install --quiet -e '.[dev]' || python -m pip install --quiet -e .)"
+    if stage == "lint":
+        if "[tool.ruff" not in text and "ruff.toml" not in top and ".ruff.toml" not in top:
+            return _skip("no lint convention: configure ruff ([tool.ruff] or ruff.toml) to enable it")
+        body = "python -m pip install --quiet ruff && ruff check ."
+    elif stage == "build":
+        if "pyproject.toml" not in top:
+            return _skip("no build convention: add pyproject.toml to build a distribution")
+        body = "python -m pip install --quiet build && python -m build"
+    else:
+        if not any(n.startswith("tests/") for n in names):
+            return _skip("no test convention: add a tests/ directory")
+        body = "python -m pytest -q" if "pytest" in text else "python -m unittest discover -s tests"
+        body = f"{deps} && {body}"
+    return {"mode": "convention", "argv": ["bash", "-ec", f"{venv} && {body}"]}
+
+
 def resolve(ecosystem: str, stage: str, source: Path, options: dict, derived_data: str = "DerivedData"):
     if stage not in SCRIPT:
         _fail("unsupported stage")
@@ -98,6 +131,8 @@ def resolve(ecosystem: str, stage: str, source: Path, options: dict, derived_dat
         return gradle(source, stage, options)
     if ecosystem == "xcode":
         return xcode(source, stage, options, derived_data)
+    if ecosystem == "python":
+        return python(source, stage, options)
     _fail("unsupported ecosystem")
 
 

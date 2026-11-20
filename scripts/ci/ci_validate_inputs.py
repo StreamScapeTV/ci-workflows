@@ -27,6 +27,7 @@ OPERATIONS = {name: HIERARCHY[: index + 1] for index, name in enumerate(HIERARCH
 EXTRA_FIELDS = {
     "xcode": {"scheme": {"type": "string", "maxLength": 64, "pattern": r"[A-Za-z0-9._-]{1,64}"}},
     "gradle": {},
+    "python": {},
 }
 REPOSITORY = re.compile(ORGANIZATION + r"/[A-Za-z0-9_.-]{1,100}")
 REQUEST_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{7,63}")

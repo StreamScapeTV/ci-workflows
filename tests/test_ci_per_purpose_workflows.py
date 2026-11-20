@@ -33,7 +33,8 @@ auth = load("ci_registry_auth")
 stage = load("ci_stage")
 run_stage = load("ci_run_stage")
 CONTRACT = json.loads((ROOT / "contracts/repository-ci-v1.json").read_text())
-ECOSYSTEMS = ("gradle", "xcode")
+ECOSYSTEMS = ("gradle", "xcode", "python")
+CACHED = ("gradle", "xcode")  # python has no cache by owner decision
 SHA_PIN = re.compile(r"^[^@\s]+@[0-9a-f]{40}( #.*)?$")
 
 
@@ -99,6 +100,22 @@ class StageResolutionTests(unittest.TestCase):
             stage.resolve("gradle", "build", git_repo({"gradlew": "x"}), {})
         with self.assertRaises(SystemExit):  # a tracked but non executable script is refused, not skipped
             stage.resolve("gradle", "build", git_repo({".ci/build.sh": "x"}), {})
+
+    def test_python_conventions(self):
+        lib = git_repo({"pyproject.toml": "[tool.ruff]\n[project.optional-dependencies]\ndev=['pytest']\n", "tests/test_a.py": "x"})
+        for name in ("lint", "build", "test"):
+            self.assertEqual(stage.resolve("python", name, lib, {})["mode"], "convention")
+        self.assertIn("ruff check", stage.resolve("python", "lint", lib, {})["argv"][-1])
+        self.assertIn("python -m pytest -q", stage.resolve("python", "test", lib, {})["argv"][-1])
+        self.assertIn("-e '.[dev]'", stage.resolve("python", "test", lib, {})["argv"][-1])
+        plain = git_repo({"requirements.txt": "x\n", "tests/test_a.py": "x"})
+        self.assertIn("unittest discover", stage.resolve("python", "test", plain, {})["argv"][-1])
+        self.assertIn("-r requirements.txt", stage.resolve("python", "test", plain, {})["argv"][-1])
+        self.assertEqual(stage.resolve("python", "lint", plain, {})["mode"], "skip")
+        self.assertEqual(stage.resolve("python", "build", plain, {})["mode"], "skip")
+        self.assertEqual(stage.resolve("python", "test", git_repo({"requirements.txt": "x"}), {})["mode"], "skip")
+        with self.assertRaises(SystemExit):
+            stage.resolve("python", "test", git_repo({"README.md": "x"}), {})
 
     def test_xcode_conventions(self):
         package = git_repo({"Package.swift": "// swift-tools-version:5.9"})
@@ -369,15 +386,17 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertIn('grep -q "HTTP 404"', action)
         self.assertIn("integration=none", action)
         self.assertIn('>> "${LOG_PATH}"', action)
-        for name in ECOSYSTEMS:
+        for name in CACHED:
             text = (ROOT / f".github/workflows/ci-{name}-stage.yml").read_text()
             self.assertLess(text.index("Prepare the stage log file"), text.index("Restore "))
+        self.assertNotIn("ci-cache", (ROOT / ".github/workflows/ci-python-stage.yml").read_text())
 
     def test_stage_runs_without_central_secrets_in_the_product_environment_and_only_trusted_cache_saves(self):
         for name in ECOSYSTEMS:
             text = (ROOT / f".github/workflows/ci-{name}-stage.yml").read_text()
-            self.assertIn("phase: restore", text)
-            self.assertIn("phase: save", text)
+            if name in CACHED:
+                self.assertIn("phase: restore", text)
+                self.assertIn("phase: save", text)
             run = text.split("- name: Run stage")[1].split("- name:")[0]
             self.assertNotIn("inputs.", run.split("run: |")[1], "no workflow input is interpolated into shell")
         action = (ROOT / "actions/ci-cache/action.yml").read_text()
