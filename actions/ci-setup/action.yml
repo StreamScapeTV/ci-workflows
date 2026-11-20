@@ -35,7 +35,7 @@ outputs:
     value: ${{ steps.verify.outputs.source_sha }}
   token:
     description: Read-only source token (masked)
-    value: ${{ steps.token.outputs.token }}
+    value: ${{ steps.token_org.outputs.token || steps.token_repo.outputs.token }}
   auth_home:
     value: ${{ steps.auth.outputs.auth_home }}
   git_config:
@@ -54,15 +54,29 @@ runs:
         [[ "${REPOSITORY}" =~ ^StreamScapeTV/[A-Za-z0-9_.-]{1,100}$ ]] || { echo "repository must be StreamScapeTV/<name>" >&2; exit 2; }
         printf 'name=%s\n' "${REPOSITORY#*/}" >> "${GITHUB_OUTPUT}"
 
-    - name: Prepare source token (this repository only unless github_git)
-      id: token
+    # An empty `repositories:` value cannot be produced by an expression (the empty string is falsy),
+    # so there are two steps: one token for this repository only, one organization-wide token that is
+    # minted only when github_git is requested (private SwiftPM packages on github.com).
+    - name: Prepare source token (this repository only)
+      id: token_repo
+      if: ${{ inputs.github_git != 'true' }}
       uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
       with:
         app-id: ${{ inputs.app_id }}
         private-key: ${{ inputs.private_key }}
         owner: StreamScapeTV
-        # The checkout needs only this repository; github_git (private SwiftPM packages) needs the organization.
-        repositories: ${{ inputs.github_git == 'true' && '' || steps.name.outputs.name }}
+        repositories: ${{ steps.name.outputs.name }}
+        permission-contents: read
+        permission-metadata: read
+
+    - name: Prepare source token (all organization repositories, github_git only)
+      id: token_org
+      if: ${{ inputs.github_git == 'true' }}
+      uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+      with:
+        app-id: ${{ inputs.app_id }}
+        private-key: ${{ inputs.private_key }}
+        owner: StreamScapeTV
         permission-contents: read
         permission-metadata: read
 
@@ -92,7 +106,7 @@ runs:
       with:
         repository: ${{ inputs.repository }}
         ref: ${{ steps.ref.outputs.full_ref }}
-        token: ${{ steps.token.outputs.token }}
+        token: ${{ steps.token_org.outputs.token || steps.token_repo.outputs.token }}
         path: source
         fetch-depth: 1
         persist-credentials: false
@@ -112,7 +126,7 @@ runs:
       id: auth
       shell: bash
       env:
-        GITHUB_SOURCE_TOKEN: ${{ steps.token.outputs.token }}
+        GITHUB_SOURCE_TOKEN: ${{ steps.token_org.outputs.token || steps.token_repo.outputs.token }}
         USE_GITHUB_GIT: ${{ inputs.github_git }}
         USE_REGISTRY_NETRC: ${{ inputs.registry_netrc }}
         USE_GRADLE_MAVEN: ${{ inputs.gradle_maven }}

@@ -290,7 +290,7 @@ class WorkflowShapeTests(unittest.TestCase):
             on = document.get("on") or document[True]
             self.assertEqual(set(on), {"workflow_dispatch"})
             inputs = on["workflow_dispatch"]["inputs"]
-            self.assertEqual(set(inputs), {"request_id", "repository", "ref", "is_tag", "operation", "options"})
+            self.assertEqual(set(inputs), {"request_id", "repository", "ref", "is_tag", "operation", "target", "options"})
             self.assertIn("inputs.request_id", document["run-name"])
             self.assertEqual(document["permissions"], {"contents": "read"})
             # safety net only: one pipeline per repository + ref, never cancels another request
@@ -380,6 +380,22 @@ class WorkflowShapeTests(unittest.TestCase):
         for name in ("STREAMSCAPE_API_BASE", "STREAMSCAPE_EMAIL", "STREAMSCAPE_PASSWORD", "STREAMSCAPE_DEMO_EMAIL",
                      "STREAMSCAPE_DEMO_PASSWORD", "XTREAM_URL", "XTREAM_USERNAME", "XTREAM_PASSWORD"):
             self.assertEqual(env[f"CI_SECRET_FIXTURE_{name}"], f"${{{{ secrets.{name} }}}}")
+
+    def test_entry_input_contract_with_the_runner(self):
+        for name in ECOSYSTEMS:
+            document = self.entry(name)
+            on = (document.get("on") or document[True])["workflow_dispatch"]["inputs"]
+            self.assertTrue(on["operation"]["required"])
+            self.assertFalse(on["target"].get("required", False))
+
+    def test_ci_setup_mints_an_organization_token_only_for_github_git(self):
+        action = yaml.safe_load((ROOT / "actions/ci-setup/action.yml").read_text())["runs"]["steps"]
+        repo = next(s for s in action if s.get("id") == "token_repo")
+        org = next(s for s in action if s.get("id") == "token_org")
+        self.assertIn("!= 'true'", repo["if"])
+        self.assertEqual(repo["with"]["repositories"], "${{ steps.name.outputs.name }}")
+        self.assertIn("== 'true'", org["if"])
+        self.assertNotIn("repositories", org["with"])
 
     def test_cache_action_fails_closed_and_logs_into_the_stage_log(self):
         action = (ROOT / "actions/ci-cache/action.yml").read_text()

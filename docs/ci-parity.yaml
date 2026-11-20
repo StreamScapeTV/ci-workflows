@@ -33,7 +33,7 @@ legacy_pairs:
   - {key: validation.node,       profile: "*",         target: retired, status: implemented, tailscale: false}
   - {key: validation.flutter,    profile: "*",         target: retired, status: implemented, tailscale: false}
   - {key: validation.container-service, profile: "*",  target: retired, status: implemented, tailscale: false}
-  - {key: validation.python,     profile: "*",         target: retired, status: implemented, tailscale: false}
+  - {key: validation.python,     profile: "*",         target: ci-python, status: implemented, tailscale: true}
   - {key: validation.apple,      profile: "*",         target: retired, status: implemented, tailscale: false}
 capabilities:
   "exact source checkout and observed-SHA attestation": actions/ci-setup

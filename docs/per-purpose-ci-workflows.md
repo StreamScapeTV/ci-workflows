@@ -151,3 +151,20 @@ No new secret is invented by these workflows; they use names that already exist 
 | `FORGEJO_REGISTRY_USERNAME` / `CIW_MAVEN_PACKAGE_READ_TOKEN` | gradle, xcode, python | Private registry read access. |
 | `STREAMSCAPE_*`, `XTREAM_*` fixture secrets | xcode `test` job only | Already used by the legacy path. |
 | Project setting: ecosystem workflow | runner/OpenProject | The project names `gradle`, `xcode` or `python`; nothing is auto-detected. |
+
+## Input contract with the runner and stage identifiers
+
+Every entry workflow (`ci-gradle.yml`, `ci-xcode.yml`, `ci-python.yml`) is dispatched with exactly these
+inputs: `request_id`, `repository`, `ref`, `is_tag`, `operation` (required: the top requested operation),
+`target` (optional, accepted and ignored) and `options` (JSON, default `{}`). Any other input makes GitHub
+answer 422, so the runner must not send more. `operation` today is `lint`, `test` or `build`; `full`,
+`ui-test` and `release` are rejected by `plan` until their workflows exist (see `docs/ci-parity.yaml`).
+
+Hierarchy: operation X runs every stage below it in the same run, each as its own job
+(`lint` < `test` < `build`): `lint` runs lint; `test` runs lint then test; `build` runs lint, test, build.
+A later stage runs only if the previous one succeeded.
+
+Stage identifier: the stage id is `lint`, `test` or `build`. It is the `<stage>` segment of the S3 path
+`logs/<project>/<request_id>/<stage>/<seq>.log` (and `final.log`). The GitHub API names the jobs of a
+reusable workflow `<caller job> / <called job>`, here `lint / lint`, `test / test`, `build / build`; the
+stage id is the part before ` / `. A reader that needs the job name must match on that prefix.

@@ -29,6 +29,11 @@ run-name: CI python ${{ inputs.request_id }}
         description: Top operation lint, test or build; every operation below it runs first as a stage (lint < test < build)
         type: string
         required: true
+      target:
+        description: Profile target the runner may send; accepted for compatibility and ignored (this workflow is the target)
+        type: string
+        required: false
+        default: ""
       options:
         description: JSON object of reviewed semantic options
         type: string
