@@ -6,12 +6,11 @@ A repository chosen for the Gradle workflow needs **no `.ci` directory** if it p
    whose `distributionUrl` names the Gradle version. The version selects the cache generation.
 2. The standard lifecycle tasks, which the workflow runs with `./gradlew --no-daemon`:
 
-| Stage (profile) | Command | What the project provides |
+| Stage (operation) | Command | What the project provides |
 | --- | --- | --- |
 | `lint` | `check -x test` | verification tasks attached to `check` (Android lint, detekt, ktlint, ...) |
 | `build` | `assemble` | the artifacts to build |
 | `test` | `test` | JVM unit tests (no emulator; emulator/instrumentation is a separate workflow) |
-| `check` | all three, as three jobs | |
 
 3. Product specifics in Gradle itself (tasks, `gradle.properties`, build types), never in a CI script.
    Enable the build cache (`org.gradle.caching=true`) and, if wanted, the configuration cache.

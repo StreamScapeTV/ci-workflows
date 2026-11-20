@@ -2,7 +2,7 @@
 """Validate one ecosystem CI request (workflow_dispatch inputs) before any credential is used.
 
 The agent runner dispatches an ecosystem workflow with ``request_id``, ``repository``, ``ref``,
-``is_tag``, ``profile`` and ``options`` (a JSON object string). Nothing here talks to Agent State.
+``is_tag``, ``operation`` and ``options`` (a JSON object string). Nothing here talks to Agent State.
 ``options`` are checked against the reviewed semantic-input schema of
 ``contracts/repository-ci-v1.json`` (the same fields the product ``.ci`` scripts already accept)
 plus a few ecosystem specific fields. Arbitrary commands, environment maps, runner labels and
@@ -21,8 +21,9 @@ import sys
 
 ORGANIZATION = "StreamScapeTV"
 MAX_OPTIONS_BYTES = 4096
-STAGES = ("lint", "build", "test")
-PROFILES = {"lint": ("lint",), "build": ("build",), "test": ("test",), "check": STAGES}
+# Hierarchy lint < test < build: the top requested operation runs every operation below it as a stage.
+HIERARCHY = ("lint", "test", "build")
+OPERATIONS = {name: HIERARCHY[: index + 1] for index, name in enumerate(HIERARCHY)}
 EXTRA_FIELDS = {
     "xcode": {"scheme": {"type": "string", "maxLength": 64, "pattern": r"[A-Za-z0-9._-]{1,64}"}},
     "gradle": {},
@@ -71,7 +72,7 @@ def _validate_field(field: dict, name: str, value) -> None:
 
 
 def validate(*, contract: dict, ecosystem: str, request_id: str, repository: str, ref: str,
-             is_tag: str, profile: str, options_raw: str) -> dict:
+             is_tag: str, operation: str, options_raw: str) -> dict:
     if ecosystem not in EXTRA_FIELDS:
         _fail("unsupported ecosystem")
     if REQUEST_ID.fullmatch(request_id) is None:
@@ -82,8 +83,8 @@ def validate(*, contract: dict, ecosystem: str, request_id: str, repository: str
         _fail("ref is outside the reviewed bound")
     if is_tag not in ("true", "false"):
         _fail("is_tag must be true or false")
-    if profile not in PROFILES:
-        _fail("profile must be one of: " + ", ".join(PROFILES))
+    if operation not in OPERATIONS:
+        _fail("operation must be one of: " + ", ".join(OPERATIONS))
     if len(options_raw.encode("utf-8")) > MAX_OPTIONS_BYTES:
         _fail("options exceed the reviewed bound")
     try:
@@ -97,7 +98,7 @@ def validate(*, contract: dict, ecosystem: str, request_id: str, repository: str
     fields = dict(semantic.get("fields") or {})
     operations = semantic.get("operations") or {}
     fields.update(EXTRA_FIELDS[ecosystem])
-    stages = list(PROFILES[profile])
+    stages = list(OPERATIONS[operation])
     allowed = set(EXTRA_FIELDS[ecosystem])
     for stage in stages:
         spec = operations.get(stage)
@@ -105,7 +106,7 @@ def validate(*, contract: dict, ecosystem: str, request_id: str, repository: str
             _fail("semantic operation schema is missing")
         allowed |= set(spec.get("allowed", []))
     if set(options) - allowed:
-        _fail("options contain a field this profile does not accept")
+        _fail("options contain a field this operation does not accept")
     for name, value in options.items():
         _validate_field(fields[name], name, value)
     return {"stages": stages, "options": options}
@@ -128,7 +129,7 @@ def main(argv=None) -> int:
     result = validate(
         contract=json.loads(path.read_text(encoding="utf-8")), ecosystem=args.ecosystem,
         request_id=os.environ["REQUEST_ID"], repository=os.environ["REPOSITORY"], ref=os.environ["REF"],
-        is_tag=os.environ["IS_TAG"], profile=os.environ["PROFILE"], options_raw=os.environ.get("OPTIONS", "{}"),
+        is_tag=os.environ["IS_TAG"], operation=os.environ["OPERATION"], options_raw=os.environ.get("OPTIONS", "{}"),
     )
     json.dump(result, sys.stdout, sort_keys=True, separators=(",", ":"))
     sys.stdout.write("\n")

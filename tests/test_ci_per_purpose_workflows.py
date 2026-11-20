@@ -54,22 +54,23 @@ class RequestValidationTests(unittest.TestCase):
     def check(self, ecosystem="gradle", **overrides):
         arguments = dict(contract=CONTRACT, ecosystem=ecosystem, request_id="req-0123456789",
                          repository="StreamScapeTV/example-app", ref="develop", is_tag="false",
-                         profile="build", options_raw="{}")
+                         operation="build", options_raw="{}")
         arguments.update(overrides)
         return validate.validate(**arguments)
 
-    def test_profiles_expand_to_ordered_stages(self):
-        self.assertEqual(self.check(profile="check")["stages"], ["lint", "build", "test"])
-        self.assertEqual(self.check(profile="test")["stages"], ["test"])
+    def test_the_top_operation_expands_to_every_operation_below_it(self):
+        self.assertEqual(self.check(operation="build")["stages"], ["lint", "test", "build"])
+        self.assertEqual(self.check(operation="test")["stages"], ["lint", "test"])
+        self.assertEqual(self.check(operation="lint")["stages"], ["lint"])
 
     def test_requests_outside_the_reviewed_bound_fail_closed(self):
         bad = [
             dict(repository="evil/repo"), dict(repository="StreamScapeTV/" + "x y"), dict(request_id="x"),
-            dict(ref=""), dict(ref="a\nb"), dict(is_tag="maybe"), dict(profile="release"),
+            dict(ref=""), dict(ref="a\nb"), dict(is_tag="maybe"), dict(operation="release"), dict(operation="check"),
             dict(options_raw='{"command":"rm -rf /"}'), dict(options_raw='["x"]'),
-            dict(options_raw='{"test_selectors":["--evil"]}', profile="test"),
+            dict(options_raw='{"test_selectors":["--evil"]}', operation="test"),
             dict(options_raw='{"build_configuration":"debug","build_configuration":"release"}'),
-            dict(options_raw='{"test_selectors":["a.B"]}', profile="build"),
+            dict(options_raw='{"test_selectors":["a.B"]}', operation="lint"),
             dict(options_raw="x" * 5000),
         ]
         for overrides in bad:
@@ -77,7 +78,7 @@ class RequestValidationTests(unittest.TestCase):
                 self.check(**overrides)
 
     def test_options_project_onto_the_fields_each_stage_accepts(self):
-        result = self.check("xcode", profile="check", options_raw=json.dumps(
+        result = self.check("xcode", operation="build", options_raw=json.dumps(
             {"scheme": "App", "product_target": "macos", "build_configuration": "debug", "test_selectors": ["A.B"]}))
         build = validate.stage_inputs(CONTRACT, "build", result["options"])
         self.assertEqual(build, {"schemaVersion": 1, "inputs": {"product_target": "macos", "build_configuration": "debug"}})
@@ -254,12 +255,12 @@ class WorkflowShapeTests(unittest.TestCase):
             on = document.get("on") or document[True]
             self.assertEqual(set(on), {"workflow_dispatch"})
             inputs = on["workflow_dispatch"]["inputs"]
-            self.assertEqual(set(inputs), {"request_id", "repository", "ref", "is_tag", "profile", "options"})
+            self.assertEqual(set(inputs), {"request_id", "repository", "ref", "is_tag", "operation", "options"})
             self.assertIn("inputs.request_id", document["run-name"])
             self.assertEqual(document["permissions"], {"contents": "read"})
             self.assertIn(name, document["concurrency"]["group"])
             self.assertEqual(document["concurrency"]["cancel-in-progress"], "${{ inputs.is_tag != 'true' }}")
-            self.assertEqual(list(document["jobs"]), ["plan", "lint", "build", "test"])
+            self.assertEqual(list(document["jobs"]), ["plan", "lint", "test", "build"])
 
     def test_workflows_never_call_agent_state_or_drive_or_a_global_cap(self):
         for path in self.all_paths():
@@ -297,7 +298,7 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertNotIn("STREAMSCAPE_", gradle)
         self.assertNotIn("XTREAM_", gradle)
         xcode = self.entry("xcode")
-        for job in ("lint", "build", "test"):
+        for job in ("lint", "test", "build"):
             passes = "STREAMSCAPE_EMAIL" in xcode["jobs"][job]["secrets"]
             self.assertEqual(passes, job == "test", job)
             for secrets in (xcode["jobs"][job]["secrets"],):
@@ -306,8 +307,8 @@ class WorkflowShapeTests(unittest.TestCase):
     def test_stage_jobs_are_separate_ordered_and_reusable_files_exist(self):
         for name in ECOSYSTEMS:
             document = self.entry(name)
-            self.assertEqual(document["jobs"]["build"]["needs"], ["plan", "lint"])
-            self.assertEqual(document["jobs"]["test"]["needs"], ["plan", "build"])
+            self.assertEqual(document["jobs"]["test"]["needs"], ["plan", "lint"])
+            self.assertEqual(document["jobs"]["build"]["needs"], ["plan", "test"])
             for job in ("lint", "build", "test"):
                 self.assertEqual(document["jobs"][job]["uses"], f"./.github/workflows/ci-{name}-stage.yml")
                 self.assertEqual(document["jobs"][job]["with"]["stage"], job)

@@ -25,8 +25,8 @@ run-name: CI gradle ${{ inputs.request_id }}
         description: "true or false"
         type: string
         required: true
-      profile:
-        description: lint, build, test or check (lint, build and test stages in order)
+      operation:
+        description: Top operation lint, test or build; every operation below it runs first as a stage (lint < test < build)
         type: string
         required: true
       options:
@@ -40,7 +40,7 @@ permissions:
 
 # One lane per repository + ref + purpose: a newer run supersedes an older one (never for tags).
 concurrency:
-  group: ci-gradle-${{ inputs.repository }}-${{ inputs.ref }}-${{ inputs.profile }}
+  group: ci-gradle-${{ inputs.repository }}-${{ inputs.ref }}-${{ inputs.operation }}
   cancel-in-progress: ${{ inputs.is_tag != 'true' }}
 
 jobs:
@@ -71,7 +71,7 @@ jobs:
           REPOSITORY: ${{ inputs.repository }}
           REF: ${{ inputs.ref }}
           IS_TAG: ${{ inputs.is_tag }}
-          PROFILE: ${{ inputs.profile }}
+          OPERATION: ${{ inputs.operation }}
           OPTIONS: ${{ inputs.options }}
         run: |
           set -Eeuo pipefail
@@ -103,16 +103,16 @@ jobs:
       S3_GITHUB_TRANSPORT_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
       S3_GITHUB_TRANSPORT_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
 
-  build:
+  test:
     needs: [plan, lint]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && contains(fromJSON(needs.plan.outputs.stages), 'build') && needs.lint.result != 'failure' && needs.lint.result != 'cancelled' }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && contains(fromJSON(needs.plan.outputs.stages), 'test') && needs.lint.result != 'failure' && needs.lint.result != 'cancelled' }}
     uses: ./.github/workflows/ci-gradle-stage.yml
     with:
       request_id: ${{ inputs.request_id }}
       repository: ${{ inputs.repository }}
       ref: ${{ inputs.ref }}
       is_tag: ${{ inputs.is_tag }}
-      stage: build
+      stage: test
       options: ${{ needs.plan.outputs.options }}
     secrets:
       SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
@@ -124,16 +124,16 @@ jobs:
       S3_GITHUB_TRANSPORT_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
       S3_GITHUB_TRANSPORT_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
 
-  test:
-    needs: [plan, build]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && contains(fromJSON(needs.plan.outputs.stages), 'test') && needs.build.result != 'failure' && needs.build.result != 'cancelled' }}
+  build:
+    needs: [plan, test]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && contains(fromJSON(needs.plan.outputs.stages), 'build') && needs.test.result != 'failure' && needs.test.result != 'cancelled' }}
     uses: ./.github/workflows/ci-gradle-stage.yml
     with:
       request_id: ${{ inputs.request_id }}
       repository: ${{ inputs.repository }}
       ref: ${{ inputs.ref }}
       is_tag: ${{ inputs.is_tag }}
-      stage: test
+      stage: build
       options: ${{ needs.plan.outputs.options }}
     secrets:
       SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}

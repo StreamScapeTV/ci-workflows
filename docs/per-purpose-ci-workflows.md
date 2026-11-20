@@ -15,7 +15,7 @@ input is rejected by GitHub):
 | `request_id` | UUID/id chosen by the runner; appears in `run-name` (`CI gradle <request_id>`) so the run can be found |
 | `repository` | `StreamScapeTV/<name>` (anything else fails in the `plan` job before a credential is used) |
 | `ref`, `is_tag` | branch or tag name, `true`/`false` |
-| `profile` | `lint`, `build`, `test`, or `check` (= lint, build, test as three ordered jobs) |
+| `operation` | the TOP operation: `lint`, `test` or `build`. Operations form a hierarchy lint < test < build (< full/ui-test < release in later workflows); the workflow runs every operation below the requested one first, as stage jobs of the same run (`needs:` chain), so a build or release never depends on another run |
 | `options` | JSON object of reviewed semantic options (default `{}`) |
 
 Options are validated against the semantic fields of `contracts/repository-ci-v1.json`
@@ -34,8 +34,8 @@ Status, logs and cancel are plain GitHub run operations done by the runner backe
 2. **Reusable stage workflows**: `ci-gradle-stage.yml`, `ci-xcode-stage.yml` (`workflow_call`, explicit
    secrets only, never `secrets: inherit`).
 3. **Entry workflows**: `ci-gradle.yml`, `ci-xcode.yml` (`workflow_dispatch`): job `plan`
-   (validate), then separate jobs `lint`, `build`, `test` so GitHub itself shows stage and time.
-   Concurrency lane = repository + ref + profile, newer run supersedes older, never for tags.
+   (validate), then separate jobs `lint`, `test`, `build` (named after the operation, `needs:` chain) so GitHub itself shows stage and time. Small tests are expected locally by default; the remote workflows are mainly for build/full/ui-test/release.
+   Concurrency lane = repository + ref + operation, newer run supersedes older, never for tags.
    There is **no global macOS or device cap**.
 
 Nothing calls Agent State, a mirror, Cloudflare Access or Google Drive.
