@@ -38,7 +38,7 @@ Status, logs and cancel are plain GitHub run operations done by the runner backe
    Concurrency: a safety-net group per repository + ref with `cancel-in-progress: false` (one pipeline per project and branch; the agent runner enforces this and cancels by request id, workflows never cancel another request). Each stage is its own job with its own checkout and cache restore; Gradle/SwiftPM caches and the Gradle build cache are what avoid repeating work between the `lint`, `test` and `build` jobs. Every later stage runs only when the previous one succeeded.
    There is **no global macOS or device cap**.
 
-Nothing calls Agent State, a mirror, Cloudflare Access or Google Drive.
+Nothing calls Agent State, a mirror, Cloudflare Access or Google Drive. **No workflow has a push, tag, pull_request or schedule trigger** (owner decision, 20 Nov 2026): CI runs only when an agent requests it through the runner (`workflow_dispatch`); the stage workflows are `workflow_call` only. Cache writes therefore happen only in explicitly requested runs on the integration branch (non-tag), and the cache-warm entry per toolchain is likewise an explicit request.
 
 ## Convention over per-project scripts
 

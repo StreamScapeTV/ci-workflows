@@ -280,6 +280,13 @@ class WorkflowShapeTests(unittest.TestCase):
             self.assertEqual(document["concurrency"], {"group": "ci-${{ inputs.repository }}-${{ inputs.ref }}", "cancel-in-progress": False})
             self.assertEqual(list(document["jobs"]), ["plan", "lint", "test", "build"])
 
+    def test_no_automatic_triggers(self):
+        for name in ECOSYSTEMS:
+            entry = yaml.safe_load((ROOT / f".github/workflows/ci-{name}.yml").read_text())
+            stage = yaml.safe_load((ROOT / f".github/workflows/ci-{name}-stage.yml").read_text())
+            self.assertEqual(set(entry.get("on") or entry[True]), {"workflow_dispatch"})
+            self.assertEqual(set(stage.get("on") or stage[True]), {"workflow_call"})
+
     def test_workflows_never_call_agent_state_or_drive_or_a_global_cap(self):
         for path in self.all_paths():
             text = path.read_text()
