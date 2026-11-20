@@ -229,5 +229,5 @@ jobs:
           fi
           rm -f -- "${RUNNER_TEMP}/central-test-fixtures.json"
           rm -rf -- "${RUNNER_TEMP}/central-registry-auth" "${RUNNER_TEMP}/ci-work" \
-            "${GITHUB_WORKSPACE}/source" "${GITHUB_WORKSPACE}/central-ci"
+            "${GITHUB_WORKSPACE}/source"
           exit "${cleanup_status}"

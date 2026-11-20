@@ -448,6 +448,19 @@ class WorkflowShapeTests(unittest.TestCase):
             text = (ROOT / f".github/workflows/ci-{name}.yml").read_text()
             self.assertEqual(text.count("S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}"), text.count("uses: ./.github/workflows/ci-"))
 
+    def test_composite_actions_use_no_context_the_runner_rejects_in_a_manifest(self):
+        # The runner fails to load an action manifest that names `vars` or `secrets` (run 44815453792, OP 7160).
+        for path in sorted((ROOT / "actions").glob("*/action.yml")):
+            text = path.read_text()
+            for context in ("vars.", "secrets."):
+                self.assertNotRegex(text, r"\$\{\{[^}]*\b" + re.escape(context), f"{path.parent.name}: {context}")
+
+    def test_stage_cleanup_keeps_the_local_actions_the_post_steps_reload(self):
+        # Deleting central-ci before the post-job phase made the runner lose ci-setup's action.yml (run 44815453792).
+        for name in ECOSYSTEMS + ("oci-release",):
+            path = ROOT / ".github/workflows" / (f"ci-{name}-stage.yml" if name != "oci-release" else "ci-oci-release-stage.yml")
+            self.assertNotIn("/central-ci\"", path.read_text(), path.name)
+
     def test_entry_input_contract_with_the_runner(self):
         for name in ECOSYSTEMS:
             document = self.entry(name)

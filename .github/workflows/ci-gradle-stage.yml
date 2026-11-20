@@ -181,4 +181,4 @@ jobs:
         shell: bash
         run: |
           rm -rf -- "${RUNNER_TEMP}/central-registry-auth" "${RUNNER_TEMP}/ci-work" \
-            "${GITHUB_WORKSPACE}/source" "${GITHUB_WORKSPACE}/central-ci"
+            "${GITHUB_WORKSPACE}/source"
