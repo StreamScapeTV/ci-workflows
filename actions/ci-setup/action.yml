@@ -1,0 +1,139 @@
+name: Central CI setup
+description: >-
+  Common first steps of an ecosystem stage: read-only GitHub App token, exact source checkout into
+  ./source, private network (Tailscale) and ephemeral Git/registry authentication. Central must be
+  checked out at ./central-ci. Pass TS_OAUTH_CLIENT_ID, TS_OAUTH_SECRET and, for registry
+  authentication, REGISTRY_USERNAME and REGISTRY_READ_TOKEN in the env of the step that uses this
+  action. This action never talks to Agent State.
+
+inputs:
+  repository:
+    required: true
+  ref:
+    required: true
+  is_tag:
+    required: true
+  app_id:
+    required: true
+  private_key:
+    required: true
+  github_git:
+    description: "true to give Git/netrc access to github.com"
+    required: false
+    default: "false"
+  registry_netrc:
+    description: "true to give netrc access to the Forgejo registry"
+    required: false
+    default: "false"
+  gradle_maven:
+    description: "true to write the Gradle private-Maven properties"
+    required: false
+    default: "false"
+
+outputs:
+  source_sha:
+    value: ${{ steps.verify.outputs.source_sha }}
+  token:
+    description: Read-only source token (masked)
+    value: ${{ steps.token_org.outputs.token || steps.token_repo.outputs.token }}
+  auth_home:
+    value: ${{ steps.auth.outputs.auth_home }}
+  git_config:
+    value: ${{ steps.auth.outputs.git_config }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve repository name
+      id: name
+      shell: bash
+      env:
+        REPOSITORY: ${{ inputs.repository }}
+      run: |
+        set -Eeuo pipefail
+        [[ "${REPOSITORY}" =~ ^StreamScapeTV/[A-Za-z0-9_.-]{1,100}$ ]] || { echo "repository must be StreamScapeTV/<name>" >&2; exit 2; }
+        printf 'name=%s\n' "${REPOSITORY#*/}" >> "${GITHUB_OUTPUT}"
+
+    # An empty `repositories:` value cannot be produced by an expression (the empty string is falsy),
+    # so there are two steps: one token for this repository only, one organization-wide token that is
+    # minted only when github_git is requested (private SwiftPM packages on github.com).
+    - name: Prepare source token (this repository only)
+      id: token_repo
+      if: ${{ inputs.github_git != 'true' }}
+      uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+      with:
+        app-id: ${{ inputs.app_id }}
+        private-key: ${{ inputs.private_key }}
+        owner: StreamScapeTV
+        repositories: ${{ steps.name.outputs.name }}
+        permission-contents: read
+        permission-metadata: read
+
+    - name: Prepare source token (all organization repositories, github_git only)
+      id: token_org
+      if: ${{ inputs.github_git == 'true' }}
+      uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+      with:
+        app-id: ${{ inputs.app_id }}
+        private-key: ${{ inputs.private_key }}
+        owner: StreamScapeTV
+        permission-contents: read
+        permission-metadata: read
+
+    - name: Resolve exact repository source ref
+      id: ref
+      shell: bash
+      env:
+        REQUESTED_REF: ${{ inputs.ref }}
+        REQUESTED_IS_TAG: ${{ inputs.is_tag }}
+      run: |
+        set -Eeuo pipefail
+        test -n "${REQUESTED_REF}" || { echo "CI requires one non-empty branch or tag name" >&2; exit 2; }
+        case "${REQUESTED_IS_TAG}" in
+          false) namespace=refs/heads ;;
+          true) namespace=refs/tags ;;
+          *) echo "CI is_tag must be true or false" >&2; exit 2 ;;
+        esac
+        full_ref="${namespace}/${REQUESTED_REF}"
+        git check-ref-format "${full_ref}" >/dev/null || { echo "CI requested ref is not a valid Git ref" >&2; exit 2; }
+        printf 'full_ref=%s\n' "${full_ref}" >> "${GITHUB_OUTPUT}"
+
+    - name: Connect private network
+      uses: ./central-ci/actions/setup-tailscale
+
+    - name: Check out exact repository source
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      with:
+        repository: ${{ inputs.repository }}
+        ref: ${{ steps.ref.outputs.full_ref }}
+        token: ${{ steps.token_org.outputs.token || steps.token_repo.outputs.token }}
+        path: source
+        fetch-depth: 1
+        persist-credentials: false
+
+    - name: Verify exact source
+      id: verify
+      shell: bash
+      run: |
+        set -Eeuo pipefail
+        source_sha="$(git -C source rev-parse HEAD)"
+        [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]] || exit 2
+        test -z "$(git -C source status --porcelain --untracked-files=all)" || { echo "source checkout is not clean" >&2; exit 2; }
+        printf 'source_sha=%s\n' "${source_sha}" >> "${GITHUB_OUTPUT}"
+        printf 'Observed source %s\n' "${source_sha}"
+
+    - name: Configure ephemeral Git and registry authentication
+      id: auth
+      shell: bash
+      env:
+        GITHUB_SOURCE_TOKEN: ${{ steps.token_org.outputs.token || steps.token_repo.outputs.token }}
+        USE_GITHUB_GIT: ${{ inputs.github_git }}
+        USE_REGISTRY_NETRC: ${{ inputs.registry_netrc }}
+        USE_GRADLE_MAVEN: ${{ inputs.gradle_maven }}
+      run: |
+        set -Eeuo pipefail
+        flags=()
+        test "${USE_GITHUB_GIT}" = true && flags+=(--github-git)
+        test "${USE_REGISTRY_NETRC}" = true && flags+=(--registry-netrc)
+        test "${USE_GRADLE_MAVEN}" = true && flags+=(--gradle-maven)
+        python3 central-ci/scripts/ci/ci_registry_auth.py "${flags[@]+"${flags[@]}"}"

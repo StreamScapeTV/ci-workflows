@@ -1,0 +1,145 @@
+# One stage (lint, build or test) of the Python ecosystem. Called by ci-python.yml.
+# Credentials are fixed for this purpose and passed explicitly (never inherited wholesale).
+name: Central CI Python stage
+
+"on":
+  workflow_call:
+    inputs:
+      request_id:
+        type: string
+        required: true
+      repository:
+        type: string
+        required: true
+      ref:
+        type: string
+        required: true
+      is_tag:
+        type: string
+        required: true
+      stage:
+        type: string
+        required: true
+      options:
+        type: string
+        required: false
+        default: "{}"
+    secrets:
+      SOURCE_APP_ID:
+        required: true
+      SOURCE_APP_PRIVATE_KEY:
+        required: true
+      TS_OAUTH_CLIENT_ID:
+        required: true
+      TS_OAUTH_SECRET:
+        required: true
+      FORGEJO_REGISTRY_USERNAME:
+        required: true
+      CIW_MAVEN_PACKAGE_READ_TOKEN:
+        required: true
+      S3_GITHUB_TRANSPORT_ACCESS_KEY:
+        required: true
+      S3_GITHUB_TRANSPORT_SECRET_KEY:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  stage:
+    name: ${{ inputs.stage }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out Central CI contract and helpers
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          path: central-ci
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            actions
+            scripts/ci
+            contracts
+
+      - name: Set up source, private network and registry authentication
+        id: setup
+        uses: ./central-ci/actions/ci-setup
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          REGISTRY_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          is_tag: ${{ inputs.is_tag }}
+          app_id: ${{ secrets.SOURCE_APP_ID }}
+          private_key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          registry_netrc: "true"
+
+      - name: Prepare the stage log file
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "${RUNNER_TEMP}/ci-work"
+          : > "${RUNNER_TEMP}/ci-work/stage.log"
+          chmod 600 "${RUNNER_TEMP}/ci-work/stage.log"
+
+      - name: Start live log stream to S3
+        uses: ./central-ci/actions/s3-log-stream
+        with:
+          phase: start
+          repository: ${{ inputs.repository }}
+          request_id: ${{ inputs.request_id }}
+          stage: ${{ inputs.stage }}
+          log_path: ${{ runner.temp }}/ci-work/stage.log
+          s3_access_key: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          s3_secret_key: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
+
+      - name: Run stage
+        id: run
+        shell: bash
+        env:
+          CI_OPTIONS_JSON: ${{ inputs.options }}
+          CI_SECRET_SOURCE_TOKEN: ${{ steps.setup.outputs.token }}
+          CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          CI_SECRET_TAILSCALE_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          CI_SECRET_TAILSCALE_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          CI_SECRET_REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          CI_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+          STAGE: ${{ inputs.stage }}
+          AUTH_HOME: ${{ steps.setup.outputs.auth_home }}
+          GIT_CONFIG_PATH: ${{ steps.setup.outputs.git_config }}
+        run: |
+          set -Eeuo pipefail
+          python3 central-ci/scripts/ci/ci_run_stage.py \
+            --ecosystem python \
+            --stage "${STAGE}" \
+            --source source \
+            --contract central-ci/contracts/repository-ci-v1.json \
+            --host-os linux \
+            --work-dir "${RUNNER_TEMP}/ci-work" \
+            --log-path "${RUNNER_TEMP}/ci-work/stage.log" \
+            --home "${AUTH_HOME}" \
+            --git-config "${GIT_CONFIG_PATH}"
+
+      - name: Stop live log stream and write the merged log
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: ./central-ci/actions/s3-log-stream
+        with:
+          phase: stop
+          repository: ${{ inputs.repository }}
+          request_id: ${{ inputs.request_id }}
+          stage: ${{ inputs.stage }}
+
+      - name: Remove credentials, source and private logs
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          rm -rf -- "${RUNNER_TEMP}/central-registry-auth" "${RUNNER_TEMP}/ci-work" \
+            "${GITHUB_WORKSPACE}/source" "${GITHUB_WORKSPACE}/central-ci"
