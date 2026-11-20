@@ -27,8 +27,8 @@ class FakeUpdater:
         self.failures = list(failures or [])
         self.calls: list[tuple[str, bytes]] = []
 
-    def replace(self, file_id: str, data: bytes) -> None:
-        self.calls.append((file_id, data))
+    def replace(self, object_key: str, data: bytes) -> None:
+        self.calls.append((object_key, data))
         if self.failures:
             raise self.failures.pop(0)
 
@@ -280,7 +280,7 @@ class RepositoryLogCheckpointTests(unittest.TestCase):
             self.assertIn(b"[REDACTED]", data)
             self.assertLessEqual(len(data), mod.MAX_LOG_BYTES)
 
-    def test_unchanged_snapshot_skips_drive_replacement(self) -> None:
+    def test_unchanged_snapshot_skips_s3_replacement(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             log = root / "log.txt"
@@ -290,7 +290,7 @@ class RepositoryLogCheckpointTests(unittest.TestCase):
             updater = FakeUpdater()
             result = mod.checkpoint_once(
                 log_path=log,
-                file_id="trustedFileId_1234567890",
+                object_key="logs/repo/uuid-1/1-1.txt",
                 state=state,
                 status_path=root / "status.json",
                 updater=updater,
@@ -301,7 +301,7 @@ class RepositoryLogCheckpointTests(unittest.TestCase):
             self.assertEqual(updater.calls, [])
             self.assertEqual(state.unchanged, 1)
 
-    def test_changed_snapshot_replaces_only_fixed_file_id_and_updates_digest(self) -> None:
+    def test_changed_snapshot_replaces_only_fixed_object_key_and_updates_digest(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             log = root / "log.txt"
@@ -310,7 +310,7 @@ class RepositoryLogCheckpointTests(unittest.TestCase):
             updater = FakeUpdater()
             result = mod.checkpoint_once(
                 log_path=log,
-                file_id="trustedFileId_1234567890",
+                object_key="logs/repo/uuid-1/1-1.txt",
                 state=state,
                 status_path=root / "status.json",
                 updater=updater,
@@ -319,8 +319,8 @@ class RepositoryLogCheckpointTests(unittest.TestCase):
             )
             self.assertEqual(result, "uploaded")
             self.assertEqual(len(updater.calls), 1)
-            file_id, payload = updater.calls[0]
-            self.assertEqual(file_id, "trustedFileId_1234567890")
+            object_key, payload = updater.calls[0]
+            self.assertEqual(object_key, "logs/repo/uuid-1/1-1.txt")
             self.assertNotIn(b"secret-value", payload)
             self.assertIn(b"[REDACTED]", payload)
             self.assertEqual(state.last_sha256, hashlib.sha256(payload).hexdigest())
@@ -336,15 +336,15 @@ class RepositoryLogCheckpointTests(unittest.TestCase):
             state = mod.CheckpointState(last_sha256=seed)
             updater = FakeUpdater(
                 [
-                    mod.CheckpointError("drive_transport", transient=True),
-                    mod.CheckpointError("drive_http_503", transient=True),
-                    mod.CheckpointError("drive_transport", transient=True),
+                    mod.CheckpointError("s3_transport", transient=True),
+                    mod.CheckpointError("s3_http_503", transient=True),
+                    mod.CheckpointError("s3_transport", transient=True),
                 ]
             )
             with self.assertRaises(mod.CheckpointError):
                 mod.checkpoint_once(
                     log_path=log,
-                    file_id="trustedFileId_1234567890",
+                    object_key="logs/repo/uuid-1/1-1.txt",
                     state=state,
                     status_path=root / "status.json",
                     updater=updater,
@@ -356,7 +356,7 @@ class RepositoryLogCheckpointTests(unittest.TestCase):
 
             result = mod.checkpoint_once(
                 log_path=log,
-                file_id="trustedFileId_1234567890",
+                object_key="logs/repo/uuid-1/1-1.txt",
                 state=state,
                 status_path=root / "status.json",
                 updater=updater,
@@ -376,7 +376,7 @@ class RepositoryLogCheckpointTests(unittest.TestCase):
             stop.set()
             state = mod.run_loop(
                 log_path=log,
-                file_id="trustedFileId_1234567890",
+                object_key="logs/repo/uuid-1/1-1.txt",
                 seed_sha256=hashlib.sha256(b"").hexdigest(),
                 status_path=root / "status.json",
                 updater=updater,
@@ -388,76 +388,48 @@ class RepositoryLogCheckpointTests(unittest.TestCase):
             self.assertEqual(state.uploads, 1)
             self.assertEqual(updater.calls[0][1], b"final bytes\n")
 
-    def test_drive_updater_uses_patch_to_only_the_supplied_file_id(self) -> None:
+    def test_s3_updater_puts_only_the_supplied_logs_object_key(self) -> None:
+        import s3_put
+
         class Response:
-            def __init__(self, raw: bytes) -> None:
-                self.raw = raw
+            status = 200
+            headers: dict = {}
+
             def __enter__(self):
                 return self
+
             def __exit__(self, *_args):
                 return False
-            def read(self) -> bytes:
-                return self.raw
 
-        class Opener:
-            def __init__(self) -> None:
-                self.requests = []
-            def urlopen(self, request, timeout):
-                self.requests.append((request, timeout))
-                if request.full_url == "https://oauth2.googleapis.com/token":
-                    return Response(b'{"access_token":"token"}')
-                return Response(b'{"id":"trustedFileId_1234567890","size":"4"}')
+        requests = []
 
-        opener = Opener()
-        updater = mod.GoogleDriveUpdater("client", "secret", "refresh", opener=opener)
-        updater.replace("trustedFileId_1234567890", b"data")
-        request, timeout = opener.requests[-1]
-        self.assertEqual(request.get_method(), "PATCH")
-        self.assertIn("/files/trustedFileId_1234567890?uploadType=media", request.full_url)
-        self.assertEqual(timeout, mod.HTTP_TIMEOUT_SECONDS)
-        self.assertEqual(request.data, b"data")
+        def opener(request, timeout):
+            requests.append(request)
+            return Response()
 
-    def test_drive_updater_refreshes_expired_access_token_once(self) -> None:
-        class Response:
-            def __init__(self, raw: bytes) -> None:
-                self.raw = raw
-            def __enter__(self):
-                return self
-            def __exit__(self, *_args):
-                return False
-            def read(self) -> bytes:
-                return self.raw
+        env = {"S3_GITHUB_TRANSPORT_ACCESS_KEY": "ak", "S3_GITHUB_TRANSPORT_SECRET_KEY": "sk"}
+        updater = mod.S3Updater(s3_put.Client(env, opener=opener, sleep=lambda _s: None))
+        updater.replace("logs/repo/uuid-1/1-1.txt", b"data")
+        self.assertEqual(requests[-1].get_method(), "PUT")
+        self.assertTrue(requests[-1].full_url.endswith("/github-transport/logs/repo/uuid-1/1-1.txt"))
+        self.assertEqual(requests[-1].data, b"data")
+        for bad in ("releases/repo/1/x", "logs/../x/y", "other/a/b", "logs/only"):
+            with self.assertRaises(mod.CheckpointError) as raised:
+                updater.replace(bad, b"data")
+            self.assertEqual(raised.exception.category, "invalid_object_key")
 
-        class Opener:
-            def __init__(self) -> None:
-                self.token_calls = 0
-                self.patch_calls = 0
-            def urlopen(self, request, timeout):
-                if request.full_url == "https://oauth2.googleapis.com/token":
-                    self.token_calls += 1
-                    return Response(json.dumps({"access_token": f"token-{self.token_calls}"}).encode())
-                self.patch_calls += 1
-                if self.patch_calls == 1:
-                    raise urllib.error.HTTPError(request.full_url, 401, "expired", {}, None)
-                self.asserted_authorization = request.headers.get("Authorization")
-                return Response(b'{"id":"trustedFileId_1234567890","size":"4"}')
+    def test_s3_updater_maps_transient_failures_to_retryable(self) -> None:
+        import s3_put
 
-        opener = Opener()
-        updater = mod.GoogleDriveUpdater("client", "secret", "refresh", opener=opener)
-        updater.replace("trustedFileId_1234567890", b"data")
-        self.assertEqual(opener.token_calls, 2)
-        self.assertEqual(opener.patch_calls, 2)
-        self.assertEqual(opener.asserted_authorization, "Bearer token-2")
+        def opener(request, timeout):
+            raise urllib.error.HTTPError(request.full_url, 503, "unavailable", {}, None)
 
-    def test_http_classification_keeps_transient_drive_failures_retryable(self) -> None:
-        class Opener:
-            def urlopen(self, request, timeout):
-                raise urllib.error.HTTPError(request.full_url, 503, "unavailable", {}, None)
-        updater = mod.GoogleDriveUpdater("client", "secret", "refresh", opener=Opener())
+        env = {"S3_GITHUB_TRANSPORT_ACCESS_KEY": "ak", "S3_GITHUB_TRANSPORT_SECRET_KEY": "sk"}
+        updater = mod.S3Updater(s3_put.Client(env, opener=opener, sleep=lambda _s: None))
         with self.assertRaises(mod.CheckpointError) as raised:
-            updater.replace("trustedFileId_1234567890", b"data")
+            updater.replace("logs/repo/uuid-1/1-1.txt", b"data")
         self.assertTrue(raised.exception.transient)
-        self.assertEqual(raised.exception.category, "drive_http_503")
+        self.assertEqual(raised.exception.category, "s3_http_503")
 
 
 if __name__ == "__main__":

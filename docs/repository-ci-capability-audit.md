@@ -30,7 +30,7 @@ one semantic parent operation; it never selects runner labels or capabilities.
 | Fixed operation to `.ci/*` entrypoint mapping | Central baseline | Only `build`, `test`, `full`, `ui-test`, and separately authorized `release` map to fixed tracked executable files. |
 | Multi-OS execution-plan fan-out | Central baseline | Optional tracked `.ci/execution-plan.json` selects only unique reviewed OS identifiers for one semantic operation; Central runs children concurrently, resolves each child host class privately, and settles one parent lifecycle after all children. |
 | Versioned bounded semantic inputs | Central baseline | `CI_INPUTS_JSON` contains only reviewed semantics; product scripts validate and translate them. |
-| Private log, progress and bounded artifact locations | Central baseline | Central owns locations, scrubbing, packaging, private Drive transport, retention and cleanup. |
+| Private log, progress and bounded artifact locations | Central baseline | Central owns locations, scrubbing, packaging, private S3 transport, retention and cleanup. |
 | Private network access for the duration of one operation | Optional generic capability: `private_network` | Central establishes and cleans up the reviewed private network around the whole repository entrypoint. |
 | Ephemeral Git HTTPS authentication | Optional generic capability: `github_git` | Central configures Git defaults; repository scripts use ordinary Git operations without acquiring credentials. |
 | Ephemeral generic HTTPS package-registry read authentication | Optional generic capability: `registry_netrc` | Central configures the reviewed registry login in the operation environment. |
@@ -49,7 +49,7 @@ one semantic parent operation; it never selects runner labels or capabilities.
 | Physical-device/provider execution | Separately governed compatibility behavior | Physical device discovery, provider sessions and device evidence remain outside ordinary Repository CI. |
 | Screenshot/visual-review orchestration | Separately governed compatibility behavior | Generic UI-test may run repository-owned UI semantics, but screenshot review/provider orchestration remains separately governed. |
 | Immutable Maven publication/readback archive lifecycle | Separately governed compatibility behavior | Maven publication remains on its reviewed publication lane until an equivalent generic write-side path is proven for every live caller. |
-| Source snapshot/checkpoint publication and branch deletion | Separately governed capability | These are source/lifecycle operations, not product execution profiles, and remain separate fixed Central workflows. |
+| Branch deletion | Separately governed capability | This is a source/lifecycle operation, not a product execution profile, and remains a separate fixed Central workflow. |
 | Technology-specific dependency caches | Legacy-only behavior that may disappear | Existing Apple/Node/etc. cache optimizations do not block migration because current fixed `.ci/*` execution is correct without caller-configurable cache paths. |
 
 ## Parity conclusion for current live lanes

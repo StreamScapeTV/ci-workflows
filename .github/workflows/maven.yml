@@ -43,15 +43,9 @@ name: Maven publication
         required: false
       AGENT_STATE_SUPABASE_SECRET_KEY:
         required: false
-      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID:
+      S3_GITHUB_TRANSPORT_ACCESS_KEY:
         required: false
-      GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID:
-        required: false
-      GOOGLE_DRIVE_CLIENT_ID:
-        required: false
-      GOOGLE_DRIVE_CLIENT_SECRET:
-        required: false
-      GOOGLE_DRIVE_REFRESH_TOKEN:
+      S3_GITHUB_TRANSPORT_SECRET_KEY:
         required: false
       TS_OAUTH_CLIENT_ID:
         required: false
@@ -364,7 +358,7 @@ jobs:
             shift
             printf '\n===== %s =====\n' "${label}" >> "${CI_LOG}"
             if ! "$@" >> "${CI_LOG}" 2>&1; then
-              printf '%s failed; inspect the private Google Drive CI log.\n' "${label}" >&2
+              printf '%s failed; inspect the private CI log.\n' "${label}" >&2
               return 1
             fi
           }
@@ -431,7 +425,7 @@ jobs:
               raise SystemExit("unsupported Maven publication result schema")
           publication_id = result["publication_id"]
           if not isinstance(publication_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,127}", publication_id):
-              raise SystemExit("publication_id must be one bounded Drive-safe identifier")
+              raise SystemExit("publication_id must be one bounded identifier")
           with open(manifest_path, encoding="utf-8") as handle:
               manifest = json.load(handle)
           if not isinstance(manifest, dict):
@@ -470,11 +464,8 @@ jobs:
           CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
           CI_SECRET_AGENT_STATE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
           CI_SECRET_AGENT_STATE_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-          CI_SECRET_DRIVE_LOG_FOLDER: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
-          CI_SECRET_DRIVE_REPOSITORIES_FOLDER: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
-          CI_SECRET_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          CI_SECRET_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          CI_SECRET_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          CI_SECRET_S3_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          CI_SECRET_S3_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
           CI_SECRET_TAILSCALE_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           CI_SECRET_TAILSCALE_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
           CI_SECRET_MAVEN_PUBLISH_USERNAME: ${{ secrets.MAVEN_PUBLISH_USERNAME }}
@@ -499,69 +490,67 @@ jobs:
           path.write_bytes(data)
           PY_REDACT
 
-      - name: Upload CI log to Google Drive
-        id: drive
+      - name: Upload CI log to S3
+        id: log_upload
         if: ${{ always() && steps.scrub.outcome == 'success' && (inputs.ci_run_id != '' || inputs.upload_private_log) }}
-        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
-        env:
-          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
-          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+        uses: StreamScapeTV/ci-workflows/actions/s3-upload@main
         with:
+          kind: logs
           repository: ${{ inputs.repository || github.repository }}
-          ref: ${{ inputs.ref || github.ref_name }}
+          id: ${{ inputs.ci_run_id || github.run_id }}
           file_path: ${{ runner.temp }}/central-ci.log
           file_name: ${{ github.run_id }}-${{ github.run_attempt }}.txt
-          mime_type: text/plain
+          content_type: text/plain
+          s3_access_key: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          s3_secret_key: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
 
       - name: Store immutable Maven publication archive
         id: archive_upload
         if: ${{ steps.evidence.outputs.produced == 'true' }}
-        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
-        env:
-          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
-          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+        uses: StreamScapeTV/ci-workflows/actions/s3-upload@main
         with:
+          kind: releases
           repository: ${{ inputs.repository || github.repository }}
-          ref: maven-releases
-          subdirectory: ${{ steps.evidence.outputs.publication_id }}
+          id: ${{ steps.evidence.outputs.publication_id }}
           file_path: ${{ runner.temp }}/maven-publication-evidence/publication.zip
           file_name: publication.zip
-          mime_type: application/zip
+          content_type: application/zip
           immutable: true
+          s3_access_key: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          s3_secret_key: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
 
       - name: Store immutable Maven publication manifest
         id: manifest_upload
         if: ${{ steps.evidence.outputs.produced == 'true' }}
-        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
-        env:
-          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
-          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
+        uses: StreamScapeTV/ci-workflows/actions/s3-upload@main
         with:
+          kind: releases
           repository: ${{ inputs.repository || github.repository }}
-          ref: maven-releases
-          subdirectory: ${{ steps.evidence.outputs.publication_id }}
+          id: ${{ steps.evidence.outputs.publication_id }}
           file_path: ${{ runner.temp }}/maven-publication-evidence/manifest.json
           file_name: manifest.json
-          mime_type: application/json
+          content_type: application/json
           immutable: true
+          s3_access_key: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          s3_secret_key: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
 
-      - name: Verify immutable Maven evidence folder
+      - name: Verify immutable Maven evidence prefix
         id: evidence_folder
         if: ${{ steps.evidence.outputs.produced == 'true' }}
         shell: bash
         env:
-          ARCHIVE_FOLDER: ${{ steps.archive_upload.outputs.folder_id }}
-          MANIFEST_FOLDER: ${{ steps.manifest_upload.outputs.folder_id }}
+          ARCHIVE_KEY: ${{ steps.archive_upload.outputs.object_key }}
+          MANIFEST_KEY: ${{ steps.manifest_upload.outputs.object_key }}
         run: |
           set -Eeuo pipefail
-          test -n "${ARCHIVE_FOLDER}"
-          test "${ARCHIVE_FOLDER}" = "${MANIFEST_FOLDER}"
+          test -n "${ARCHIVE_KEY}"
+          test "$(dirname "${ARCHIVE_KEY}")" = "$(dirname "${MANIFEST_KEY}")"
 
       - name: Clean publication workspace
         id: cleanup
@@ -594,7 +583,7 @@ jobs:
             ${{ steps.commands.outcome == 'success'
                 && steps.evidence.outcome == 'success'
                 && steps.scrub.outcome == 'success'
-                && steps.drive.outcome == 'success'
+                && steps.log_upload.outcome == 'success'
                 && (steps.archive_upload.outcome == 'success' || steps.archive_upload.outcome == 'skipped')
                 && (steps.manifest_upload.outcome == 'success' || steps.manifest_upload.outcome == 'skipped')
                 && (steps.evidence_folder.outcome == 'success' || steps.evidence_folder.outcome == 'skipped')

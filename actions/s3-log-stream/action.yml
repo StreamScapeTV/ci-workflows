@@ -1,0 +1,141 @@
+name: Stream a stage log to the Central S3 transport bucket
+
+description: "Live log streaming. phase start presigns the upload URLs in a short step that holds the S3 key, then launches a background uploader that holds NO credential (only presigned PUT URLs for this request's own log objects) and writes the scrubbed, growing log as logs/<project>/<request_id>/<stage>/<seq>.log chunks every few seconds; phase stop ends it and writes the merged logs/<project>/<request_id>/<stage>/final.log (a cancelled run still flushes: run stop with if: always())."
+
+inputs:
+  s3_endpoint:
+    description: S3 endpoint URL; empty means the repository variable S3_ENDPOINT
+    required: false
+    default: ""
+  s3_bucket:
+    description: S3 bucket name; empty means the repository variable S3_BUCKET
+    required: false
+    default: ""
+  phase:
+    description: start or stop
+    required: true
+  repository:
+    description: Full GitHub repository name (owner/name); only the name becomes the project segment
+    required: true
+  request_id:
+    description: Request id of the run (logs/<project>/<request_id>/...)
+    required: true
+  stage:
+    description: Stage name, one path segment (for example lint, build, test, package, publish)
+    required: true
+  log_path:
+    description: Local log file that grows while the stage runs (start only)
+    required: false
+    default: ""
+  s3_access_key:
+    description: S3_GITHUB_TRANSPORT_ACCESS_KEY (start only)
+    required: false
+    default: ""
+  s3_secret_key:
+    description: S3_GITHUB_TRANSPORT_SECRET_KEY (start only)
+    required: false
+    default: ""
+  ts_oauth_client_id:
+    description: TS_OAUTH_CLIENT_ID, used only when the S3 endpoint is not yet reachable on a GitHub-hosted runner
+    required: false
+    default: ""
+  ts_oauth_secret:
+    description: TS_OAUTH_SECRET, used only when the S3 endpoint is not yet reachable on a GitHub-hosted runner
+    required: false
+    default: ""
+  interval_seconds:
+    description: Seconds between chunk uploads
+    required: false
+    default: "5"
+
+runs:
+  using: composite
+  steps:
+    - id: probe
+      if: ${{ inputs.phase == 'start' }}
+      shell: bash
+      run: |
+        set -Eeuo pipefail
+        printf 'reachable=%s\n' "$(python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/s3_put.py" probe)" >> "${GITHUB_OUTPUT}"
+
+    - name: Connect private network for the S3 endpoint
+      if: ${{ inputs.phase == 'start' && steps.probe.outputs.reachable != 'true' && runner.environment == 'github-hosted' }}
+      uses: StreamScapeTV/ci-workflows/actions/private-git@main
+      env:
+        TS_OAUTH_CLIENT_ID: ${{ inputs.ts_oauth_client_id }}
+        TS_OAUTH_SECRET: ${{ inputs.ts_oauth_secret }}
+
+    - name: Presign this request's log object URLs (the only step that holds the S3 key)
+      if: ${{ inputs.phase == 'start' }}
+      shell: bash
+      env:
+        S3_ENDPOINT: ${{ inputs.s3_endpoint || vars.S3_ENDPOINT }}
+        S3_BUCKET: ${{ inputs.s3_bucket || vars.S3_BUCKET }}
+        S3_GITHUB_TRANSPORT_ACCESS_KEY: ${{ inputs.s3_access_key }}
+        S3_GITHUB_TRANSPORT_SECRET_KEY: ${{ inputs.s3_secret_key }}
+        STREAM_REPOSITORY: ${{ inputs.repository }}
+        STREAM_REQUEST_ID: ${{ inputs.request_id }}
+        STREAM_STAGE: ${{ inputs.stage }}
+      run: |
+        set -Eeuo pipefail
+        [[ "${STREAM_STAGE}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$ ]] || { echo "stage must be one bounded path segment" >&2; exit 2; }
+        state="${RUNNER_TEMP}/s3-log-stream-${STREAM_STAGE}"
+        rm -f -- "${state}.urls"
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/s3_put.py" presign \
+          --repository "${STREAM_REPOSITORY}" --request-id "${STREAM_REQUEST_ID}" --stage "${STREAM_STAGE}" \
+          --out "${state}.urls"
+
+    - name: Start or stop the background uploader (no credential in its environment)
+      shell: bash
+      env:
+        STREAM_PHASE: ${{ inputs.phase }}
+        STREAM_REPOSITORY: ${{ inputs.repository }}
+        STREAM_REQUEST_ID: ${{ inputs.request_id }}
+        STREAM_STAGE: ${{ inputs.stage }}
+        STREAM_LOG_PATH: ${{ inputs.log_path }}
+        STREAM_INTERVAL: ${{ inputs.interval_seconds }}
+      run: |
+        set -Eeuo pipefail
+        [[ "${STREAM_STAGE}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$ ]] || { echo "stage must be one bounded path segment" >&2; exit 2; }
+        state="${RUNNER_TEMP}/s3-log-stream-${STREAM_STAGE}"
+        case "${STREAM_PHASE}" in
+          start)
+            test -n "${STREAM_LOG_PATH}" || { echo "log_path is required for start" >&2; exit 2; }
+            rm -f -- "${state}.stop" "${state}.pid"
+            rm -f -- "${state}.exit"
+            # The uploader outlives this step, so a later step cannot `wait` for it (exit 127):
+            # record its real exit status in a file instead.
+            ( python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/s3_put.py" stream \
+                --repository "${STREAM_REPOSITORY}" --request-id "${STREAM_REQUEST_ID}" --stage "${STREAM_STAGE}" \
+                --log-path "${STREAM_LOG_PATH}" --stop-file "${state}.stop" --presigned-file "${state}.urls" \
+                --interval "${STREAM_INTERVAL}"; echo "$?" > "${state}.exit" ) \
+              >"${state}.out" 2>&1 &
+            printf '%s\n' "$!" > "${state}.pid"
+            ;;
+          stop)
+            if test ! -f "${state}.pid"; then
+              echo "no log stream was started for stage ${STREAM_STAGE}" >&2
+              exit 0
+            fi
+            pid="$(cat "${state}.pid")"
+            : > "${state}.stop"
+            status=0
+            # the final upload is bounded (2 attempts x 30 s), so 90 s here is deterministic
+            for _ in $(seq 1 180); do
+              kill -0 "${pid}" 2>/dev/null || break
+              sleep 0.5
+            done
+            if kill -0 "${pid}" 2>/dev/null; then
+              pkill -TERM -P "${pid}" 2>/dev/null || true
+              kill -TERM "${pid}" 2>/dev/null || true
+              echo "::warning::log stream for ${STREAM_STAGE} did not finish within 90 seconds" >&2
+              status=1
+            else
+              status="$(cat "${state}.exit" 2>/dev/null || echo 1)"
+            fi
+            cat "${state}.out" >&2 || true
+            rm -f -- "${state}.pid" "${state}.stop" "${state}.out" "${state}.urls" "${state}.exit"
+            exit "${status}"
+            ;;
+          *) echo "phase must be start or stop" >&2; exit 2 ;;
+        esac

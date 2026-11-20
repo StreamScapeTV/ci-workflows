@@ -159,8 +159,8 @@ class OciReproducibilityTests(unittest.TestCase):
         self.assertIn("job.workflow_sha", text)
         self.assertIn("docker/setup-qemu-action@v4", text)
         self.assertIn("cache-image: false", text)
-        self.assertIn("actions/google-drive@main", text)
-        self.assertIn("mime_type: text/plain", text)
+        self.assertIn("actions/s3-upload@main", text)
+        self.assertIn("content_type: text/plain", text)
         self.assertNotIn("upload-artifact", text)
         self.assertNotIn("FORGEJO_", text)
         self.assertNotIn("actions/private-git", text)
@@ -169,8 +169,8 @@ class OciReproducibilityTests(unittest.TestCase):
         self.assertNotIn("git.faruqi.dev", text)
         self.assertLess(names.index("Compare raw dual-platform OCI config identity"), names.index("Reverify exact requested source after both builds"))
         self.assertLess(names.index("Reverify exact requested source after both builds"), names.index("Clean all run-owned OCI state"))
-        self.assertLess(names.index("Clean all run-owned OCI state"), names.index("Upload private reproducibility log to Google Drive"))
-        self.assertLess(names.index("Upload private reproducibility log to Google Drive"), names.index("Finish Agent State run"))
+        self.assertLess(names.index("Clean all run-owned OCI state"), names.index("Upload private reproducibility log to S3"))
+        self.assertLess(names.index("Upload private reproducibility log to S3"), names.index("Finish Agent State run"))
         source_reverify = by_name["Reverify exact requested source after both builds"]["run"]
         self.assertIn('test "$(git -C source rev-parse HEAD)" = "${SOURCE_SHA}"', source_reverify)
         self.assertIn('git -C source status --porcelain=v1 --untracked-files=all', source_reverify)
@@ -179,7 +179,7 @@ class OciReproducibilityTests(unittest.TestCase):
             "steps.compare.outcome == 'success'",
             "steps.source_reverify.outcome == 'success'",
             "steps.cleanup.outcome == 'success'",
-            "steps.drive.outcome == 'success'",
+            "steps.log_upload.outcome == 'success'",
         ):
             self.assertIn(required, finish)
 

@@ -43,6 +43,7 @@ jobs:
           tests.test_ci_helpers_current
           tests.test_agent_state_settlement
           tests.test_ci_cancel
+          tests.test_s3_put
           tests.test_bash_portability
           tests.test_repository_workflow
           tests.test_repository_test_fixtures
@@ -58,8 +59,6 @@ jobs:
           tests.test_repository_log_capture
           tests.test_repository_runtime_probe
           tests.test_public_identity_boundary
-          tests.test_ci_log_issue_fallback
-          tests.test_ci_log_reconcile
           tests.test_github_issue_dependency_projection
           tests.test_cluster_inspector_workflow
           tests.test_cluster_inspector_credentials
@@ -70,17 +69,8 @@ jobs:
           tests.test_apple_workflow
           tests.test_apple_log_checkpoint
           tests.test_apple_dependency_cache
-          tests.test_google_drive_media_put
-          tests.test_google_drive_retry_policy
-          tests.test_google_drive_oauth_exchange
           tests.test_private_network_readiness
           tests.test_tailscale_source_isolation
-          tests.test_source_snapshot_delete
-          tests.test_source_snapshot_delete_namespace
-          tests.test_source_snapshot_lifecycle
-          tests.test_source_snapshot_fresh_object_contract
-          tests.test_source_checkpoint_publish
-          tests.test_source_checkpoint_recover
           tests.test_maven_workflow
           tests.test_apple_binary_workflow
           tests.test_apple_swiftpm_workflow

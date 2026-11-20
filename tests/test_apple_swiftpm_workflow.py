@@ -29,8 +29,8 @@ class AppleSwiftPMWorkflowTests(unittest.TestCase):
             set(call["secrets"]),
             {
                 "SOURCE_APP_ID", "SOURCE_APP_PRIVATE_KEY", "AGENT_STATE_SUPABASE_URL",
-                "AGENT_STATE_SUPABASE_SECRET_KEY", "GOOGLE_DRIVE_CI_LOGS_FOLDER_ID",
-                "GOOGLE_DRIVE_CLIENT_ID", "GOOGLE_DRIVE_CLIENT_SECRET", "GOOGLE_DRIVE_REFRESH_TOKEN",
+                "AGENT_STATE_SUPABASE_SECRET_KEY",
+                "S3_GITHUB_TRANSPORT_ACCESS_KEY", "S3_GITHUB_TRANSPORT_SECRET_KEY",
                 "TS_OAUTH_CLIENT_ID", "TS_OAUTH_SECRET", "PACKAGE_PUBLISH_USERNAME",
                 "PACKAGE_PUBLISH_TOKEN", "PACKAGE_READ_TOKEN",
             },

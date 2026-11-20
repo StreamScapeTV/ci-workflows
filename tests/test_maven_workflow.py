@@ -40,11 +40,8 @@ class MavenWorkflowTests(unittest.TestCase):
                 "SOURCE_APP_PRIVATE_KEY",
                 "AGENT_STATE_SUPABASE_URL",
                 "AGENT_STATE_SUPABASE_SECRET_KEY",
-                "GOOGLE_DRIVE_CI_LOGS_FOLDER_ID",
-                "GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID",
-                "GOOGLE_DRIVE_CLIENT_ID",
-                "GOOGLE_DRIVE_CLIENT_SECRET",
-                "GOOGLE_DRIVE_REFRESH_TOKEN",
+                "S3_GITHUB_TRANSPORT_ACCESS_KEY",
+                "S3_GITHUB_TRANSPORT_SECRET_KEY",
                 "TS_OAUTH_CLIENT_ID",
                 "TS_OAUTH_SECRET",
                 "MAVEN_PUBLISH_USERNAME",
@@ -560,11 +557,11 @@ esac
         archive = self.step("Store immutable Maven publication archive")
         manifest = self.step("Store immutable Maven publication manifest")
         for step, file_name in ((archive, "publication.zip"), (manifest, "manifest.json")):
-            self.assertEqual(step["uses"], "StreamScapeTV/ci-workflows/actions/google-drive@main")
+            self.assertEqual(step["uses"], "StreamScapeTV/ci-workflows/actions/s3-upload@main")
             self.assertEqual(step["if"], "${{ steps.evidence.outputs.produced == 'true' }}")
             self.assertEqual(step["with"]["repository"], "${{ inputs.repository || github.repository }}")
-            self.assertEqual(step["with"]["ref"], "maven-releases")
-            self.assertEqual(step["with"]["subdirectory"], "${{ steps.evidence.outputs.publication_id }}")
+            self.assertEqual(step["with"]["kind"], "releases")
+            self.assertEqual(step["with"]["id"], "${{ steps.evidence.outputs.publication_id }}")
             self.assertEqual(step["with"]["file_name"], file_name)
             self.assertTrue(step["with"]["immutable"])
         self.assertNotIn("latest", str(archive).lower())
@@ -628,17 +625,17 @@ esac
         self.assertLess(names.index("Mark Agent State run as running"), names.index("Check out source"))
         self.assertLess(names.index("Check out source"), names.index("Record observed source SHA"))
         self.assertLess(names.index("Run fixed Maven publication profile"), names.index("Scrub configured CI secrets from private log"))
-        self.assertLess(names.index("Scrub configured CI secrets from private log"), names.index("Upload CI log to Google Drive"))
+        self.assertLess(names.index("Scrub configured CI secrets from private log"), names.index("Upload CI log to S3"))
         self.assertLess(names.index("Clean publication workspace"), names.index("Finish Agent State run"))
 
         commands = self.step("Run fixed Maven publication profile")["run"]
         self.assertIn('>> "${CI_LOG}" 2>&1', commands)
         self.assertNotIn("tee -a", commands)
 
-        drive = self.step("Upload CI log to Google Drive")
-        self.assertEqual(drive["uses"], "StreamScapeTV/ci-workflows/actions/google-drive@main")
+        drive = self.step("Upload CI log to S3")
+        self.assertEqual(drive["uses"], "StreamScapeTV/ci-workflows/actions/s3-upload@main")
         self.assertEqual(drive["with"]["file_name"], "${{ github.run_id }}-${{ github.run_attempt }}.txt")
-        self.assertEqual(drive["with"]["mime_type"], "text/plain")
+        self.assertEqual(drive["with"]["content_type"], "text/plain")
 
         cleanup = self.step("Clean publication workspace")
         self.assertEqual(cleanup["if"], "${{ always() }}")

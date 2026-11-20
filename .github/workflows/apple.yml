@@ -44,15 +44,9 @@ name: Apple TestFlight
         required: false
       AGENT_STATE_SUPABASE_SECRET_KEY:
         required: false
-      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID:
+      S3_GITHUB_TRANSPORT_ACCESS_KEY:
         required: false
-      GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID:
-        required: false
-      GOOGLE_DRIVE_CLIENT_ID:
-        required: false
-      GOOGLE_DRIVE_CLIENT_SECRET:
-        required: false
-      GOOGLE_DRIVE_REFRESH_TOKEN:
+      S3_GITHUB_TRANSPORT_SECRET_KEY:
         required: false
       TS_OAUTH_CLIENT_ID:
         required: false
@@ -260,7 +254,7 @@ jobs:
 
           printf '\n===== prepare-media =====\n' >> "${CI_LOG}"
           if ! bash "${helper}" >> "${CI_LOG}" 2>&1; then
-            echo 'prepare-media failed; inspect the private Google Drive CI log.' >&2
+            echo 'prepare-media failed; inspect the private CI log.' >&2
             exit 1
           fi
 
@@ -409,39 +403,35 @@ jobs:
         id: log_seed
         if: ${{ inputs.ci_run_id != '' || inputs.upload_private_log }}
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
-        env:
-          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
-          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+        uses: StreamScapeTV/ci-workflows/actions/s3-upload@main
         with:
+          kind: logs
           repository: ${{ inputs.repository || github.repository }}
-          ref: ${{ inputs.ref || github.ref_name }}
+          id: ${{ inputs.ci_run_id || github.run_id }}
           file_path: ${{ runner.temp }}/central-apple-log-seed.txt
           file_name: ${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.lane }}.txt
-          mime_type: text/plain
+          content_type: text/plain
+          s3_access_key: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          s3_secret_key: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
 
       - name: Run fixed Apple lane
         id: commands
         shell: bash
         env:
           CHECKPOINT_ENABLED: ${{ (inputs.ci_run_id != '' || inputs.upload_private_log) && steps.log_seed.outcome == 'success' && 'true' || 'false' }}
-          CHECKPOINT_FILE_ID: ${{ steps.log_seed.outputs.file_id }}
+          CHECKPOINT_OBJECT_KEY: ${{ steps.log_seed.outputs.object_key }}
           CHECKPOINT_SEED_SHA256: ${{ steps.log_seed.outputs.file_sha256 }}
-          CHECKPOINT_GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          CHECKPOINT_GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          CHECKPOINT_GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          CHECKPOINT_S3_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          CHECKPOINT_S3_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
           CI_SECRET_SOURCE_TOKEN: ${{ steps.source.outputs.token }}
           CI_SECRET_GITHUB_TOKEN: ${{ github.token }}
           CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
           CI_SECRET_AGENT_STATE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
           CI_SECRET_AGENT_STATE_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-          CI_SECRET_DRIVE_FOLDER: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
-          CI_SECRET_DRIVE_REPOSITORIES_FOLDER: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
-          CI_SECRET_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          CI_SECRET_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          CI_SECRET_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          CI_SECRET_S3_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          CI_SECRET_S3_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
           CI_SECRET_TAILSCALE_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           CI_SECRET_TAILSCALE_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
           CI_SECRET_FORGEJO_PACKAGE_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
@@ -486,12 +476,11 @@ jobs:
           trap retain_lane_exit EXIT
           trap 'exit 143' TERM INT
           if test "${CHECKPOINT_ENABLED:-false}" = true; then
-            GOOGLE_DRIVE_CLIENT_ID="${CHECKPOINT_GOOGLE_DRIVE_CLIENT_ID}" \
-            GOOGLE_DRIVE_CLIENT_SECRET="${CHECKPOINT_GOOGLE_DRIVE_CLIENT_SECRET}" \
-            GOOGLE_DRIVE_REFRESH_TOKEN="${CHECKPOINT_GOOGLE_DRIVE_REFRESH_TOKEN}" \
+            S3_GITHUB_TRANSPORT_ACCESS_KEY="${CHECKPOINT_S3_ACCESS_KEY}" \
+            S3_GITHUB_TRANSPORT_SECRET_KEY="${CHECKPOINT_S3_SECRET_KEY}" \
             python3 "${CENTRAL_APPLE_HELPERS}/scripts/ci/repository_log_checkpoint.py" \
               --log-path "${CI_LOG}" \
-              --file-id "${CHECKPOINT_FILE_ID}" \
+              --object-key "${CHECKPOINT_OBJECT_KEY}" \
               --seed-sha256 "${CHECKPOINT_SEED_SHA256}" \
               --status-path "${RUNNER_TEMP}/central-apple-log-checkpoint-status.json" &
             checkpoint_pid=$!
@@ -503,7 +492,7 @@ jobs:
             printf '\n===== %s =====\n' "${label}" >> "${CI_LOG}"
             if ! "$@" >> "${CI_LOG}" 2>&1; then
               printf 'duration_seconds=%s\n' "$((SECONDS - started_at))" >> "${CI_LOG}"
-              printf '%s failed; inspect the private Google Drive CI log.\n' "${label}" >&2
+              printf '%s failed; inspect the private CI log.\n' "${label}" >&2
               return 1
             fi
             printf 'duration_seconds=%s\n' "$((SECONDS - started_at))" >> "${CI_LOG}"
@@ -856,11 +845,8 @@ jobs:
           CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
           CI_SECRET_AGENT_STATE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
           CI_SECRET_AGENT_STATE_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-          CI_SECRET_DRIVE_FOLDER: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
-          CI_SECRET_DRIVE_REPOSITORIES_FOLDER: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
-          CI_SECRET_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          CI_SECRET_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          CI_SECRET_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          CI_SECRET_S3_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          CI_SECRET_S3_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
           CI_SECRET_TAILSCALE_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           CI_SECRET_TAILSCALE_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
           CI_SECRET_FORGEJO_PACKAGE_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
@@ -888,36 +874,21 @@ jobs:
           path.write_bytes(data)
           PY_REDACT
 
-      - name: Upload CI log to Google Drive
-        id: drive
+      - name: Upload CI log to S3
+        id: log_upload
         if: ${{ always() && steps.scrub.outcome == 'success' && (inputs.ci_run_id != '' || inputs.upload_private_log) }}
-        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
-        env:
-          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
-          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+        uses: StreamScapeTV/ci-workflows/actions/s3-upload@main
         with:
+          kind: logs
           repository: ${{ inputs.repository || github.repository }}
-          ref: ${{ inputs.ref || github.ref_name }}
+          id: ${{ inputs.ci_run_id || github.run_id }}
           file_path: ${{ runner.temp }}/central-ci-${{ matrix.lane }}.log
           file_name: ${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.lane }}.txt
-          mime_type: text/plain
-
-      - name: Preserve log on private owning issue after Drive failure
-        if: ${{ always() && steps.drive.outcome == 'failure' && steps.scrub.outcome == 'success' && inputs.ci_run_id != '' }}
-        uses: StreamScapeTV/ci-workflows/actions/private-log-fallback@main
-        env:
-          SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
-          SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-        with:
-          repository: ${{ inputs.repository || github.repository }}
-          ref: ${{ inputs.ref || github.ref_name }}
-          ci_run_id: ${{ inputs.ci_run_id }}
-          lane: ${{ matrix.lane }}
-          log_path: ${{ runner.temp }}/central-ci-${{ matrix.lane }}.log
+          content_type: text/plain
+          s3_access_key: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          s3_secret_key: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
 
   finish:
     needs:

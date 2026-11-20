@@ -1,0 +1,103 @@
+name: Upload file to the Central S3 transport bucket
+
+description: Store one file under the fixed logs/, screenshots/ or releases/ layout (key = <kind>/<project>/<id>[/<stage>]/<file_name>) of the owner's S3 bucket, reached over Tailscale.
+
+inputs:
+  s3_endpoint:
+    description: S3 endpoint URL; empty means the repository variable S3_ENDPOINT
+    required: false
+    default: ""
+  s3_bucket:
+    description: S3 bucket name; empty means the repository variable S3_BUCKET
+    required: false
+    default: ""
+  kind:
+    description: "Fixed object class: logs, screenshots or releases"
+    required: true
+  repository:
+    description: Full GitHub repository name (owner/name); only the name becomes the project segment
+    required: true
+  id:
+    description: "request_id (or older ci_run_id) for logs, capture id for screenshots, plain release version for releases"
+    required: true
+  stage:
+    description: "Optional stage folder below the id (logs/<project>/<id>/<stage>/<file>)"
+    required: false
+    default: ""
+  file_path:
+    description: Local file to upload
+    required: true
+  file_name:
+    description: Exact object file name
+    required: true
+  content_type:
+    description: MIME type of the uploaded bytes
+    required: false
+    default: application/octet-stream
+  immutable:
+    description: When true, an existing object must be byte-identical and is never overwritten
+    required: false
+    default: "false"
+  s3_access_key:
+    description: S3_GITHUB_TRANSPORT_ACCESS_KEY
+    required: true
+  s3_secret_key:
+    description: S3_GITHUB_TRANSPORT_SECRET_KEY
+    required: true
+  ts_oauth_client_id:
+    description: TS_OAUTH_CLIENT_ID, used only when the S3 endpoint is not yet reachable on a GitHub-hosted runner
+    required: false
+    default: ""
+  ts_oauth_secret:
+    description: TS_OAUTH_SECRET, used only when the S3 endpoint is not yet reachable on a GitHub-hosted runner
+    required: false
+    default: ""
+
+outputs:
+  object_key:
+    value: ${{ steps.upload.outputs.object_key }}
+  file_sha256:
+    value: ${{ steps.upload.outputs.file_sha256 }}
+
+runs:
+  using: composite
+  steps:
+    - id: probe
+      shell: bash
+      env:
+        S3_ENDPOINT: ${{ inputs.s3_endpoint || vars.S3_ENDPOINT }}
+        S3_BUCKET: ${{ inputs.s3_bucket || vars.S3_BUCKET }}
+        S3_GITHUB_TRANSPORT_ACCESS_KEY: ${{ inputs.s3_access_key }}
+        S3_GITHUB_TRANSPORT_SECRET_KEY: ${{ inputs.s3_secret_key }}
+      run: |
+        set -Eeuo pipefail
+        printf 'reachable=%s\n' "$(python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/s3_put.py" probe)" >> "${GITHUB_OUTPUT}"
+
+    - name: Connect private network for the S3 endpoint
+      if: ${{ steps.probe.outputs.reachable != 'true' && runner.environment == 'github-hosted' }}
+      uses: StreamScapeTV/ci-workflows/actions/private-git@main
+      env:
+        TS_OAUTH_CLIENT_ID: ${{ inputs.ts_oauth_client_id }}
+        TS_OAUTH_SECRET: ${{ inputs.ts_oauth_secret }}
+
+    - id: upload
+      shell: bash
+      env:
+        S3_ENDPOINT: ${{ inputs.s3_endpoint || vars.S3_ENDPOINT }}
+        S3_BUCKET: ${{ inputs.s3_bucket || vars.S3_BUCKET }}
+        S3_GITHUB_TRANSPORT_ACCESS_KEY: ${{ inputs.s3_access_key }}
+        S3_GITHUB_TRANSPORT_SECRET_KEY: ${{ inputs.s3_secret_key }}
+        UPLOAD_KIND: ${{ inputs.kind }}
+        UPLOAD_REPOSITORY: ${{ inputs.repository }}
+        UPLOAD_ID: ${{ inputs.id }}
+        UPLOAD_STAGE: ${{ inputs.stage }}
+        UPLOAD_FILE_PATH: ${{ inputs.file_path }}
+        UPLOAD_FILE_NAME: ${{ inputs.file_name }}
+        UPLOAD_CONTENT_TYPE: ${{ inputs.content_type }}
+        UPLOAD_IMMUTABLE: ${{ inputs.immutable }}
+      run: |
+        set -Eeuo pipefail
+        args=(put --kind "${UPLOAD_KIND}" --repository "${UPLOAD_REPOSITORY}" --id "${UPLOAD_ID}" --stage "${UPLOAD_STAGE}"
+          --file-path "${UPLOAD_FILE_PATH}" --file-name "${UPLOAD_FILE_NAME}" --content-type "${UPLOAD_CONTENT_TYPE}")
+        if test "${UPLOAD_IMMUTABLE}" = true; then args+=(--immutable); fi
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/ci/s3_put.py" "${args[@]}"

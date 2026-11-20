@@ -31,11 +31,3 @@ class AndroidScreenshotRetirementTests(unittest.TestCase):
         self.assertIn('("validation.android","physical-performance")', specialist)
         self.assertIn('unsupported specialist validation profile', specialist)
         self.assertNotIn('validation.android/screenshot-review', str(steps))
-
-    def test_shared_drive_and_generic_executor_remain(self):
-        self.assertTrue((ROOT / 'actions/google-drive/action.yml').is_file())
-        self.assertTrue((ROOT / '.github/workflows/repository.yml').is_file())
-        script = next(s['run'] for s in self.dispatch['jobs']['request']['steps']
-                      if s.get('name') == 'Resolve bounded validation concurrency lane')
-        self.assertIn('"validation.repository": frozenset(("lint", "build", "test", "full", "ui-test"))', script)
-        self.assertNotIn('"validation.android": frozenset', script)

@@ -15,19 +15,11 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 PRIVATE_GIT = yaml.safe_load((ROOT / 'actions/private-git/action.yml').read_text())
-DRIVE = yaml.safe_load((ROOT / 'actions/google-drive/action.yml').read_text())
 
 
 def private_git_script() -> str:
     runner = PRIVATE_GIT['runs']['steps'][-1]['run']
     return runner.split("python3 - <<'PY'\n", 1)[1].rsplit('\nPY', 1)[0]
-
-
-def drive_auth_script() -> str:
-    script = DRIVE['runs']['steps'][0]['run']
-    start = script.index('auth_response_file="$(mktemp')
-    end = script.index('echo "::add-mask::${access_token}"', start) + len('echo "::add-mask::${access_token}"')
-    return script[start:end]
 
 
 class PrivateNetworkReadinessTests(unittest.TestCase):
@@ -115,79 +107,6 @@ class PrivateNetworkReadinessTests(unittest.TestCase):
             step = next(step for step in steps if step.get('name') == name)
             self.assertIn('always()', step['if'])
             self.assertNotIn('success()', step['if'])
-
-    def test_drive_oauth_empty_or_invalid_json_fails_safely(self):
-        script = drive_auth_script()
-        with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp)
-            fakebin = path / 'bin'; fakebin.mkdir()
-            attempts = path / 'attempts'
-            curl = fakebin / 'curl'
-            curl.write_text(r'''#!/usr/bin/env bash
-set -e
-output=""
-while test "$#" -gt 0; do
-  if test "$1" = --output; then output="$2"; shift; fi
-  shift
-done
-count="$(cat "$FAKE_COUNT" 2>/dev/null || echo 0)"
-count=$((count+1)); printf '%s' "$count" > "$FAKE_COUNT"
-if test "$FAKE_VALID_ON_THIRD" = true && test "$count" -eq 3; then
-  printf '%s' '{"access_token":"synthetic_google_access_token_0123456789"}' > "$output"
-  printf '200'
-else
-  printf 'not json' > "$output"
-  printf '503'
-fi
-''')
-            curl.chmod(0o755)
-            sleep = fakebin / 'sleep'; sleep.write_text('#!/usr/bin/env bash\nexit 0\n'); sleep.chmod(0o755)
-            env = {**os.environ, 'PATH': str(fakebin) + os.pathsep + os.environ['PATH'], 'GOOGLE_DRIVE_CLIENT_ID':'client-fixture', 'GOOGLE_DRIVE_CLIENT_SECRET':'client-secret-fixture', 'GOOGLE_DRIVE_REFRESH_TOKEN':'refresh-fixture', 'FAKE_COUNT':str(attempts), 'FAKE_VALID_ON_THIRD':'false', 'RUNNER_TEMP':str(path)}
-            fail = subprocess.run(['bash', '-c', 'set -Eeuo pipefail\n'+script], cwd=ROOT, env=env, text=True, capture_output=True, timeout=10)
-            self.assertNotEqual(fail.returncode, 0)
-            self.assertIn('credential exchange failed after bounded attempts', fail.stderr)
-            self.assertNotIn('Traceback', fail.stderr)
-            self.assertNotIn('client-secret-fixture', fail.stdout+fail.stderr)
-            self.assertEqual(attempts.read_text(), '11')
-            attempts.unlink()
-            success = subprocess.run(['bash', '-c', 'set -Eeuo pipefail\n'+script], cwd=ROOT, env=dict(env, FAKE_VALID_ON_THIRD='true'), text=True, capture_output=True, timeout=10)
-            self.assertEqual(success.returncode, 0, success.stderr)
-            self.assertEqual(attempts.read_text(), '3')
-            self.assertIn('::add-mask::synthetic_google_access_token_0123456789', success.stdout)
-            self.assertIn('curl=0 http=503 category=invalid_token_response', success.stderr)
-
-    def test_drive_empty_transport_and_invalid_token_shapes_never_leak(self):
-        script = drive_auth_script()
-        with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp)
-            fakebin = path / 'bin'; fakebin.mkdir()
-            curl = fakebin / 'curl'
-            curl.write_text(r'''#!/usr/bin/env bash
-output=""
-while test "$#" -gt 0; do
-  if test "$1" = --output; then output="$2"; shift; fi
-  shift
-done
-printf 'attempt\n' >> "$FAKE_COUNT"
-printf '%s' "$FAKE_BODY" > "$output"
-printf '200'
-echo 'private transport credential-detail' >&2
-exit "$FAKE_EXIT"
-''')
-            curl.chmod(0o755)
-            sleep = fakebin / 'sleep'; sleep.write_text('#!/usr/bin/env bash\nexit 0\n'); sleep.chmod(0o755)
-            attempts = path / 'attempts'
-            env = {**os.environ, 'PATH': str(fakebin) + os.pathsep + os.environ['PATH'], 'GOOGLE_DRIVE_CLIENT_ID':'client-fixture', 'GOOGLE_DRIVE_CLIENT_SECRET':'client-secret-fixture', 'GOOGLE_DRIVE_REFRESH_TOKEN':'refresh-fixture', 'FAKE_COUNT':str(attempts), 'RUNNER_TEMP':str(path)}
-            for body, status in [('', '6'), ('[]', '0'), ('{}', '0'), ('{"access_token":42}', '0'), ('{"access_token":"bad token"}', '0')]:
-                with self.subTest(body=body, status=status):
-                    attempts.write_text('')
-                    result = subprocess.run(['bash', '-c', 'set -Eeuo pipefail\n' + script], env=dict(env, FAKE_BODY=body, FAKE_EXIT=status), text=True, capture_output=True, timeout=10)
-                    self.assertNotEqual(result.returncode, 0)
-                    self.assertEqual(len(attempts.read_text().splitlines()), 11 if status != '0' else 1)
-                    self.assertIn('category=invalid_token_response', result.stderr)
-                    self.assertNotIn('private transport credential-detail', result.stderr)
-                    self.assertNotIn('Traceback', result.stderr)
-                    self.assertEqual(result.stdout, '')
 
 
 if __name__ == '__main__':
