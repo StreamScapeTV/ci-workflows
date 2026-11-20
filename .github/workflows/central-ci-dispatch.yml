@@ -36,8 +36,10 @@ jobs:
       - id: claim
         uses: ./actions/agent-state
         env:
-          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
+          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         with:
           phase: claim
           ci_run_id: ${{ inputs.ci_run_id }}
@@ -503,58 +505,6 @@ jobs:
               raise SystemExit("maintenance.branch-delete expected_head must be one lowercase 40-character Git SHA")
           PY_VALIDATE_BRANCH_DELETE
 
-      - name: Validate canonical source checkpoint publication request
-        if: ${{ steps.claim.outputs.workflow_key == 'source.checkpoint-publish' }}
-        shell: bash
-        env:
-          TEST_PROFILE: ${{ steps.claim.outputs.test_profile }}
-          REQUEST_IS_TAG: ${{ steps.claim.outputs.is_tag }}
-          REQUEST_REF: ${{ steps.claim.outputs.ref }}
-          INPUTS_JSON: ${{ steps.claim.outputs.inputs_json }}
-        run: |
-          set -Eeuo pipefail
-          test "${TEST_PROFILE}" = publish || {
-            echo "source.checkpoint-publish supports only the publish profile" >&2
-            exit 2
-          }
-          test "${REQUEST_IS_TAG}" = false || {
-            echo "source.checkpoint-publish does not accept tag requests" >&2
-            exit 2
-          }
-          case "${REQUEST_REF}" in
-            main|develop) echo "source.checkpoint-publish refuses protected integration branch names" >&2; exit 2 ;;
-          esac
-          python3 - <<'PY_VALIDATE_SOURCE_CHECKPOINT'
-          import json
-          import os
-          import re
-          try:
-              inputs = json.loads(os.environ["INPUTS_JSON"])
-          except (KeyError, json.JSONDecodeError) as exc:
-              raise SystemExit("source.checkpoint-publish inputs must be one JSON object") from exc
-          operation = inputs.get("operation", "publish") if isinstance(inputs, dict) else None
-          if operation not in {"publish", "inspect", "settle"}:
-              raise SystemExit("source.checkpoint-publish operation must be publish, inspect, or settle")
-          required = {"expected_head", "expected_tree"}
-          if operation == "publish":
-              required |= {"archive_sha256", "archive_size_bytes", "commit_message"}
-          if not isinstance(inputs, dict) or set(inputs) - {"operation"} != required:
-              raise SystemExit("source.checkpoint-publish requires exactly expected_head/expected_tree/archive_sha256/archive_size_bytes/commit_message")
-          for key in ("expected_head", "expected_tree"):
-              if not isinstance(inputs[key], str) or not re.fullmatch(r"[0-9a-f]{40}", inputs[key]):
-                  raise SystemExit(f"source.checkpoint-publish {key} must be one lowercase 40-character Git SHA")
-          if operation != "publish":
-              raise SystemExit(0)
-          if not isinstance(inputs["archive_sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", inputs["archive_sha256"]):
-              raise SystemExit("source.checkpoint-publish archive_sha256 must be one lowercase SHA-256")
-          size = inputs["archive_size_bytes"]
-          if isinstance(size, bool) or not isinstance(size, int) or not 1 <= size <= 536870912:
-              raise SystemExit("source.checkpoint-publish archive_size_bytes is outside the bounded limit")
-          message = inputs["commit_message"]
-          if not isinstance(message, str) or not message.strip() or "\x00" in message or len(message.encode("utf-8")) > 16384:
-              raise SystemExit("source.checkpoint-publish commit_message is invalid")
-          PY_VALIDATE_SOURCE_CHECKPOINT
-
       - name: Validate Android release request
         if: ${{ steps.claim.outputs.workflow_key == 'release.android' }}
         shell: bash
@@ -650,12 +600,11 @@ jobs:
       DOCKERHUB_READ_TOKEN: ${{ secrets.DOCKERHUB_READ_TOKEN }}
       SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
       SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-      AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-      AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
-      GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-      GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      MIRROR_API_KEY: ${{ secrets.MIRROR_API_KEY }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      S3_GITHUB_TRANSPORT_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+      S3_GITHUB_TRANSPORT_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
       TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
       TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
       REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
@@ -666,11 +615,6 @@ jobs:
       APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
       APPLE_DEVELOPMENT_P12_BASE64: ${{ needs.request.outputs.test_profile == 'device-test' && secrets.APPLE_DEVELOPMENT_P12_BASE64 || '' }}
       APPLE_DEVELOPMENT_P12_PASSWORD: ${{ needs.request.outputs.test_profile == 'device-test' && secrets.APPLE_DEVELOPMENT_P12_PASSWORD || '' }}
-      PROTECTED_DEPLOYED_HTTPS_TARGET: ${{ secrets.PROTECTED_DEPLOYED_HTTPS_TARGET }}
-      PROTECTED_DEPLOYED_WSS_TARGET: ${{ secrets.PROTECTED_DEPLOYED_WSS_TARGET }}
-      PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64: ${{ secrets.PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64 }}
-      PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO_GZIP_BASE64: ${{ secrets.PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO_GZIP_BASE64 }}
-      PROTECTED_DEPLOYED_SETUP_CREDENTIAL: ${{ secrets.PROTECTED_DEPLOYED_SETUP_CREDENTIAL }}
 
   repository_release:
     needs: request
@@ -693,12 +637,11 @@ jobs:
       DOCKERHUB_READ_TOKEN: ${{ secrets.DOCKERHUB_READ_TOKEN }}
       SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
       SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-      AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-      AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
-      GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-      GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      MIRROR_API_KEY: ${{ secrets.MIRROR_API_KEY }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      S3_GITHUB_TRANSPORT_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+      S3_GITHUB_TRANSPORT_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
       TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
       TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
       REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
@@ -745,13 +688,11 @@ jobs:
     secrets:
       SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
       SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-      AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-      AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
-      GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
-      GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-      GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      MIRROR_API_KEY: ${{ secrets.MIRROR_API_KEY }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      S3_GITHUB_TRANSPORT_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+      S3_GITHUB_TRANSPORT_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
       TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
       TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
       PACKAGE_PUBLISH_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
@@ -773,12 +714,11 @@ jobs:
     secrets:
       SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
       SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-      AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-      AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
-      GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-      GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      MIRROR_API_KEY: ${{ secrets.MIRROR_API_KEY }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      S3_GITHUB_TRANSPORT_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+      S3_GITHUB_TRANSPORT_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
       TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
       TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
       PACKAGE_PUBLISH_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
@@ -802,13 +742,11 @@ jobs:
       DOCKERHUB_READ_TOKEN: ${{ secrets.DOCKERHUB_READ_TOKEN }}
       SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
       SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-      AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-      AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
-      GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
-      GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-      GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      MIRROR_API_KEY: ${{ secrets.MIRROR_API_KEY }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      S3_GITHUB_TRANSPORT_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+      S3_GITHUB_TRANSPORT_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
       TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
       TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
       REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
@@ -868,12 +806,11 @@ jobs:
     secrets:
       SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
       SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-      AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-      AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
-      GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-      GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      MIRROR_API_KEY: ${{ secrets.MIRROR_API_KEY }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      S3_GITHUB_TRANSPORT_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+      S3_GITHUB_TRANSPORT_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
       TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
       TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
       CLUSTER_INSPECTOR_KUBECONFIG_B64: ${{ secrets.CLUSTER_INSPECTOR_KUBECONFIG_B64 }}
@@ -895,13 +832,11 @@ jobs:
     secrets:
       SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
       SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-      AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-      AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
-      GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
-      GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-      GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      MIRROR_API_KEY: ${{ secrets.MIRROR_API_KEY }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      S3_GITHUB_TRANSPORT_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+      S3_GITHUB_TRANSPORT_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
       TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
       TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
       MAVEN_PUBLISH_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
@@ -964,8 +899,9 @@ jobs:
     with:
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets:
-      AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-      AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+      MIRROR_API_KEY: ${{ secrets.MIRROR_API_KEY }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
 
   branch_delete:
     needs: request
@@ -980,405 +916,6 @@ jobs:
       expected_head: ${{ fromJSON(needs.request.outputs.inputs_json).expected_head }}
       ci_run_id: ${{ inputs.ci_run_id }}
     secrets: inherit
-
-  source_checkpoint_publish:
-    needs: request
-    if: ${{ needs.request.outputs.workflow_key == 'source.checkpoint-publish' && needs.request.outputs.test_profile == 'publish' }}
-    concurrency:
-      group: central-ci-source-checkpoint-publish-${{ inputs.active_key }}
-      cancel-in-progress: false
-    uses: ./.github/workflows/source-checkpoint-publish.yml
-    with:
-      repository: ${{ needs.request.outputs.repository }}
-      branch: ${{ needs.request.outputs.ref }}
-      expected_head: ${{ fromJSON(needs.request.outputs.inputs_json).expected_head }}
-      expected_tree: ${{ fromJSON(needs.request.outputs.inputs_json).expected_tree }}
-      operation: ${{ fromJSON(needs.request.outputs.inputs_json).operation || 'publish' }}
-      archive_sha256: ${{ fromJSON(needs.request.outputs.inputs_json).archive_sha256 || '' }}
-      archive_size_bytes: ${{ fromJSON(needs.request.outputs.inputs_json).archive_size_bytes || 0 }}
-      commit_message: ${{ fromJSON(needs.request.outputs.inputs_json).commit_message || '' }}
-      ci_run_id: ${{ inputs.ci_run_id }}
-    secrets: inherit
-
-  source_snapshot:
-    needs: request
-    if: ${{ needs.request.outputs.workflow_key == 'source.snapshot' }}
-    concurrency:
-      group: central-ci-snapshot-${{ inputs.active_key }}
-      cancel-in-progress: true
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Check out Central helpers
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - name: Mark Agent State run as running
-        uses: ./actions/agent-state
-        env:
-          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-        with:
-          phase: start
-          ci_run_id: ${{ inputs.ci_run_id }}
-
-      - name: Prepare source token
-        id: source_token
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ secrets.SOURCE_APP_ID }}
-          private-key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-          owner: StreamScapeTV
-
-      - name: Resolve requested human Git ref
-        id: requested_ref
-        shell: bash
-        env:
-          REQUESTED_REF: ${{ needs.request.outputs.ref }}
-          REQUESTED_IS_TAG: ${{ needs.request.outputs.is_tag }}
-        run: |
-          set -Eeuo pipefail
-          test -n "${REQUESTED_REF}" || {
-            echo "source.snapshot requires one non-empty branch or tag name" >&2
-            exit 2
-          }
-          case "${REQUESTED_IS_TAG}" in
-            false) namespace=refs/heads ;;
-            true) namespace=refs/tags ;;
-            *) echo "source.snapshot is_tag must be true or false" >&2; exit 2 ;;
-          esac
-          full_ref="${namespace}/${REQUESTED_REF}"
-          git check-ref-format "${full_ref}" >/dev/null || {
-            echo "source.snapshot requested branch/tag name is not a valid Git ref" >&2
-            exit 2
-          }
-          printf 'full_ref=%s\n' "${full_ref}" >> "${GITHUB_OUTPUT}"
-
-      - name: Check out requested source
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ needs.request.outputs.repository }}
-          ref: ${{ steps.requested_ref.outputs.full_ref }}
-          token: ${{ steps.source_token.outputs.token }}
-          path: source
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Resolve observed source SHA
-        id: source_identity
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          source_sha="$(git -C source rev-parse HEAD)"
-          tree_sha="$(git -C source rev-parse 'HEAD^{tree}')"
-          printf 'source_sha=%s\ntree_sha=%s\n' "${source_sha}" "${tree_sha}" >> "${GITHUB_OUTPUT}"
-
-      - name: Record observed source SHA
-        uses: ./actions/agent-state
-        env:
-          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-        with:
-          phase: observe-source
-          ci_run_id: ${{ inputs.ci_run_id }}
-          observed_source_sha: ${{ steps.source_identity.outputs.source_sha }}
-
-      - name: Resolve durable Drive repository folder
-        id: drive_repository
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          folder_id="$(python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          path = Path("source/AGENTS.md")
-          if not path.is_file():
-              print("")
-              raise SystemExit(0)
-          match = re.search(
-              r"(?m)^- Google Drive repository folder ID: `([^`]+)`\s*$",
-              path.read_text(encoding="utf-8"),
-          )
-          print(match.group(1) if match else "")
-          PY
-          )"
-          printf 'folder_id=%s\n' "${folder_id}" >> "${GITHUB_OUTPUT}"
-
-      - name: Resolve Google Drive access token for resume protection
-        id: snapshot_drive
-        shell: bash
-        env:
-          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
-        run: |
-          set -Eeuo pipefail
-          access_token="$(curl --fail --silent --show-error --request POST \
-            --data-urlencode "client_id=${GOOGLE_DRIVE_CLIENT_ID}" \
-            --data-urlencode "client_secret=${GOOGLE_DRIVE_CLIENT_SECRET}" \
-            --data-urlencode "refresh_token=${GOOGLE_DRIVE_REFRESH_TOKEN}" \
-            --data-urlencode "grant_type=refresh_token" \
-            https://oauth2.googleapis.com/token \
-            | python3 -c 'import json,sys; value=json.load(sys.stdin); token=value.get("access_token", ""); assert token; print(token)')"
-          echo "::add-mask::${access_token}"
-          printf 'access_token=%s\n' "${access_token}" >> "${GITHUB_OUTPUT}"
-
-      - name: Create exact tracked-source snapshot
-        id: snapshot
-        shell: bash
-        env:
-          REQUESTED_REPOSITORY: ${{ needs.request.outputs.repository }}
-          REQUESTED_REF: ${{ needs.request.outputs.ref }}
-          REQUESTED_IS_TAG: ${{ needs.request.outputs.is_tag }}
-          OBSERVED_SOURCE_SHA: ${{ steps.source_identity.outputs.source_sha }}
-        run: |
-          set -Eeuo pipefail
-          source_sha="${OBSERVED_SOURCE_SHA}"
-          tree_sha="$(git -C source rev-parse 'HEAD^{tree}')"
-          IFS=$'\t' read -r repository_name archive_filename < <(python3 - "${REQUESTED_REPOSITORY}" "${REQUESTED_REF}" <<'PY_NAME'
-          import sys
-          import urllib.parse
-
-          repository, ref = sys.argv[1:]
-          repository_name = repository.rsplit("/", 1)[-1]
-          ref_slug = urllib.parse.quote(ref, safe="")
-          if not repository_name or not ref_slug:
-              raise SystemExit("snapshot repository/ref must be non-empty")
-          print(repository_name, f"{repository_name}-{ref_slug}.zip", sep="\t")
-          PY_NAME
-          )
-          archive="${RUNNER_TEMP}/repository-snapshot.zip"
-          manifest="${RUNNER_TEMP}/manifest.json"
-          git -C source archive --format=zip --output="${archive}" HEAD
-          archive_sha256="$(sha256sum "${archive}" | awk '{print $1}')"
-          archive_size="$(wc -c < "${archive}" | tr -d '[:space:]')"
-          python3 - "${manifest}" "${REQUESTED_REPOSITORY}" "${repository_name}" "${REQUESTED_REF}" "${REQUESTED_IS_TAG}" "${source_sha}" "${tree_sha}" "${archive_filename}" "${archive_sha256}" "${archive_size}" <<'PY'
-          from pathlib import Path
-          import json, sys
-          path, repository, repository_name, ref, is_tag, source_sha, tree_sha, archive_filename, digest, size = sys.argv[1:]
-          value = {
-              "repository": repository,
-              "repository_name": repository_name,
-              "requested_ref": ref,
-              "is_tag": is_tag == "true",
-              "resolved_source_sha": source_sha,
-              "tree_sha": tree_sha,
-              "archive_format": "zip",
-              "archive_format_version": 1,
-              "archive_filename": archive_filename,
-              "archive_sha256": digest,
-              "archive_size_bytes": int(size),
-              "source_zip_sha256": digest,
-              "source_zip_size_bytes": int(size),
-          }
-          Path(path).write_text(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
-          PY
-          {
-            printf 'source_sha=%s\n' "${source_sha}"
-            printf 'tree_sha=%s\n' "${tree_sha}"
-            printf 'archive_filename=%s\n' "${archive_filename}"
-            printf 'archive_sha256=%s\n' "${archive_sha256}"
-            printf 'archive_size=%s\n' "${archive_size}"
-            printf 'archive=%s\n' "${archive}"
-            printf 'manifest=%s\n' "${manifest}"
-          } >> "${GITHUB_OUTPUT}"
-
-      - name: Validate existing canonical source archive state
-        id: source_lifecycle
-        shell: bash
-        env:
-          GOOGLE_DRIVE_ACCESS_TOKEN: ${{ steps.snapshot_drive.outputs.access_token }}
-          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
-          TARGET_REPOSITORY: ${{ needs.request.outputs.repository }}
-          TARGET_REF: ${{ needs.request.outputs.ref }}
-          TARGET_IS_TAG: ${{ needs.request.outputs.is_tag }}
-          REPOSITORY_FOLDER_ID: ${{ steps.drive_repository.outputs.folder_id }}
-          ARCHIVE_FILENAME: ${{ steps.snapshot.outputs.archive_filename }}
-          MANIFEST: ${{ steps.snapshot.outputs.manifest }}
-        run: |
-          set -Eeuo pipefail
-          state="${RUNNER_TEMP}/source-snapshot-lifecycle.json"
-          python3 scripts/ci/source_snapshot_lifecycle.py preflight \
-            --repository "${TARGET_REPOSITORY}" \
-            --ref "${TARGET_REF}" \
-            --is-tag "${TARGET_IS_TAG}" \
-            --archive-filename "${ARCHIVE_FILENAME}" \
-            --repository-folder-id "${REPOSITORY_FOLDER_ID}" \
-            --state "${state}"
-          printf 'state=%s\n' "${state}" >> "${GITHUB_OUTPUT}"
-          python3 - "${state}" "${MANIFEST}" "${GITHUB_OUTPUT}" <<'PY_SELECTED'
-          from pathlib import Path
-          import json, sys
-          state, path, output = map(Path, sys.argv[1:])
-          filename = json.loads(state.read_text())["replacement_archive_filename"]
-          manifest = json.loads(path.read_text())
-          manifest["archive_filename"] = filename
-          path.write_text(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n")
-          with output.open("a") as stream:
-              stream.write(f"archive_filename={filename}\n")
-          PY_SELECTED
-
-      - name: Upload repository snapshot archive
-        id: source_upload
-        uses: ./actions/google-drive
-        env:
-          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
-          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
-        with:
-          repository: ${{ needs.request.outputs.repository }}
-          ref: ${{ needs.request.outputs.ref }}
-          repository_folder_id: ${{ steps.drive_repository.outputs.folder_id }}
-          file_path: ${{ steps.snapshot.outputs.archive }}
-          file_name: ${{ steps.source_lifecycle.outputs.archive_filename }}
-          previous_file_name: source.zip
-          mime_type: application/zip
-          fresh_object: true
-
-      - name: Write first manifest with archive Drive identity
-        shell: bash
-        env:
-          MANIFEST: ${{ steps.snapshot.outputs.manifest }}
-          ARCHIVE_FILE_ID: ${{ steps.source_upload.outputs.file_id }}
-          FOLDER_ID: ${{ steps.source_upload.outputs.folder_id }}
-        run: |
-          set -Eeuo pipefail
-          python3 - "${MANIFEST}" "${ARCHIVE_FILE_ID}" "${FOLDER_ID}" <<'PY'
-          from pathlib import Path
-          import json, sys
-          path, archive_file_id, folder_id = sys.argv[1:]
-          value = json.loads(Path(path).read_text(encoding="utf-8"))
-          value["archive_file_id"] = archive_file_id
-          value["source_zip_file_id"] = archive_file_id
-          value["folder_id"] = folder_id
-          Path(path).write_text(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
-          PY
-
-      - name: Create manifest.json
-        id: manifest_create
-        uses: ./actions/google-drive
-        env:
-          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
-          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
-        with:
-          repository: ${{ needs.request.outputs.repository }}
-          ref: ${{ needs.request.outputs.ref }}
-          repository_folder_id: ${{ steps.drive_repository.outputs.folder_id }}
-          file_path: ${{ steps.snapshot.outputs.manifest }}
-          file_name: manifest.json
-          mime_type: application/json
-          reconcile_duplicate_manifests: true
-
-      - name: Add stable manifest Drive identity
-        shell: bash
-        env:
-          MANIFEST: ${{ steps.snapshot.outputs.manifest }}
-          MANIFEST_FILE_ID: ${{ steps.manifest_create.outputs.file_id }}
-        run: |
-          set -Eeuo pipefail
-          python3 - "${MANIFEST}" "${MANIFEST_FILE_ID}" <<'PY'
-          from pathlib import Path
-          import json, sys
-          path, manifest_file_id = sys.argv[1:]
-          value = json.loads(Path(path).read_text(encoding="utf-8"))
-          value["manifest_file_id"] = manifest_file_id
-          Path(path).write_text(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
-          PY
-
-      - name: Update manifest.json in place
-        id: manifest_update
-        uses: ./actions/google-drive
-        env:
-          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
-          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
-        with:
-          repository: ${{ needs.request.outputs.repository }}
-          ref: ${{ needs.request.outputs.ref }}
-          repository_folder_id: ${{ steps.drive_repository.outputs.folder_id }}
-          file_path: ${{ steps.snapshot.outputs.manifest }}
-          file_name: manifest.json
-          mime_type: application/json
-
-      - name: Verify stable identity and raw Drive readback
-        shell: bash
-        env:
-          DRIVE_ACCESS_TOKEN: ${{ steps.snapshot_drive.outputs.access_token }}
-          ARCHIVE_FILE_ID: ${{ steps.source_upload.outputs.file_id }}
-          MANIFEST_FILE_ID: ${{ steps.manifest_update.outputs.file_id }}
-          CREATED_MANIFEST_ID: ${{ steps.manifest_create.outputs.file_id }}
-          CREATED_FOLDER: ${{ steps.manifest_create.outputs.folder_id }}
-          UPDATED_FOLDER: ${{ steps.manifest_update.outputs.folder_id }}
-          LOCAL_ARCHIVE: ${{ steps.snapshot.outputs.archive }}
-          LOCAL_MANIFEST: ${{ steps.snapshot.outputs.manifest }}
-          EXPECTED_ARCHIVE_SHA256: ${{ steps.snapshot.outputs.archive_sha256 }}
-          EXPECTED_ARCHIVE_SIZE: ${{ steps.snapshot.outputs.archive_size }}
-        run: |
-          set -Eeuo pipefail
-          test "${CREATED_MANIFEST_ID}" = "${MANIFEST_FILE_ID}"
-          test "${CREATED_FOLDER}" = "${UPDATED_FOLDER}"
-          remote_archive="${RUNNER_TEMP}/snapshot-readback.zip"
-          remote_manifest="${RUNNER_TEMP}/snapshot-readback-manifest.json"
-          curl --fail --silent --show-error --location --http1.1 \
-            -H "Authorization: Bearer ${DRIVE_ACCESS_TOKEN}" \
-            "https://www.googleapis.com/drive/v3/files/${ARCHIVE_FILE_ID}?alt=media" --output "${remote_archive}"
-          curl --fail --silent --show-error --location --http1.1 \
-            -H "Authorization: Bearer ${DRIVE_ACCESS_TOKEN}" \
-            "https://www.googleapis.com/drive/v3/files/${MANIFEST_FILE_ID}?alt=media" --output "${remote_manifest}"
-          test "$(wc -c < "${remote_archive}" | tr -d '[:space:]')" = "${EXPECTED_ARCHIVE_SIZE}"
-          test "$(sha256sum "${remote_archive}" | awk '{print $1}')" = "${EXPECTED_ARCHIVE_SHA256}"
-          cmp -s "${LOCAL_ARCHIVE}" "${remote_archive}"
-          cmp -s "${LOCAL_MANIFEST}" "${remote_manifest}"
-
-      - name: Delete superseded canonical source archive objects
-        id: source_prune
-        shell: bash
-        env:
-          GOOGLE_DRIVE_ACCESS_TOKEN: ${{ steps.snapshot_drive.outputs.access_token }}
-          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID }}
-          TARGET_REPOSITORY: ${{ needs.request.outputs.repository }}
-          TARGET_REF: ${{ needs.request.outputs.ref }}
-          TARGET_IS_TAG: ${{ needs.request.outputs.is_tag }}
-          REPOSITORY_FOLDER_ID: ${{ steps.drive_repository.outputs.folder_id }}
-          ARCHIVE_FILENAME: ${{ steps.snapshot.outputs.archive_filename }}
-          LIFECYCLE_STATE: ${{ steps.source_lifecycle.outputs.state }}
-          MANIFEST: ${{ steps.snapshot.outputs.manifest }}
-        run: |
-          set -Eeuo pipefail
-          python3 scripts/ci/source_snapshot_lifecycle.py prune \
-            --repository "${TARGET_REPOSITORY}" \
-            --ref "${TARGET_REF}" \
-            --is-tag "${TARGET_IS_TAG}" \
-            --archive-filename "${ARCHIVE_FILENAME}" \
-            --repository-folder-id "${REPOSITORY_FOLDER_ID}" \
-            --state "${LIFECYCLE_STATE}" \
-            --manifest "${MANIFEST}"
-
-      - name: Clean snapshot workspace
-        if: ${{ always() }}
-        shell: bash
-        run: |
-          rm -rf source
-          rm -f "${RUNNER_TEMP}/repository-snapshot.zip" "${RUNNER_TEMP}/manifest.json" \
-            "${RUNNER_TEMP}/snapshot-readback.zip" "${RUNNER_TEMP}/snapshot-readback-manifest.json" \
-            "${RUNNER_TEMP}/source-snapshot-lifecycle.json"
-
-      - name: Finish Agent State run
-        if: ${{ always() }}
-        uses: ./actions/agent-state
-        env:
-          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-        with:
-          phase: finish
-          ci_run_id: ${{ inputs.ci_run_id }}
-          status: ${{ job.status == 'success' && 'succeeded' || job.status == 'cancelled' && 'cancelled' || 'failed' }}
 
   settle_cancelled:
     needs:
@@ -1397,8 +934,6 @@ jobs:
       - oci_reproducibility
       - ci_cancel
       - branch_delete
-      - source_checkpoint_publish
-      - source_snapshot
     if: >-
       ${{
         always() &&
@@ -1431,11 +966,7 @@ jobs:
           needs.ci_cancel.result == 'cancelled' ||
           needs.ci_cancel.result == 'failure' ||
           needs.branch_delete.result == 'cancelled' ||
-          needs.branch_delete.result == 'failure' ||
-          needs.source_checkpoint_publish.result == 'cancelled' ||
-          needs.source_checkpoint_publish.result == 'failure' ||
-          needs.source_snapshot.result == 'cancelled' ||
-          needs.source_snapshot.result == 'failure'
+          needs.branch_delete.result == 'failure'
         )
       }}
     runs-on: ubuntu-latest
@@ -1448,8 +979,10 @@ jobs:
       - name: Settle cancelled Agent State run
         uses: ./actions/agent-state
         env:
-          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
+          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         with:
           phase: cancel-if-active
           ci_run_id: ${{ inputs.ci_run_id }}

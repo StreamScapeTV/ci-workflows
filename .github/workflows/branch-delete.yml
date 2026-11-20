@@ -22,17 +22,11 @@ name: Delete repository branch
         required: true
       SOURCE_APP_PRIVATE_KEY:
         required: true
-      GOOGLE_DRIVE_CLIENT_ID:
-        required: true
-      GOOGLE_DRIVE_CLIENT_SECRET:
-        required: true
-      GOOGLE_DRIVE_REFRESH_TOKEN:
-        required: true
-      GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID:
-        required: true
-      AGENT_STATE_SUPABASE_URL:
+      MIRROR_API_KEY:
         required: false
-      AGENT_STATE_SUPABASE_SECRET_KEY:
+      CF_ACCESS_CLIENT_ID:
+        required: false
+      CF_ACCESS_CLIENT_SECRET:
         required: false
 
 permissions:
@@ -54,8 +48,10 @@ jobs:
       - name: Mark Agent State run as running
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
         env:
-          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
+          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         with:
           phase: start
           ci_run_id: ${{ inputs.ci_run_id }}
@@ -248,14 +244,14 @@ jobs:
           if initial_head is None:
               with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
                   output.write("branch_was_present=false\n")
-              print("Branch is already absent; continuing with same-ref Drive snapshot cleanup.")
+              print("Branch is already absent; nothing left to delete.")
               raise SystemExit(0)
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write("branch_was_present=true\n")
           final_head = validate_live_state()
           if final_head is None:
-              print("Branch became absent after validation; continuing with same-ref Drive snapshot cleanup.")
+              print("Branch became absent after validation; nothing left to delete.")
               raise SystemExit(0)
           if final_head != expected_head:
               raise SystemExit("branch deletion expected head changed before deletion")
@@ -268,30 +264,20 @@ jobs:
         run: |
           printf '%s\n' 'GitHub branch is absent after bounded branch-retirement validation.' >> "${GITHUB_STEP_SUMMARY}"
 
-  snapshot_cleanup:
-    needs: delete
-    if: ${{ needs.delete.result == 'success' }}
-    uses: ./.github/workflows/source-snapshot-delete.yml
-    with:
-      repository: ${{ needs.delete.outputs.repository }}
-      ref: ${{ needs.delete.outputs.branch }}
-      expected_source_sha: ''
-      allow_checkpoint_only_without_manifest: true
-    secrets: inherit
-
   finish:
     needs:
       - delete
-      - snapshot_cleanup
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
       - name: Finish Agent State run
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
         env:
-          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
+          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}
-          status: ${{ needs.delete.result == 'success' && needs.snapshot_cleanup.result == 'success' && 'succeeded' || 'failed' }}
+          status: ${{ needs.delete.result == 'success' && 'succeeded' || 'failed' }}

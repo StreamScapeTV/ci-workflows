@@ -68,17 +68,15 @@ name: Repository-owned CI execution plan
         required: true
       SOURCE_APP_PRIVATE_KEY:
         required: true
-      AGENT_STATE_SUPABASE_URL:
+      MIRROR_API_KEY:
         required: true
-      AGENT_STATE_SUPABASE_SECRET_KEY:
+      CF_ACCESS_CLIENT_ID:
         required: true
-      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID:
+      CF_ACCESS_CLIENT_SECRET:
+        required: true
+      S3_GITHUB_TRANSPORT_ACCESS_KEY:
         required: false
-      GOOGLE_DRIVE_CLIENT_ID:
-        required: false
-      GOOGLE_DRIVE_CLIENT_SECRET:
-        required: false
-      GOOGLE_DRIVE_REFRESH_TOKEN:
+      S3_GITHUB_TRANSPORT_SECRET_KEY:
         required: false
       TS_OAUTH_CLIENT_ID:
         required: false
@@ -101,16 +99,6 @@ name: Repository-owned CI execution plan
       APPLE_DEVELOPMENT_P12_BASE64:
         required: false
       APPLE_DEVELOPMENT_P12_PASSWORD:
-        required: false
-      PROTECTED_DEPLOYED_HTTPS_TARGET:
-        required: false
-      PROTECTED_DEPLOYED_WSS_TARGET:
-        required: false
-      PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64:
-        required: false
-      PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO_GZIP_BASE64:
-        required: false
-      PROTECTED_DEPLOYED_SETUP_CREDENTIAL:
         required: false
       BACKUP_S3_ENDPOINT:
         required: false
@@ -138,8 +126,10 @@ jobs:
       - name: Mark parent Agent State run as running
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
         env:
-          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
+          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         with:
           phase: start
           ci_run_id: ${{ inputs.ci_run_id }}
@@ -237,8 +227,10 @@ jobs:
       - name: Record parent observed source SHA
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
         env:
-          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
+          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         with:
           phase: observe-source
           ci_run_id: ${{ inputs.ci_run_id }}
@@ -276,12 +268,11 @@ jobs:
       SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
       DOCKERHUB_USERNAME: ${{ matrix.host_os == 'linux' && secrets.DOCKERHUB_USERNAME || '' }}
       DOCKERHUB_READ_TOKEN: ${{ matrix.host_os == 'linux' && secrets.DOCKERHUB_READ_TOKEN || '' }}
-      AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-      AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
-      GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-      GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      MIRROR_API_KEY: ${{ secrets.MIRROR_API_KEY }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      S3_GITHUB_TRANSPORT_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+      S3_GITHUB_TRANSPORT_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
       TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
       TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
       REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
@@ -298,11 +289,6 @@ jobs:
       APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ matrix.host_os == 'macos' && secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 || '' }}
       APPLE_DEVELOPMENT_P12_BASE64: ${{ inputs.operation == 'device-test' && matrix.host_os == 'macos' && secrets.APPLE_DEVELOPMENT_P12_BASE64 || '' }}
       APPLE_DEVELOPMENT_P12_PASSWORD: ${{ inputs.operation == 'device-test' && matrix.host_os == 'macos' && secrets.APPLE_DEVELOPMENT_P12_PASSWORD || '' }}
-      PROTECTED_DEPLOYED_HTTPS_TARGET: ${{ matrix.host_os == 'linux' && secrets.PROTECTED_DEPLOYED_HTTPS_TARGET || '' }}
-      PROTECTED_DEPLOYED_WSS_TARGET: ${{ matrix.host_os == 'linux' && secrets.PROTECTED_DEPLOYED_WSS_TARGET || '' }}
-      PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64: ${{ matrix.host_os == 'linux' && secrets.PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64 || '' }}
-      PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO_GZIP_BASE64: ${{ matrix.host_os == 'linux' && secrets.PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO_GZIP_BASE64 || '' }}
-      PROTECTED_DEPLOYED_SETUP_CREDENTIAL: ${{ matrix.host_os == 'linux' && secrets.PROTECTED_DEPLOYED_SETUP_CREDENTIAL || '' }}
 
   settle:
     if: ${{ always() }}
@@ -313,8 +299,10 @@ jobs:
       - name: Settle one parent Agent State operation after all children
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
         env:
-          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
+          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}

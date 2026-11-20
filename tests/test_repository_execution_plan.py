@@ -174,8 +174,8 @@ class RepositoryExecutionPlanTests(unittest.TestCase):
         }
         for name in (
             "Seed stable private repository CI log object",
-            "Upload private repository CI log to Google Drive",
-            "Upload bounded repository CI evidence to Google Drive",
+            "Upload private repository CI log to S3",
+            "Upload bounded repository CI evidence to S3",
         ):
             self.assertIn("needs.resolve_host.outputs.host_os", steps[name]["with"]["file_name"])
         self.assertEqual(

@@ -15,28 +15,21 @@ workflows:
   oci_reproducibility: .github/workflows/oci-reproducibility.yml
   ci_cancel: .github/workflows/ci-cancel.yml
   branch_delete: .github/workflows/branch-delete.yml
-  source_snapshot_delete: .github/workflows/source-snapshot-delete.yml
-  source_snapshot: .github/workflows/source-snapshot.yml
-  source_checkpoint_publish: .github/workflows/source-checkpoint-publish.yml
   central_dispatch: .github/workflows/central-ci-dispatch.yml
   central_ci_settle: .github/workflows/central-ci-settle.yml
-  ci_log_retention: .github/workflows/ci-log-retention.yml
   github_issue_dependency_projection: .github/workflows/github-issue-dependency-projection.yml
   self_check: .github/workflows/self-check.yml
 actions:
   agent_state: actions/agent-state/action.yml
-  google_drive: actions/google-drive/action.yml
   private_git: actions/private-git/action.yml
-  private_log_fallback: actions/private-log-fallback/action.yml
+  s3_upload: actions/s3-upload/action.yml
   dockerhub_read: actions/dockerhub-read/action.yml
-  source_snapshot: actions/source-snapshot/action.yml
 scripts:
   hosted_macos_dns: actions/private-git/macos_dns.py
   apple_dependency_cache: scripts/ci/apple_dependency_cache.py
   oci_reproducibility: scripts/ci/oci_reproducibility.py
   ci_cancel: scripts/ci/ci_cancel.py
-  ci_log_reconcile: scripts/ci/ci_log_reconcile.py
-  ci_log_issue_fallback: scripts/ci/ci_log_issue_fallback.py
+  s3_put: scripts/ci/s3_put.py
   github_issue_dependency_projection: scripts/ci/github_issue_dependency_projection.py
   repository_log_checkpoint: scripts/ci/repository_log_checkpoint.py
   repository_log_capture: scripts/ci/repository_log_capture.py
@@ -49,10 +42,6 @@ scripts:
   repository_macos_netrc: scripts/ci/repository_macos_netrc.py
   apple_credential_preflight: scripts/ci/apple_credential_preflight.py
   protected_deployed_conformance: scripts/ci/protected_deployed_conformance.py
-  source_snapshot_delete: scripts/ci/source_snapshot_delete.py
-  source_checkpoint_publish: scripts/ci/source_checkpoint_publish.py
-  source_checkpoint_recover: scripts/ci/source_checkpoint_recover.py
-  source_snapshot_lifecycle: scripts/ci/source_snapshot_lifecycle.py
   swiftpm_binary: scripts/ci/swiftpm_binary.py
 contracts:
   repository_ci_v1: contracts/repository-ci-v1.json

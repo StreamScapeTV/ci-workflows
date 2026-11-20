@@ -80,17 +80,15 @@ name: Repository-owned CI
         required: true
       SOURCE_APP_PRIVATE_KEY:
         required: true
-      AGENT_STATE_SUPABASE_URL:
+      MIRROR_API_KEY:
         required: false
-      AGENT_STATE_SUPABASE_SECRET_KEY:
+      CF_ACCESS_CLIENT_ID:
         required: false
-      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID:
+      CF_ACCESS_CLIENT_SECRET:
         required: false
-      GOOGLE_DRIVE_CLIENT_ID:
+      S3_GITHUB_TRANSPORT_ACCESS_KEY:
         required: false
-      GOOGLE_DRIVE_CLIENT_SECRET:
-        required: false
-      GOOGLE_DRIVE_REFRESH_TOKEN:
+      S3_GITHUB_TRANSPORT_SECRET_KEY:
         required: false
       TS_OAUTH_CLIENT_ID:
         required: false
@@ -113,16 +111,6 @@ name: Repository-owned CI
       APPLE_DEVELOPMENT_P12_BASE64:
         required: false
       APPLE_DEVELOPMENT_P12_PASSWORD:
-        required: false
-      PROTECTED_DEPLOYED_HTTPS_TARGET:
-        required: false
-      PROTECTED_DEPLOYED_WSS_TARGET:
-        required: false
-      PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64:
-        required: false
-      PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO_GZIP_BASE64:
-        required: false
-      PROTECTED_DEPLOYED_SETUP_CREDENTIAL:
         required: false
       BACKUP_S3_ENDPOINT:
         required: false
@@ -158,15 +146,21 @@ jobs:
           SOURCE_IS_TAG: ${{ inputs.source_is_tag }}
           OPERATION: ${{ inputs.operation }}
           LEGACY_HOST_OS: ${{ inputs.host_os }}
-          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
+          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           set -Eeuo pipefail
-          : "${AGENT_STATE_SUPABASE_URL:?Agent State URL is required for repository host resolution}"
-          : "${AGENT_STATE_SUPABASE_SECRET_KEY:?Agent State secret is required for repository host resolution}"
+          : "${AGENT_STATE_URL:?Agent State URL is required for repository host resolution}"
+          : "${AGENT_STATE_API_KEY:?Agent State secret is required for repository host resolution}"
+          : "${CF_ACCESS_CLIENT_ID:?Cloudflare Access client id is required}"
+          : "${CF_ACCESS_CLIENT_SECRET:?Cloudflare Access client secret is required}"
 
           headers=(
-            -H "apikey: ${AGENT_STATE_SUPABASE_SECRET_KEY}"
+            -H "apikey: ${AGENT_STATE_API_KEY}"
+            -H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}"
+            -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}"
             -H "Content-Type: application/json"
             -H "Content-Profile: agent_api"
             -H "Accept-Profile: agent_api"
@@ -175,7 +169,7 @@ jobs:
             curl --fail --silent --show-error \
               "${headers[@]}" \
               --data "$2" \
-              "${AGENT_STATE_SUPABASE_URL%/}/rest/v1/rpc/$1"
+              "${AGENT_STATE_URL%/}/rest/v1/rpc/$1"
           }
           emit_host() {
             local host_class="$1"
@@ -423,8 +417,10 @@ jobs:
         if: ${{ inputs.ci_run_id != '' }}
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
         env:
-          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
+          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         with:
           phase: start
           ci_run_id: ${{ inputs.ci_run_id }}
@@ -719,8 +715,10 @@ jobs:
         if: ${{ inputs.ci_run_id != '' }}
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
         env:
-          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
+          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         with:
           phase: observe-source
           ci_run_id: ${{ inputs.ci_run_id }}
@@ -756,8 +754,10 @@ jobs:
           OBSERVED_SOURCE_SHA: ${{ steps.source_identity.outputs.source_sha }}
           NORMALIZED_INPUTS: ${{ steps.request.outputs.semantic_inputs_json }}
           CONTRACT: ${{ github.workspace }}/central-ci/contracts/repository-ci-v1.json
-          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
+          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           set -Eeuo pipefail
 
@@ -827,17 +827,21 @@ jobs:
             exit 0
           fi
 
-          : "${AGENT_STATE_SUPABASE_URL:?Agent State URL is required for trusted repository capabilities}"
-          : "${AGENT_STATE_SUPABASE_SECRET_KEY:?Agent State secret is required for trusted repository capabilities}"
+          : "${AGENT_STATE_URL:?Agent State URL is required for trusted repository capabilities}"
+          : "${AGENT_STATE_API_KEY:?Agent State secret is required for trusted repository capabilities}"
+          : "${CF_ACCESS_CLIENT_ID:?Cloudflare Access client id is required}"
+          : "${CF_ACCESS_CLIENT_SECRET:?Cloudflare Access client secret is required}"
 
           headers=(
-            -H "apikey: ${AGENT_STATE_SUPABASE_SECRET_KEY}"
+            -H "apikey: ${AGENT_STATE_API_KEY}"
+            -H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}"
+            -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}"
             -H "Content-Type: application/json"
             -H "Content-Profile: agent_api"
             -H "Accept-Profile: agent_api"
           )
           rpc() {
-            curl --fail --silent --show-error               "${headers[@]}"               --data "$2"               "${AGENT_STATE_SUPABASE_URL%/}/rest/v1/rpc/$1"
+            curl --fail --silent --show-error               "${headers[@]}"               --data "$2"               "${AGENT_STATE_URL%/}/rest/v1/rpc/$1"
           }
 
           claim_response="$(rpc claim_ci_run "$(jq -cn --arg id "${capability_run_id}" '{p_ci_run_id:$id}')")"
@@ -1076,7 +1080,6 @@ jobs:
               } >> "${GITHUB_OUTPUT}"
               ;;
           esac
-
 
       - name: Materialize reviewed integration-test fixtures
         if: ${{ steps.capabilities.outputs.integration_test_fixtures == 'true' }}
@@ -1493,15 +1496,19 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
+          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           PROGRESS_CI_RUN_ID: ${{ steps.progress_owner.outputs.ci_run_id }}
         run: |
           set -Eeuo pipefail
           credentials="$(jq -cn \
-            --arg url "${AGENT_STATE_SUPABASE_URL}" \
-            --arg key "${AGENT_STATE_SUPABASE_SECRET_KEY}" \
-            '{url:$url,key:$key}')"
+            --arg url "${AGENT_STATE_URL}" \
+            --arg key "${AGENT_STATE_API_KEY}" \
+            --arg cf_id "${CF_ACCESS_CLIENT_ID}" \
+            --arg cf_secret "${CF_ACCESS_CLIENT_SECRET}" \
+            '{url:$url,key:$key,cf_access_client_id:$cf_id,cf_access_client_secret:$cf_secret}')"
           relay_pid_file="${RUNNER_TEMP}/central-repository-progress-relay.pid"
           relay_state="${RUNNER_TEMP}/central-repository-progress-relay-state.json"
           relay_stdout="${RUNNER_TEMP}/central-repository-progress-relay.stdout"
@@ -1532,18 +1539,18 @@ jobs:
         id: log_seed
         if: ${{ inputs.ci_run_id != '' || inputs.upload_private_log }}
         continue-on-error: true
-        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
-        env:
-          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
-          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+        uses: StreamScapeTV/ci-workflows/actions/s3-upload@main
         with:
+          kind: logs
           repository: ${{ inputs.repository }}
-          ref: ${{ inputs.ref }}
+          scope: ${{ inputs.ci_run_id || github.run_id }}
           file_path: ${{ runner.temp }}/central-repository-ci-log-checkpoint-seed.txt
           file_name: ${{ github.run_id }}-${{ github.run_attempt }}-repository-${{ inputs.operation }}-${{ needs.resolve_host.outputs.host_os }}.txt
-          mime_type: text/plain
+          content_type: text/plain
+          s3_access_key: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          s3_secret_key: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
 
       - name: Execute fixed repository-owned entrypoint
         id: execute_contract
@@ -1573,19 +1580,18 @@ jobs:
           TRUSTED_CAPABILITY_CI_RUN_ID: ${{ inputs.trusted_capability_ci_run_id }}
           SOURCE_REPOSITORY: ${{ inputs.repository }}
           CHECKPOINT_ENABLED: ${{ inputs.operation != 'device-test' && steps.capabilities.outputs.backup_s3_read != 'true' && (inputs.ci_run_id != '' || inputs.upload_private_log) && steps.log_seed.outcome == 'success' && 'true' || 'false' }}
-          CHECKPOINT_FILE_ID: ${{ steps.log_seed.outputs.file_id }}
+          CHECKPOINT_OBJECT_KEY: ${{ steps.log_seed.outputs.object_key }}
           CHECKPOINT_SEED_SHA256: ${{ steps.log_seed.outputs.file_sha256 }}
-          CHECKPOINT_GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          CHECKPOINT_GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          CHECKPOINT_GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          CHECKPOINT_S3_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          CHECKPOINT_S3_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
           CI_SECRET_SOURCE_TOKEN: ${{ steps.source.outputs.token }}
           CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-          CI_SECRET_AGENT_STATE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-          CI_SECRET_AGENT_STATE_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-          CI_SECRET_DRIVE_FOLDER: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
-          CI_SECRET_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          CI_SECRET_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          CI_SECRET_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          CI_SECRET_AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
+          CI_SECRET_AGENT_STATE_KEY: ${{ secrets.MIRROR_API_KEY }}
+          CI_SECRET_CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CI_SECRET_CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          CI_SECRET_S3_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          CI_SECRET_S3_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
           CI_SECRET_TAILSCALE_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           CI_SECRET_TAILSCALE_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
           CI_APPLE_TEAM_ID: ${{ needs.resolve_host.outputs.host_os == 'macos' && secrets.APPLE_TEAM_ID || '' }}
@@ -1612,11 +1618,6 @@ jobs:
           CI_SECRET_BACKUP_S3_REGION: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_REGION || '' }}
           CI_SECRET_BACKUP_S3_ACCESS_KEY_ID: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_ACCESS_KEY_ID || '' }}
           CI_SECRET_BACKUP_S3_SECRET_ACCESS_KEY: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_SECRET_ACCESS_KEY || '' }}
-          CI_SECRET_PROTECTED_DEPLOYED_HTTPS_TARGET: ${{ steps.capabilities.outputs.protected_deployed_conformance == 'true' && secrets.PROTECTED_DEPLOYED_HTTPS_TARGET || '' }}
-          CI_SECRET_PROTECTED_DEPLOYED_WSS_TARGET: ${{ steps.capabilities.outputs.protected_deployed_conformance == 'true' && secrets.PROTECTED_DEPLOYED_WSS_TARGET || '' }}
-          CI_SECRET_PROTECTED_DEPLOYED_HTTP_SCENARIO: ${{ steps.capabilities.outputs.protected_deployed_conformance == 'true' && secrets.PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64 || '' }}
-          CI_SECRET_PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO: ${{ steps.capabilities.outputs.protected_deployed_conformance == 'true' && secrets.PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO_GZIP_BASE64 || '' }}
-          CI_SECRET_PROTECTED_DEPLOYED_SETUP_CREDENTIAL: ${{ steps.capabilities.outputs.protected_deployed_conformance == 'true' && secrets.PROTECTED_DEPLOYED_SETUP_CREDENTIAL || '' }}
           CI_SECRET_APPLE_TEAM_ID: ${{ needs.resolve_host.outputs.host_os == 'macos' && secrets.APPLE_TEAM_ID || '' }}
           CI_SECRET_APP_STORE_CONNECT_KEY_ID: ${{ needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
           CI_SECRET_APP_STORE_CONNECT_ISSUER_ID: ${{ needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
@@ -1628,6 +1629,8 @@ jobs:
             export CI_SECRET_DOCKERHUB_AUTH_B64="$(printf '%s:%s' "${CI_SECRET_DOCKERHUB_USERNAME}" "${CI_SECRET_DOCKERHUB_READ_TOKEN}" | base64 | tr -d '\r\n')"
           fi
           protected_agent_state_key="${CI_SECRET_AGENT_STATE_KEY:-}"
+          protected_cf_access_id="${CI_SECRET_CF_ACCESS_CLIENT_ID:-}"
+          protected_cf_access_secret="${CI_SECRET_CF_ACCESS_CLIENT_SECRET:-}"
           protected_https_target="${CI_SECRET_PROTECTED_DEPLOYED_HTTPS_TARGET:-}"
           protected_wss_target="${CI_SECRET_PROTECTED_DEPLOYED_WSS_TARGET:-}"
           protected_http_scenario="${CI_SECRET_PROTECTED_DEPLOYED_HTTP_SCENARIO:-}"
@@ -1709,7 +1712,7 @@ jobs:
               checkpoint_status=$?
               set -e
               if test "${checkpoint_status}" -ne 0; then
-                echo "::warning::repository log checkpoint helper exited with status ${checkpoint_status}; product execution continues and final Drive upload will retry" >&2
+                echo "::warning::repository log checkpoint helper exited with status ${checkpoint_status}; product execution continues and final S3 upload will retry" >&2
               fi
             fi
             checkpoint_pid=""
@@ -1748,12 +1751,11 @@ jobs:
             if test -n "${runtime_probe_path}"; then
               runtime_probe_options=(--runtime-probe-path "${runtime_probe_path}")
             fi
-            GOOGLE_DRIVE_CLIENT_ID="${CHECKPOINT_GOOGLE_DRIVE_CLIENT_ID}" \
-            GOOGLE_DRIVE_CLIENT_SECRET="${CHECKPOINT_GOOGLE_DRIVE_CLIENT_SECRET}" \
-            GOOGLE_DRIVE_REFRESH_TOKEN="${CHECKPOINT_GOOGLE_DRIVE_REFRESH_TOKEN}" \
+            S3_GITHUB_TRANSPORT_ACCESS_KEY="${CHECKPOINT_S3_ACCESS_KEY}" \
+            S3_GITHUB_TRANSPORT_SECRET_KEY="${CHECKPOINT_S3_SECRET_KEY}" \
             python3 central-ci/scripts/ci/repository_log_checkpoint.py \
               --log-path "${CI_LOG}" \
-              --file-id "${CHECKPOINT_FILE_ID}" \
+              --object-key "${CHECKPOINT_OBJECT_KEY}" \
               --seed-sha256 "${CHECKPOINT_SEED_SHA256}" \
               --status-path "${RUNNER_TEMP}/central-repository-ci-log-checkpoint-status.json" \
               --timeline-state-path "${RUNNER_TEMP}/central-repository-ci-timeline.json" \
@@ -1779,17 +1781,16 @@ jobs:
           )"
 
           unset \
-            CHECKPOINT_GOOGLE_DRIVE_CLIENT_ID \
-            CHECKPOINT_GOOGLE_DRIVE_CLIENT_SECRET \
-            CHECKPOINT_GOOGLE_DRIVE_REFRESH_TOKEN \
+            CHECKPOINT_S3_ACCESS_KEY \
+            CHECKPOINT_S3_SECRET_KEY \
             CI_SECRET_SOURCE_TOKEN \
             CI_SECRET_SOURCE_PRIVATE_KEY \
             CI_SECRET_AGENT_STATE_URL \
             CI_SECRET_AGENT_STATE_KEY \
-            CI_SECRET_DRIVE_FOLDER \
-            CI_SECRET_DRIVE_CLIENT_ID \
-            CI_SECRET_DRIVE_CLIENT_SECRET \
-            CI_SECRET_DRIVE_REFRESH_TOKEN \
+            CI_SECRET_CF_ACCESS_CLIENT_ID \
+            CI_SECRET_CF_ACCESS_CLIENT_SECRET \
+            CI_SECRET_S3_ACCESS_KEY \
+            CI_SECRET_S3_SECRET_KEY \
             CI_SECRET_TAILSCALE_ID \
             CI_SECRET_TAILSCALE_SECRET \
             CI_SECRET_DOCKERHUB_USERNAME \
@@ -1811,11 +1812,6 @@ jobs:
             CI_SECRET_BACKUP_S3_REGION \
             CI_SECRET_BACKUP_S3_ACCESS_KEY_ID \
             CI_SECRET_BACKUP_S3_SECRET_ACCESS_KEY \
-            CI_SECRET_PROTECTED_DEPLOYED_HTTPS_TARGET \
-            CI_SECRET_PROTECTED_DEPLOYED_WSS_TARGET \
-            CI_SECRET_PROTECTED_DEPLOYED_HTTP_SCENARIO \
-            CI_SECRET_PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO \
-            CI_SECRET_PROTECTED_DEPLOYED_SETUP_CREDENTIAL \
             CI_SECRET_APPLE_TEAM_ID \
             CI_SECRET_APP_STORE_CONNECT_KEY_ID \
             CI_SECRET_APP_STORE_CONNECT_ISSUER_ID \
@@ -1843,7 +1839,8 @@ jobs:
                 echo "protected deployed conformance requires one exact Agent State binding" >&2
                 exit 2
               }
-              test -n "${protected_agent_state_url}" && test -n "${protected_agent_state_key}" || {
+              test -n "${protected_agent_state_url}" && test -n "${protected_agent_state_key}" \
+                && test -n "${protected_cf_access_id}" && test -n "${protected_cf_access_secret}" || {
                 echo "protected deployed conformance requires Agent State access" >&2
                 exit 2
               }
@@ -1853,6 +1850,8 @@ jobs:
               rm -f -- "${protected_state_file}"
               project_response="$(curl --fail --silent --show-error \
                 -H "apikey: ${protected_agent_state_key}" \
+                -H "CF-Access-Client-Id: ${protected_cf_access_id}" \
+                -H "CF-Access-Client-Secret: ${protected_cf_access_secret}" \
                 -H "Content-Type: application/json" \
                 -H "Content-Profile: agent_api" \
                 -H "Accept-Profile: agent_api" \
@@ -2121,12 +2120,12 @@ jobs:
         env:
           CI_SECRET_SOURCE_TOKEN: ${{ steps.source.outputs.token }}
           CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-          CI_SECRET_AGENT_STATE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-          CI_SECRET_AGENT_STATE_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-          CI_SECRET_DRIVE_FOLDER: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
-          CI_SECRET_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          CI_SECRET_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          CI_SECRET_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          CI_SECRET_AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
+          CI_SECRET_AGENT_STATE_KEY: ${{ secrets.MIRROR_API_KEY }}
+          CI_SECRET_CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CI_SECRET_CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          CI_SECRET_S3_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          CI_SECRET_S3_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
           CI_SECRET_TAILSCALE_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           CI_SECRET_TAILSCALE_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
           CI_SECRET_DOCKERHUB_USERNAME: ${{ needs.resolve_host.outputs.host_os == 'linux' && secrets.DOCKERHUB_USERNAME || '' }}
@@ -2147,11 +2146,6 @@ jobs:
           CI_SECRET_BACKUP_S3_REGION: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_REGION || '' }}
           CI_SECRET_BACKUP_S3_ACCESS_KEY_ID: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_ACCESS_KEY_ID || '' }}
           CI_SECRET_BACKUP_S3_SECRET_ACCESS_KEY: ${{ steps.capabilities.outputs.backup_s3_read == 'true' && secrets.BACKUP_S3_SECRET_ACCESS_KEY || '' }}
-          CI_SECRET_PROTECTED_DEPLOYED_HTTPS_TARGET: ${{ steps.capabilities.outputs.protected_deployed_conformance == 'true' && secrets.PROTECTED_DEPLOYED_HTTPS_TARGET || '' }}
-          CI_SECRET_PROTECTED_DEPLOYED_WSS_TARGET: ${{ steps.capabilities.outputs.protected_deployed_conformance == 'true' && secrets.PROTECTED_DEPLOYED_WSS_TARGET || '' }}
-          CI_SECRET_PROTECTED_DEPLOYED_HTTP_SCENARIO: ${{ steps.capabilities.outputs.protected_deployed_conformance == 'true' && secrets.PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64 || '' }}
-          CI_SECRET_PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO: ${{ steps.capabilities.outputs.protected_deployed_conformance == 'true' && secrets.PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO_GZIP_BASE64 || '' }}
-          CI_SECRET_PROTECTED_DEPLOYED_SETUP_CREDENTIAL: ${{ steps.capabilities.outputs.protected_deployed_conformance == 'true' && secrets.PROTECTED_DEPLOYED_SETUP_CREDENTIAL || '' }}
           CI_SECRET_APPLE_TEAM_ID: ${{ needs.resolve_host.outputs.host_os == 'macos' && secrets.APPLE_TEAM_ID || '' }}
           CI_SECRET_APP_STORE_CONNECT_KEY_ID: ${{ needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
           CI_SECRET_APP_STORE_CONNECT_ISSUER_ID: ${{ needs.resolve_host.outputs.host_os == 'macos' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
@@ -2612,52 +2606,37 @@ jobs:
           test -f "${archive}"
           printf 'archive=%s\n' "${archive}" >> "${GITHUB_OUTPUT}"
 
-      - name: Upload private repository CI log to Google Drive
-        id: drive
+      - name: Upload private repository CI log to S3
+        id: log_upload
         if: ${{ always() && steps.scrub.outcome == 'success' && (inputs.ci_run_id != '' || inputs.upload_private_log) }}
-        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
-        env:
-          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
-          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+        uses: StreamScapeTV/ci-workflows/actions/s3-upload@main
         with:
+          kind: logs
           repository: ${{ inputs.repository }}
-          ref: ${{ inputs.ref }}
+          scope: ${{ inputs.ci_run_id || github.run_id }}
           file_path: ${{ runner.temp }}/central-repository-ci.log
           file_name: ${{ github.run_id }}-${{ github.run_attempt }}-repository-${{ inputs.operation }}-${{ needs.resolve_host.outputs.host_os }}.txt
-          mime_type: text/plain
+          content_type: text/plain
+          s3_access_key: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          s3_secret_key: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
 
-      - name: Preserve log on private owning issue after Drive failure
-        if: ${{ always() && steps.drive.outcome == 'failure' && steps.scrub.outcome == 'success' && (inputs.ci_run_id != '' || inputs.trusted_capability_ci_run_id != '') }}
-        uses: StreamScapeTV/ci-workflows/actions/private-log-fallback@main
-        env:
-          SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
-          SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-        with:
-          repository: ${{ inputs.repository }}
-          ref: ${{ inputs.ref }}
-          ci_run_id: ${{ inputs.ci_run_id || inputs.trusted_capability_ci_run_id }}
-          lane: repository-${{ inputs.operation }}-${{ needs.resolve_host.outputs.host_os }}
-          log_path: ${{ runner.temp }}/central-repository-ci.log
-
-      - name: Upload bounded repository CI evidence to Google Drive
-        id: evidence_drive
+      - name: Upload bounded repository CI evidence to S3
+        id: evidence_upload
         if: ${{ always() && steps.evidence.outcome == 'success' && (inputs.ci_run_id != '' || inputs.upload_private_log) }}
-        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
-        env:
-          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
-          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+        uses: StreamScapeTV/ci-workflows/actions/s3-upload@main
         with:
+          kind: logs
           repository: ${{ inputs.repository }}
-          ref: ${{ inputs.ref }}
+          scope: ${{ inputs.ci_run_id || github.run_id }}
           file_path: ${{ steps.evidence.outputs.archive }}
           file_name: ${{ github.run_id }}-${{ github.run_attempt }}-repository-${{ inputs.operation }}-${{ needs.resolve_host.outputs.host_os }}-evidence.zip
-          mime_type: application/zip
+          content_type: application/zip
+          s3_access_key: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          s3_secret_key: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
 
       - name: Finalize evidence timeline and start cleanup settlement
         if: ${{ always() }}
@@ -2666,8 +2645,8 @@ jobs:
         env:
           SCRUB_OUTCOME: ${{ steps.scrub.outcome }}
           EVIDENCE_OUTCOME: ${{ steps.evidence.outcome }}
-          DRIVE_OUTCOME: ${{ steps.drive.outcome }}
-          EVIDENCE_DRIVE_OUTCOME: ${{ steps.evidence_drive.outcome }}
+          LOG_UPLOAD_OUTCOME: ${{ steps.log_upload.outcome }}
+          EVIDENCE_UPLOAD_OUTCOME: ${{ steps.evidence_upload.outcome }}
           REQUIRES_UPLOAD: ${{ (inputs.ci_run_id != '' || inputs.upload_private_log) && 'true' || 'false' }}
         run: |
           set -Eeuo pipefail
@@ -2679,7 +2658,7 @@ jobs:
           if test "${SCRUB_OUTCOME}" = success \
              && test "${EVIDENCE_OUTCOME}" = success \
              && { test "${REQUIRES_UPLOAD}" != true \
-                  || { test "${DRIVE_OUTCOME}" = success && test "${EVIDENCE_DRIVE_OUTCOME}" = success; }; }; then
+                  || { test "${LOG_UPLOAD_OUTCOME}" = success && test "${EVIDENCE_UPLOAD_OUTCOME}" = success; }; }; then
             status=complete
           fi
           if ! python3 central-ci/scripts/ci/repository_log_timeline.py finish \
@@ -2755,8 +2734,8 @@ jobs:
           EXECUTE_OUTCOME: ${{ steps.execute_contract.outcome }}
           SCRUB_OUTCOME: ${{ steps.scrub.outcome }}
           EVIDENCE_OUTCOME: ${{ steps.evidence.outcome }}
-          DRIVE_OUTCOME: ${{ steps.drive.outcome }}
-          EVIDENCE_DRIVE_OUTCOME: ${{ steps.evidence_drive.outcome }}
+          LOG_UPLOAD_OUTCOME: ${{ steps.log_upload.outcome }}
+          EVIDENCE_UPLOAD_OUTCOME: ${{ steps.evidence_upload.outcome }}
           DOCKERHUB_READ_OUTCOME: ${{ steps.dockerhub_read.outcome }}
           DOCKERHUB_READ_CLEANUP_OUTCOME: ${{ steps.dockerhub_read_cleanup.outcome }}
           CI_HOST_OS: ${{ needs.resolve_host.outputs.host_os }}
@@ -2774,8 +2753,8 @@ jobs:
              && test "${EXECUTE_OUTCOME}" = success \
              && test "${SCRUB_OUTCOME}" = success \
              && test "${EVIDENCE_OUTCOME}" = success \
-             && test "${DRIVE_OUTCOME}" = success \
-             && test "${EVIDENCE_DRIVE_OUTCOME}" = success \
+             && test "${LOG_UPLOAD_OUTCOME}" = success \
+             && test "${EVIDENCE_UPLOAD_OUTCOME}" = success \
              && { test "${CI_HOST_OS}" != linux || { test "${DOCKERHUB_READ_OUTCOME}" = success && test "${DOCKERHUB_READ_CLEANUP_OUTCOME}" = success; }; } \
              && test "${CLEANUP_OUTCOME}" = success \
              && { test "${APPLE_SIGNING_CLEANUP_OUTCOME}" = success || test "${APPLE_SIGNING_CLEANUP_OUTCOME}" = skipped; }; then
@@ -2868,8 +2847,10 @@ jobs:
         if: ${{ always() && inputs.ci_run_id != '' }}
         uses: StreamScapeTV/ci-workflows/actions/agent-state@main
         env:
-          AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
-          AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
+          AGENT_STATE_URL: ${{ vars.MIRROR_URL }}
+          AGENT_STATE_API_KEY: ${{ secrets.MIRROR_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         with:
           phase: finish
           ci_run_id: ${{ inputs.ci_run_id }}
@@ -2881,8 +2862,8 @@ jobs:
                 && steps.execute_contract.outcome == 'success'
                 && steps.scrub.outcome == 'success'
                 && steps.evidence.outcome == 'success'
-                && steps.drive.outcome == 'success'
-                && steps.evidence_drive.outcome == 'success'
+                && steps.log_upload.outcome == 'success'
+                && steps.evidence_upload.outcome == 'success'
                 && steps.cleanup.outcome == 'success'
                 && (steps.apple_signing_cleanup.outcome == 'success' || steps.apple_signing_cleanup.outcome == 'skipped')
                 && steps.progress_cleanup.outcome == 'success'

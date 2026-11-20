@@ -405,7 +405,7 @@ def write_relay_state(path: Path, state: RelayState) -> None:
     temporary.replace(path)
 
 
-def read_credentials(stream: object = sys.stdin) -> tuple[str, str]:
+def read_credentials(stream: object = sys.stdin) -> tuple[str, str, str, str]:
     line = stream.readline(MAX_CREDENTIALS_BYTES + 1)  # type: ignore[attr-defined]
     if not line or len(line.encode("utf-8")) > MAX_CREDENTIALS_BYTES:
         raise ReportError("invalid_credentials")
@@ -413,16 +413,18 @@ def read_credentials(stream: object = sys.stdin) -> tuple[str, str]:
         value = json.loads(line)
     except json.JSONDecodeError:
         raise ReportError("invalid_credentials") from None
-    if not isinstance(value, dict) or set(value) != {"url", "key"}:
+    if not isinstance(value, dict) or set(value) != {"url", "key", "cf_access_client_id", "cf_access_client_secret"}:
         raise ReportError("invalid_credentials")
     url = value["url"]
     key = value["key"]
-    if not isinstance(url, str) or not isinstance(key, str) or not key:
+    cf_id = value["cf_access_client_id"]
+    cf_secret = value["cf_access_client_secret"]
+    if not all(isinstance(item, str) and item for item in (url, key, cf_id, cf_secret)):
         raise ReportError("invalid_credentials")
     parsed = urllib.parse.urlsplit(url.rstrip("/"))
     if parsed.scheme != "https" or not parsed.netloc or parsed.path not in ("", "/"):
         raise ReportError("invalid_credentials")
-    return url.rstrip("/"), key
+    return url.rstrip("/"), key, cf_id, cf_secret
 
 
 class AgentStateReporter:
@@ -430,12 +432,16 @@ class AgentStateReporter:
         self,
         url: str,
         key: str,
+        cf_access_client_id: str,
+        cf_access_client_secret: str,
         *,
         opener: object = urllib.request,
         sleep_fn: Callable[[float], None] = time.sleep,
     ) -> None:
         self.url = url
         self.key = key
+        self.cf_access_client_id = cf_access_client_id
+        self.cf_access_client_secret = cf_access_client_secret
         self.opener = opener
         self.sleep_fn = sleep_fn
 
@@ -461,6 +467,8 @@ class AgentStateReporter:
             method="POST",
             headers={
                 "apikey": self.key,
+                "CF-Access-Client-Id": self.cf_access_client_id,
+                "CF-Access-Client-Secret": self.cf_access_client_secret,
                 "Content-Type": "application/json",
                 "Content-Profile": "agent_api",
                 "Accept-Profile": "agent_api",
@@ -581,7 +589,7 @@ def main() -> int:
 
         if not args.ci_run_id or not args.state_path:
             raise ProgressError("missing_watch_argument")
-        url, key = read_credentials()
+        url, key, cf_id, cf_secret = read_credentials()
         stop_event = threading.Event()
 
         def stop(_signum: int, _frame: object) -> None:
@@ -595,7 +603,7 @@ def main() -> int:
             timeline_state_path=Path(args.timeline_state_path),
             log_path=Path(args.log_path),
             state_path=Path(args.state_path),
-            reporter=AgentStateReporter(url, key),
+            reporter=AgentStateReporter(url, key, cf_id, cf_secret),
             stop_event=stop_event,
             poll_seconds=args.poll_seconds,
             heartbeat_seconds=args.heartbeat_seconds,

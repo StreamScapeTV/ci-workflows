@@ -249,8 +249,10 @@ class RepositoryWorkflowTests(unittest.TestCase):
                     "OBSERVED_SOURCE_SHA": observed_source_sha,
                     "NORMALIZED_INPUTS": json.dumps(normalized_inputs, sort_keys=True, separators=(",", ":")),
                     "CONTRACT": str(CONTRACT),
-                    "AGENT_STATE_SUPABASE_URL": "https://agent-state.invalid",
-                    "AGENT_STATE_SUPABASE_SECRET_KEY": "fixture-secret",
+                    "AGENT_STATE_URL": "https://agent-state.invalid",
+                    "AGENT_STATE_API_KEY": "fixture-secret",
+                    "CF_ACCESS_CLIENT_ID": "fixture-cf-id",
+                    "CF_ACCESS_CLIENT_SECRET": "fixture-cf-secret",
                     "GITHUB_OUTPUT": str(output),
                 },
                 text=True,
@@ -1753,6 +1755,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertIn("requires the reviewed private_network capability", missing_network.stderr)
 
         self.assertNotIn("Materialize protected deployed conformance bundle", self.steps_by_name)
+        # The PROTECTED_DEPLOYED_* stored secrets no longer exist; their wiring is removed.
         for secret_name in (
             "PROTECTED_DEPLOYED_HTTPS_TARGET",
             "PROTECTED_DEPLOYED_WSS_TARGET",
@@ -1760,7 +1763,8 @@ class RepositoryWorkflowTests(unittest.TestCase):
             "PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO_GZIP_BASE64",
             "PROTECTED_DEPLOYED_SETUP_CREDENTIAL",
         ):
-            self.assertIn(secret_name, self.workflow["on"]["workflow_call"]["secrets"])
+            self.assertNotIn(secret_name, self.workflow["on"]["workflow_call"]["secrets"])
+            self.assertNotIn(f"CI_SECRET_{secret_name}", str(self.steps_by_name["Execute fixed repository-owned entrypoint"]["env"]))
 
         execute = self.steps_by_name["Execute fixed repository-owned entrypoint"]
         script = execute["run"]
@@ -1774,20 +1778,7 @@ class RepositoryWorkflowTests(unittest.TestCase):
         self.assertLess(script.index('"./${ENTRYPOINT}"'), script.index("get_project_state"))
         self.assertLess(script.index("get_project_state"), script.index("protected_deployed_conformance.py materialize"))
         self.assertLess(script.index("protected_deployed_conformance.py materialize"), script.index("protected_deployed_conformance.py run"))
-        self.assertNotIn("PROTECTED_DEPLOYED_HTTPS_TARGET", execute["env"])
-        self.assertNotIn("PROTECTED_DEPLOYED_SETUP_CREDENTIAL", execute["env"])
-        self.assertIn("CI_SECRET_PROTECTED_DEPLOYED_HTTPS_TARGET", execute["env"])
-        self.assertIn("CI_SECRET_PROTECTED_DEPLOYED_SETUP_CREDENTIAL", execute["env"])
-        self.assertIn("steps.capabilities.outputs.protected_deployed_conformance == 'true'", execute["env"]["CI_SECRET_PROTECTED_DEPLOYED_HTTPS_TARGET"])
-        self.assertIn("steps.capabilities.outputs.protected_deployed_conformance == 'true'", execute["env"]["CI_SECRET_PROTECTED_DEPLOYED_SETUP_CREDENTIAL"])
-        unset_index = script.index('unset \\')
-        self.assertLess(unset_index, script.index('"./${ENTRYPOINT}"'))
-        self.assertGreater(script.index('CI_SECRET_PROTECTED_DEPLOYED_HTTPS_TARGET', unset_index), unset_index)
-        self.assertLess(script.index('CI_SECRET_PROTECTED_DEPLOYED_HTTPS_TARGET', unset_index), script.index('"./${ENTRYPOINT}"'))
-
-        scrub = self.steps_by_name["Scrub configured CI secrets from private text evidence"]["env"]
-        self.assertIn("CI_SECRET_PROTECTED_DEPLOYED_HTTPS_TARGET", scrub)
-        self.assertIn("CI_SECRET_PROTECTED_DEPLOYED_SETUP_CREDENTIAL", scrub)
+        self.assertIn("CF-Access-Client-Id", script)
         cleanup = self.steps_by_name["Cleanup ephemeral registry and repository evidence"]["run"]
         self.assertIn("central-protected-deployed-conformance", cleanup)
         self.assertIn("central-protected-deployed-project-state.json", cleanup)
@@ -1795,20 +1786,8 @@ class RepositoryWorkflowTests(unittest.TestCase):
         plan = yaml.safe_load(
             (ROOT / ".github/workflows/repository-plan.yml").read_text(encoding="utf-8")
         )
-        child_secrets = plan["jobs"]["execute"]["secrets"]
-        for secret_name in (
-            "PROTECTED_DEPLOYED_HTTPS_TARGET",
-            "PROTECTED_DEPLOYED_WSS_TARGET",
-            "PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64",
-            "PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO_GZIP_BASE64",
-            "PROTECTED_DEPLOYED_SETUP_CREDENTIAL",
-        ):
-            self.assertIn("matrix.host_os == 'linux'", child_secrets[secret_name])
-
-        validation_secrets = self.dispatch["jobs"]["repository"]["secrets"]
-        release_secrets = self.dispatch["jobs"]["repository_release"]["secrets"]
-        self.assertIn("PROTECTED_DEPLOYED_HTTPS_TARGET", validation_secrets)
-        self.assertNotIn("PROTECTED_DEPLOYED_HTTPS_TARGET", release_secrets)
+        self.assertNotIn("PROTECTED_DEPLOYED_HTTPS_TARGET", str(plan["jobs"]["execute"]["secrets"]))
+        self.assertNotIn("PROTECTED_DEPLOYED_HTTPS_TARGET", str(self.dispatch["jobs"]["repository"]["secrets"]))
 
     def test_protected_deployed_project_state_uses_actual_envelope_after_product_success(self) -> None:
         script = self.steps_by_name["Execute fixed repository-owned entrypoint"]["run"]
@@ -2200,16 +2179,18 @@ printf 'GIT_TERMINAL_PROMPT=%s\\n' "${GIT_TERMINAL_PROMPT:-}"
             "GITHUB_SOURCE_TOKEN",
             "TS_OAUTH_CLIENT_ID",
             "TS_OAUTH_SECRET",
-            "GOOGLE_DRIVE_CLIENT_ID",
-            "GOOGLE_DRIVE_CLIENT_SECRET",
-            "GOOGLE_DRIVE_REFRESH_TOKEN",
+            "S3_GITHUB_TRANSPORT_ACCESS_KEY",
+            "S3_GITHUB_TRANSPORT_SECRET_KEY",
+            "MIRROR_API_KEY",
+            "CF_ACCESS_CLIENT_ID",
+            "CF_ACCESS_CLIENT_SECRET",
         ):
             self.assertNotIn(forbidden, execute_env)
 
         checkpoint_only = {
             name
             for name in execute_env
-            if name.startswith("CHECKPOINT_GOOGLE_DRIVE_") or name.startswith("CI_SECRET_")
+            if name.startswith("CHECKPOINT_S3_") or name.startswith("CI_SECRET_")
         }
         self.assertTrue(checkpoint_only)
         script = execute["run"]
@@ -2219,11 +2200,11 @@ printf 'GIT_TERMINAL_PROMPT=%s\\n' "${GIT_TERMINAL_PROMPT:-}"
         for name in checkpoint_only:
             self.assertIn(name, script[unset_index:product_index])
 
-    def test_repository_log_checkpointing_replaces_one_seeded_drive_object(self) -> None:
+    def test_repository_log_checkpointing_replaces_one_seeded_s3_object(self) -> None:
         by_name = self.steps_by_name
         seed = by_name["Seed stable private repository CI log object"]
         execute = by_name["Execute fixed repository-owned entrypoint"]
-        final_upload = by_name["Upload private repository CI log to Google Drive"]
+        final_upload = by_name["Upload private repository CI log to S3"]
 
         self.assertTrue(seed["continue-on-error"])
         self.assertEqual(
@@ -2232,7 +2213,7 @@ printf 'GIT_TERMINAL_PROMPT=%s\\n' "${GIT_TERMINAL_PROMPT:-}"
         )
         self.assertEqual(
             seed["uses"],
-            "StreamScapeTV/ci-workflows/actions/google-drive@main",
+            "StreamScapeTV/ci-workflows/actions/s3-upload@main",
         )
         stable_name = "${{ github.run_id }}-${{ github.run_attempt }}-repository-${{ inputs.operation }}-${{ needs.resolve_host.outputs.host_os }}.txt"
         self.assertEqual(seed["with"]["file_name"], stable_name)
@@ -2247,14 +2228,14 @@ printf 'GIT_TERMINAL_PROMPT=%s\\n' "${GIT_TERMINAL_PROMPT:-}"
         self.assertNotEqual(seed["with"]["file_path"], "${{ runner.temp }}/central-repository-ci.log")
 
         env = execute["env"]
-        self.assertEqual(env["CHECKPOINT_FILE_ID"], "${{ steps.log_seed.outputs.file_id }}")
+        self.assertEqual(env["CHECKPOINT_OBJECT_KEY"], "${{ steps.log_seed.outputs.object_key }}")
         self.assertEqual(
             env["CHECKPOINT_SEED_SHA256"],
             "${{ steps.log_seed.outputs.file_sha256 }}",
         )
         script = execute["run"]
         self.assertIn("central-ci/scripts/ci/repository_log_checkpoint.py", script)
-        self.assertIn('--file-id "${CHECKPOINT_FILE_ID}"', script)
+        self.assertIn('--object-key "${CHECKPOINT_OBJECT_KEY}"', script)
         self.assertIn('--seed-sha256 "${CHECKPOINT_SEED_SHA256}"', script)
         self.assertIn('--timeline-state-path "${RUNNER_TEMP}/central-repository-ci-timeline.json"', script)
         self.assertIn('--progress-path "${CI_PROGRESS_FILE}"', script)
@@ -2368,16 +2349,16 @@ printf 'GIT_TERMINAL_PROMPT=%s\\n' "${GIT_TERMINAL_PROMPT:-}"
         self.assertIn("artifact evidence symlink escapes its Central-owned root", package["run"])
         self.assertIn("stat.S_IFLNK", package["run"])
 
-        upload = by_name["Upload private repository CI log to Google Drive"]
+        upload = by_name["Upload private repository CI log to S3"]
         self.assertEqual(
             upload["uses"],
-            "StreamScapeTV/ci-workflows/actions/google-drive@main",
+            "StreamScapeTV/ci-workflows/actions/s3-upload@main",
         )
-        self.assertEqual(upload["with"]["mime_type"], "text/plain")
+        self.assertEqual(upload["with"]["content_type"], "text/plain")
         evidence_upload = by_name[
-            "Upload bounded repository CI evidence to Google Drive"
+            "Upload bounded repository CI evidence to S3"
         ]
-        self.assertEqual(evidence_upload["with"]["mime_type"], "application/zip")
+        self.assertEqual(evidence_upload["with"]["content_type"], "application/zip")
 
         cleanup = by_name[
             "Cleanup ephemeral registry and repository evidence"
@@ -2432,7 +2413,7 @@ printf 'GIT_TERMINAL_PROMPT=%s\\n' "${GIT_TERMINAL_PROMPT:-}"
         by_name = self.steps_by_name
         scrub = by_name["Scrub configured CI secrets from private text evidence"]["run"]
         package = by_name["Package bounded repository CI evidence"]
-        evidence_upload = by_name["Upload bounded repository CI evidence to Google Drive"]
+        evidence_upload = by_name["Upload bounded repository CI evidence to S3"]
         self.assertEqual(
             evidence_upload["with"]["file_path"],
             "${{ steps.evidence.outputs.archive }}",
@@ -2495,8 +2476,8 @@ printf 'GIT_TERMINAL_PROMPT=%s\\n' "${GIT_TERMINAL_PROMPT:-}"
         by_name = self.steps_by_name
         scrub = by_name["Scrub configured CI secrets from private text evidence"]["run"]
         package = by_name["Package bounded repository CI evidence"]["run"]
-        drive_if = by_name["Upload private repository CI log to Google Drive"]["if"]
-        evidence_if = by_name["Upload bounded repository CI evidence to Google Drive"]["if"]
+        drive_if = by_name["Upload private repository CI log to S3"]["if"]
+        evidence_if = by_name["Upload bounded repository CI evidence to S3"]["if"]
         self.assertNotIn("steps.execute_contract.outcome == 'success'", drive_if)
         self.assertNotIn("steps.execute_contract.outcome == 'success'", evidence_if)
 
@@ -2657,11 +2638,11 @@ printf 'GIT_TERMINAL_PROMPT=%s\\n' "${GIT_TERMINAL_PROMPT:-}"
 
             self.assertIn(
                 "steps.scrub.outcome == 'success'",
-                by_name["Upload private repository CI log to Google Drive"]["if"],
+                by_name["Upload private repository CI log to S3"]["if"],
             )
             self.assertIn(
                 "steps.evidence.outcome == 'success'",
-                by_name["Upload bounded repository CI evidence to Google Drive"]["if"],
+                by_name["Upload bounded repository CI evidence to S3"]["if"],
             )
 
     def test_artifact_selection_rejects_post_scrub_mutation(self) -> None:
@@ -2884,7 +2865,7 @@ printf 'GIT_TERMINAL_PROMPT=%s\\n' "${GIT_TERMINAL_PROMPT:-}"
 
             self.assertIn(
                 "steps.scrub.outcome == 'success'",
-                self.steps_by_name["Upload private repository CI log to Google Drive"]["if"],
+                self.steps_by_name["Upload private repository CI log to S3"]["if"],
             )
 
     def test_large_result_directory_preserves_core_diagnostics_and_explicit_omission(self) -> None:
@@ -3159,9 +3140,9 @@ printf 'GIT_TERMINAL_PROMPT=%s\\n' "${GIT_TERMINAL_PROMPT:-}"
         script = by_name[
             "Scrub configured CI secrets from private text evidence"
         ]["run"]
-        drive_if = by_name["Upload private repository CI log to Google Drive"]["if"]
+        drive_if = by_name["Upload private repository CI log to S3"]["if"]
         evidence_if = by_name[
-            "Upload bounded repository CI evidence to Google Drive"
+            "Upload bounded repository CI evidence to S3"
         ]["if"]
         self.assertIn("steps.scrub.outcome == 'success'", drive_if)
         self.assertIn("steps.evidence.outcome == 'success'", evidence_if)

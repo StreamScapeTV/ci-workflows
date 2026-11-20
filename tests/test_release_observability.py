@@ -28,7 +28,7 @@ class ReleaseObservabilityTests(unittest.TestCase):
         readback = by_name["Authenticated private registry read-back"]
         cleanup = by_name["Clean publication state"]
         scrub = by_name["Scrub private release log"]
-        drive = by_name["Upload private release log to Google Drive"]
+        drive = by_name["Upload private release log to S3"]
         finish = by_name["Finish Agent State run"]
 
         self.assertIn('source_sha="$(git -C source rev-parse HEAD)"', authority["run"])
@@ -78,8 +78,7 @@ class ReleaseObservabilityTests(unittest.TestCase):
         self.assertIn("HELM_REPOSITORY_CACHE", path.read_text())
 
         self.assertEqual(drive["with"]["file_name"], "${{ github.run_id }}-${{ github.run_attempt }}.txt")
-        self.assertEqual(drive["with"]["gzip"], "false")
-        self.assertEqual(drive["with"]["mime_type"], "text/plain")
+        self.assertEqual(drive["with"]["content_type"], "text/plain")
         self.assertEqual(drive["if"], "${{ always() && steps.scrub.outcome == 'success' }}")
 
         self.assertLess(names.index("Check out exact product source ref"), names.index("Verify exact source ref authority"))
@@ -92,8 +91,8 @@ class ReleaseObservabilityTests(unittest.TestCase):
         self.assertLess(names.index("Publish immutable image and chart"), names.index("Authenticated private registry read-back"))
         self.assertLess(names.index("Authenticated private registry read-back"), names.index("Clean publication state"))
         self.assertLess(names.index("Clean publication state"), names.index("Scrub private release log"))
-        self.assertLess(names.index("Scrub private release log"), names.index("Upload private release log to Google Drive"))
-        self.assertLess(names.index("Upload private release log to Google Drive"), names.index("Finish Agent State run"))
+        self.assertLess(names.index("Scrub private release log"), names.index("Upload private release log to S3"))
+        self.assertLess(names.index("Upload private release log to S3"), names.index("Finish Agent State run"))
 
         self.assertIn('test "$(git -C source rev-parse HEAD)" = "${SOURCE_SHA}"', revalidate["run"])
         self.assertIn('FETCH_HEAD^{commit}', revalidate["run"])
@@ -128,7 +127,7 @@ class ReleaseObservabilityTests(unittest.TestCase):
             "steps.readback.outcome == 'success'",
             "steps.cleanup.outcome == 'success'",
             "steps.scrub.outcome == 'success'",
-            "steps.drive.outcome == 'success'",
+            "steps.log_upload.outcome == 'success'",
         ):
             self.assertIn(required, status)
 

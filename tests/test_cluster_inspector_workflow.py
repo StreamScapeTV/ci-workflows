@@ -101,19 +101,19 @@ class ClusterInspectorWorkflowTests(unittest.TestCase):
 
     def test_evidence_is_scrubbed_private_and_cleanup_precedes_finish(self) -> None:
         scrub = self.by_name["Scrub configured CI secrets from private inspection log"]
-        drive = self.by_name["Upload cluster inspection evidence to Google Drive"]
+        drive = self.by_name["Upload cluster inspection evidence to S3"]
         finish = self.by_name["Finish Agent State run"]
         self.assertIn("CI_SECRET_CLUSTER_INSPECTOR_KUBECONFIG_B64", scrub["env"])
         self.assertEqual(scrub["env"]["CI_SECRET_CLUSTER_INSPECTOR_BEARER_TOKEN"],
                          "${{ secrets.CLUSTER_INSPECTOR_BEARER_TOKEN }}")
         self.assertIn("16 * 1024 * 1024", scrub["run"])
         self.assertIn("[REDACTED]", scrub["run"])
-        self.assertEqual(drive["uses"], "StreamScapeTV/ci-workflows/actions/google-drive@main")
-        self.assertEqual(drive["with"]["mime_type"], "text/plain")
+        self.assertEqual(drive["uses"], "StreamScapeTV/ci-workflows/actions/s3-upload@main")
+        self.assertEqual(drive["with"]["content_type"], "text/plain")
         names = [step.get("name") for step in self.steps]
-        self.assertLess(names.index("Remove ephemeral cluster inspector kubeconfig"), names.index("Upload cluster inspection evidence to Google Drive"))
-        self.assertLess(names.index("Upload cluster inspection evidence to Google Drive"), names.index("Finish Agent State run"))
-        self.assertIn("steps.drive.outcome == 'success'", finish["with"]["status"])
+        self.assertLess(names.index("Remove ephemeral cluster inspector kubeconfig"), names.index("Upload cluster inspection evidence to S3"))
+        self.assertLess(names.index("Upload cluster inspection evidence to S3"), names.index("Finish Agent State run"))
+        self.assertIn("steps.log_upload.outcome == 'success'", finish["with"]["status"])
 
     def test_dispatch_is_bounded_and_settlement_aware(self) -> None:
         request_steps = self.dispatch["jobs"]["request"]["steps"]
@@ -137,12 +137,11 @@ class ClusterInspectorWorkflowTests(unittest.TestCase):
             {
                 "SOURCE_APP_ID",
                 "SOURCE_APP_PRIVATE_KEY",
-                "AGENT_STATE_SUPABASE_URL",
-                "AGENT_STATE_SUPABASE_SECRET_KEY",
-                "GOOGLE_DRIVE_CI_LOGS_FOLDER_ID",
-                "GOOGLE_DRIVE_CLIENT_ID",
-                "GOOGLE_DRIVE_CLIENT_SECRET",
-                "GOOGLE_DRIVE_REFRESH_TOKEN",
+                "MIRROR_API_KEY",
+                "CF_ACCESS_CLIENT_ID",
+                "CF_ACCESS_CLIENT_SECRET",
+                "S3_GITHUB_TRANSPORT_ACCESS_KEY",
+                "S3_GITHUB_TRANSPORT_SECRET_KEY",
                 "TS_OAUTH_CLIENT_ID",
                 "TS_OAUTH_SECRET",
                 "CLUSTER_INSPECTOR_KUBECONFIG_B64",

@@ -76,12 +76,6 @@ class BashPortabilityTests(unittest.TestCase):
         )
         self.assertNotIn('"${runtime_probe_options[@]}" &', repository)
 
-        checkpoint = (ROOT / ".github/workflows/source-checkpoint-publish.yml").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn('"${cleanup_args[@]+"${cleanup_args[@]}"}"', checkpoint)
-        self.assertNotIn('"${cleanup_args[@]}")"', checkpoint)
-
         chart = (ROOT / ".github/workflows/public-native-image-chart.yml").read_text(
             encoding="utf-8"
         )

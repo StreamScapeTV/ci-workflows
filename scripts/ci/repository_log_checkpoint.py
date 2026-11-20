@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Periodically checkpoint one scrubbed repository CI log into an existing Drive file.
+"""Periodically checkpoint one scrubbed repository CI log into one S3 object.
 
-The workflow creates the deterministic Drive object through the reviewed google-drive
-action before product execution. This helper receives only that trusted file id and
-may replace its bytes; it cannot create folders/files or select another destination.
+The workflow creates the deterministic S3 object through the reviewed s3-upload
+action before product execution. This helper receives only that trusted object key
+(which must stay under logs/) and may replace its bytes; it cannot select another
+destination.
 """
 
 from __future__ import annotations
@@ -16,22 +17,19 @@ import re
 import signal
 import threading
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 from dataclasses import dataclass
 from typing import Callable, Mapping, Protocol
 
 import repository_log_timeline as timeline
+import s3_put
 
 MAX_LOG_BYTES = 16 * 1024 * 1024
 MAX_RUNTIME_PROBE_BYTES = 4 * 1024 * 1024
 RUNTIME_PROBE_TAIL_BYTES = 64 * 1024
 INTERVAL_SECONDS = 180
-HTTP_TIMEOUT_SECONDS = 30
 MAX_UPLOAD_ATTEMPTS = 3
 RETRY_DELAYS_SECONDS = (1, 2)
-FILE_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{10,256}\Z")
+OBJECT_KEY_PATTERN = re.compile(r"logs/[A-Za-z0-9][A-Za-z0-9._+-]{0,127}(?:/[A-Za-z0-9][A-Za-z0-9._+-]{0,127}){1,3}\Z")
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
 
 
@@ -42,8 +40,8 @@ class CheckpointError(RuntimeError):
         self.transient = transient
 
 
-class DriveUpdater(Protocol):
-    def replace(self, file_id: str, data: bytes) -> None: ...
+class ObjectUpdater(Protocol):
+    def replace(self, object_key: str, data: bytes) -> None: ...
 
 
 def _scrub_values(environ: Mapping[str, str]) -> tuple[bytes, ...]:
@@ -144,15 +142,15 @@ def _write_status(path: Path, state: CheckpointState) -> None:
 
 
 def _upload_with_retries(
-    updater: DriveUpdater,
-    file_id: str,
+    updater: ObjectUpdater,
+    object_key: str,
     data: bytes,
     *,
     sleep_fn: Callable[[float], None] = time.sleep,
 ) -> None:
     for attempt in range(1, MAX_UPLOAD_ATTEMPTS + 1):
         try:
-            updater.replace(file_id, data)
+            updater.replace(object_key, data)
             return
         except CheckpointError as exc:
             if not exc.transient or attempt >= MAX_UPLOAD_ATTEMPTS:
@@ -164,10 +162,10 @@ def _upload_with_retries(
 def checkpoint_once(
     *,
     log_path: Path,
-    file_id: str,
+    object_key: str,
     state: CheckpointState,
     status_path: Path,
-    updater: DriveUpdater,
+    updater: ObjectUpdater,
     environ: Mapping[str, str],
     sleep_fn: Callable[[float], None] = time.sleep,
     timeline_state_path: Path | None = None,
@@ -189,7 +187,7 @@ def checkpoint_once(
         _write_status(status_path, state)
         return "unchanged"
     try:
-        _upload_with_retries(updater, file_id, data, sleep_fn=sleep_fn)
+        _upload_with_retries(updater, object_key, data, sleep_fn=sleep_fn)
     except CheckpointError as exc:
         state.last_error = exc.category
         if exc.transient:
@@ -203,101 +201,28 @@ def checkpoint_once(
     return "uploaded"
 
 
-@dataclass
-class GoogleDriveUpdater:
-    client_id: str
-    client_secret: str
-    refresh_token: str
-    opener: object = urllib.request
-    _access_token: str | None = None
+class S3Updater:
+    """Replace the bytes of one existing object through the shared SigV4 client."""
 
-    def _request(self, request: urllib.request.Request) -> bytes:
-        try:
-            with self.opener.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:  # type: ignore[attr-defined]
-                return response.read()
-        except urllib.error.HTTPError as exc:
-            transient = exc.code in (408, 429) or 500 <= exc.code <= 599
-            raise CheckpointError(
-                f"drive_http_{exc.code}", transient=transient
-            ) from None
-        except (OSError, urllib.error.URLError):
-            raise CheckpointError("drive_transport", transient=True) from None
+    def __init__(self, client: s3_put.Client) -> None:
+        self._client = client
 
-    def access_token(self) -> str:
-        if self._access_token:
-            return self._access_token
-        encoded = urllib.parse.urlencode(
-            {
-                "client_id": self.client_id,
-                "client_secret": self.client_secret,
-                "refresh_token": self.refresh_token,
-                "grant_type": "refresh_token",
-            }
-        ).encode()
-        request = urllib.request.Request(
-            "https://oauth2.googleapis.com/token",
-            data=encoded,
-            method="POST",
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-        )
-        raw = self._request(request)
+    def replace(self, object_key: str, data: bytes) -> None:
+        if OBJECT_KEY_PATTERN.fullmatch(object_key) is None:
+            raise CheckpointError("invalid_object_key")
         try:
-            value = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            raise CheckpointError("oauth_invalid_json") from None
-        token = value.get("access_token") if isinstance(value, dict) else None
-        if not isinstance(token, str) or not token:
-            raise CheckpointError("oauth_missing_access_token")
-        self._access_token = token
-        return token
-
-    def replace(self, file_id: str, data: bytes) -> None:
-        if FILE_ID_PATTERN.fullmatch(file_id) is None:
-            raise CheckpointError("invalid_drive_file_id")
-        raw = b""
-        for auth_attempt in range(2):
-            request = urllib.request.Request(
-                "https://www.googleapis.com/upload/drive/v3/files/"
-                + urllib.parse.quote(file_id, safe="")
-                + "?uploadType=media&fields=id,size",
-                data=data,
-                method="PATCH",
-                headers={
-                    "Authorization": f"Bearer {self.access_token()}",
-                    "Content-Type": "text/plain",
-                    "Content-Length": str(len(data)),
-                },
-            )
-            try:
-                raw = self._request(request)
-                break
-            except CheckpointError as exc:
-                if exc.category == "drive_http_401" and auth_attempt == 0:
-                    self._access_token = None
-                    continue
-                raise
-        try:
-            value = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            raise CheckpointError("drive_invalid_json") from None
-        if not isinstance(value, dict) or value.get("id") != file_id:
-            raise CheckpointError("drive_identity_mismatch")
-        size = value.get("size")
-        try:
-            observed_size = int(size)
-        except (TypeError, ValueError):
-            raise CheckpointError("drive_size_missing") from None
-        if observed_size != len(data):
-            raise CheckpointError("drive_size_mismatch")
+            self._client.put(object_key, data, "text/plain")
+        except s3_put.S3Error as exc:
+            raise CheckpointError(exc.category, transient=exc.transient) from None
 
 
 def run_loop(
     *,
     log_path: Path,
-    file_id: str,
+    object_key: str,
     seed_sha256: str,
     status_path: Path,
-    updater: DriveUpdater,
+    updater: ObjectUpdater,
     environ: Mapping[str, str],
     stop_event: threading.Event,
     interval_seconds: float = INTERVAL_SECONDS,
@@ -318,7 +243,7 @@ def run_loop(
         try:
             checkpoint_once(
                 log_path=log_path,
-                file_id=file_id,
+                object_key=object_key,
                 state=state,
                 status_path=status_path,
                 updater=updater,
@@ -341,7 +266,7 @@ def run_loop(
         try:
             checkpoint_once(
                 log_path=log_path,
-                file_id=file_id,
+                object_key=object_key,
                 state=state,
                 status_path=status_path,
                 updater=updater,
@@ -359,19 +284,12 @@ def run_loop(
     return state
 
 
-def _required_env(name: str) -> str:
-    value = os.environ.get(name, "")
-    if not value:
-        raise CheckpointError(f"missing_{name.lower()}")
-    return value
-
-
 def main() -> int:
     import argparse
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--log-path", required=True)
-    parser.add_argument("--file-id", required=True)
+    parser.add_argument("--object-key", required=True)
     parser.add_argument("--seed-sha256", required=True)
     parser.add_argument("--status-path", required=True)
     parser.add_argument("--timeline-state-path")
@@ -381,18 +299,14 @@ def main() -> int:
 
     log_path = Path(args.log_path)
     status_path = Path(args.status_path)
-    if FILE_ID_PATTERN.fullmatch(args.file_id) is None:
-        raise SystemExit("repository log checkpoint received an invalid fixed Drive file id")
+    if OBJECT_KEY_PATTERN.fullmatch(args.object_key) is None:
+        raise SystemExit("repository log checkpoint received an invalid fixed S3 object key")
     if SHA256_PATTERN.fullmatch(args.seed_sha256) is None:
         raise SystemExit("repository log checkpoint received an invalid seed digest")
 
     try:
-        updater = GoogleDriveUpdater(
-            client_id=_required_env("GOOGLE_DRIVE_CLIENT_ID"),
-            client_secret=_required_env("GOOGLE_DRIVE_CLIENT_SECRET"),
-            refresh_token=_required_env("GOOGLE_DRIVE_REFRESH_TOKEN"),
-        )
-    except CheckpointError as exc:
+        updater = S3Updater(s3_put.Client(os.environ))
+    except s3_put.S3Error as exc:
         print(f"repository log checkpoint configuration failed: {exc.category}", file=__import__("sys").stderr)
         return 2
 
@@ -407,7 +321,7 @@ def main() -> int:
     try:
         run_loop(
             log_path=log_path,
-            file_id=args.file_id,
+            object_key=args.object_key,
             seed_sha256=args.seed_sha256,
             status_path=status_path,
             updater=updater,

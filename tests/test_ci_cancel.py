@@ -143,5 +143,5 @@ class CancellationTests(unittest.TestCase):
         workflow = yaml.safe_load((ROOT/'.github/workflows/ci-cancel.yml').read_text())
         self.assertEqual(set(workflow['on']['workflow_call']['inputs']), {'ci_run_id'})
         self.assertEqual(set(workflow['on']['workflow_call']['secrets']),
-                         {'AGENT_STATE_SUPABASE_URL', 'AGENT_STATE_SUPABASE_SECRET_KEY'})
+                         {'MIRROR_API_KEY', 'CF_ACCESS_CLIENT_ID', 'CF_ACCESS_CLIENT_SECRET'})
         self.assertEqual(workflow['jobs']['cancel']['permissions']['actions'], 'write')
