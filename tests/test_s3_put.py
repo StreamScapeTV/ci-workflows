@@ -186,8 +186,9 @@ class RecordingClient:
     def __init__(self):
         self.objects = {}
 
-    def put(self, key, data, content_type="application/octet-stream", *, immutable=False):
+    def put(self, key, data, content_type="application/octet-stream", *, immutable=False, attempts=None, timeout=None):
         self.objects[key] = data
+        self.options = (attempts, timeout)
 
 
 class StreamTests(unittest.TestCase):
@@ -275,10 +276,105 @@ class StreamTests(unittest.TestCase):
             self.assertEqual(keys[-1], "logs/example-repo/req-9/build/final.log")
             self.assertGreaterEqual(len(keys), 3)
 
+    def test_log_larger_than_the_final_window_is_uploaded_byte_exact(self):
+        # regression: a sliding 16 MiB window against an absolute offset corrupted logs over 16 MiB
+        with tempfile.TemporaryDirectory() as tmp:
+            log, client, streamer = self.make(tmp, {"CI_SECRET_TOKEN": "tok-123456789"})
+            line = b"0123456789abcdef" * 4 + b"\n"
+            body = b"".join(b"%07d " % index + line for index in range(300000))  # ~21.6 MB
+            body = body[:1000] + b"tok-123456789" + body[1000:]
+            expected = body.replace(b"tok-123456789", b"[REDACTED]")
+            self.assertGreater(len(expected), s3_put.MAX_LOG_BYTES)
+            with log.open("ab") as handle:
+                for start in range(0, len(body), 5_000_000):
+                    handle.write(body[start:start + 5_000_000])
+                    streamer.step()
+            streamer.finish()
+            keys = sorted(k for k in client.objects if not k.endswith("final.log"))
+            self.assertEqual(b"".join(client.objects[k] for k in keys), expected)
+            final = client.objects["logs/example-repo/req-1/test/final.log"]
+            self.assertTrue(final.startswith(b"[log truncated:"))
+            self.assertTrue(final.endswith(expected[-1000:]))
+            self.assertEqual(len(final) - len(final.split(b"\n", 1)[0]) - 1, s3_put.MAX_LOG_BYTES)
+
+    def test_final_upload_is_bounded_and_always_attempted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log, client, streamer = self.make(tmp)
+            log.write_bytes(b"x\n")
+            streamer.finish()
+            self.assertEqual(client.options, (s3_put.FINAL_ATTEMPTS, s3_put.FINAL_TIMEOUT_SECONDS))
+            self.assertLessEqual(s3_put.FINAL_ATTEMPTS * s3_put.FINAL_TIMEOUT_SECONDS + 5, 120)
+
+    def test_scrub_covers_json_url_and_base64_forms(self):
+        import base64, json, urllib.parse
+        secret = 'p@ss"w/rd 1234'
+        env = {"CI_SECRET_X": secret}
+        values = s3_put.scrub_values(env)
+        for form in (secret, json.dumps(secret)[1:-1], urllib.parse.quote(secret, safe=""),
+                     base64.b64encode(secret.encode()).decode(), base64.urlsafe_b64encode(secret.encode()).decode()):
+            self.assertNotIn(form.encode(), s3_put.scrub(b"a " + form.encode() + b" b", values), form)
+        self.assertEqual(s3_put.scrub(b"xabcx", s3_put.scrub_values({"CI_SECRET_Y": "abc"})), b"x[REDACTED]x")
+
+    def test_too_large_object_fails_only_that_upload_with_a_clear_message(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            big = Path(tmp, "big")
+            with big.open("wb") as handle:
+                handle.truncate(s3_put.MAX_OBJECT_BYTES + 1)
+            stderr = io.StringIO()
+            with mock.patch.object(s3_put.sys, "stderr", stderr):
+                code = s3_put.main(["put", "--kind", "releases", "--repository", "o/r", "--id", "1.0.0",
+                                    "--file-path", str(big), "--file-name", "a.zip"], ENV)
+            self.assertEqual(code, 1)
+            self.assertIn("object_too_large (limit 256 MiB)", stderr.getvalue())
+
     def test_invalid_stage_is_rejected_before_any_upload(self):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(s3_put.S3Error):
                 s3_put.LogStreamer(RecordingClient(), project="r", request_id="1", stage="../x", log_path=Path(tmp, "l"), environ=ENV)
+
+
+class PresignTests(unittest.TestCase):
+    def test_presigned_url_matches_the_aws_documented_vector(self):
+        url = s3_put.presign_url(method="GET", endpoint="https://examplebucket.s3.amazonaws.com", bucket="", key="test.txt",
+                                 access_key=ENV["S3_GITHUB_TRANSPORT_ACCESS_KEY"], secret_key=ENV["S3_GITHUB_TRANSPORT_SECRET_KEY"],
+                                 region="us-east-1", now=NOW, expires=86400)
+        self.assertTrue(url.endswith("X-Amz-Signature=aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404"))
+
+    def test_stream_with_presigned_urls_needs_no_credential_and_writes_only_its_own_objects(self):
+        import json
+        with tempfile.TemporaryDirectory() as tmp:
+            urls_file = Path(tmp, "urls.json")
+            s3_put.write_presigned(urls_file, ENV, project="example-repo", request_id="req-7", stage="build", count=3, expires=3600, now=NOW)
+            document = json.loads(urls_file.read_text())
+            self.assertEqual(sorted(document["urls"]), ["000000.log", "000001.log", "000002.log", "final.log"])
+            self.assertEqual(urls_file.stat().st_mode & 0o777, 0o600)
+            self.assertNotIn(ENV["S3_GITHUB_TRANSPORT_SECRET_KEY"], urls_file.read_text())
+            self.assertTrue(all("X-Amz-Expires=3600" in url and "/github-transport/logs/example-repo/req-7/build/" in url
+                                for url in document["urls"].values()))
+            opener = FakeOpener(Response(), Response(), Response(), Response())
+            client = s3_put.PresignedClient(document["urls"], project="example-repo", request_id="req-7", stage="build", opener=opener)
+            log = Path(tmp, "stage.log")
+            log.write_bytes(b"hello\n")
+            streamer = s3_put.LogStreamer(client, project="example-repo", request_id="req-7", stage="build", log_path=log, environ={})
+            streamer.step()
+            streamer.finish()
+            self.assertEqual([r.get_method() for r in opener.requests], ["PUT", "PUT"])
+            self.assertTrue(all("authorization" not in {k.lower() for k in r.headers} for r in opener.requests))
+            with self.assertRaises(s3_put.S3Error):
+                client.put("logs/example-repo/req-7/build/000099.log", b"x")
+            with self.assertRaises(s3_put.S3Error):
+                client.put("logs/example-repo/other/build/000000.log", b"x")
+
+    def test_presign_cli_and_probe_without_credentials(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp, "u.json")
+            self.assertEqual(s3_put.main(["presign", "--repository", "o/r", "--request-id", "q", "--stage", "lint",
+                                          "--count", "2", "--out", str(out)], ENV), 0)
+            self.assertTrue(out.is_file())
+            with mock.patch.object(s3_put, "endpoint_reachable", return_value=False):
+                with mock.patch.object(s3_put.sys, "stdout", io.StringIO()) as stdout:
+                    self.assertEqual(s3_put.main(["probe"], {}), 0)
+                    self.assertEqual(stdout.getvalue().strip(), "false")
 
 
 if __name__ == "__main__":
