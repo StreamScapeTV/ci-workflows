@@ -12,27 +12,14 @@ from tests import test_ci_helpers as _prior
 class CiHelperTests(_prior.CiHelperTests):
     """Current shared-helper contract while retaining the complete helper suite."""
 
-    def test_google_drive_resumable_upload_retries_only_bounded_transient_failures(self) -> None:
-        text = (_prior.ROOT / "actions/google-drive/action.yml").read_text()
-        self.assertIn("max_media_upload_attempts=5", text)
-        self.assertIn("media_retry_delays=(3 5 8 13)", text)
-        self.assertIn("408|429|5??", text)
-        self.assertIn("retryable_media_failure", text)
-        self.assertIn("failed after bounded recovery attempts", text)
-        self.assertIn('drive_backoff_sleep "${retry_delay}"', text)
-        self.assertNotIn('sleep "${media_attempt}"', text)
-        self.assertIn('media_curl_status}" -eq 92', text)
-        self.assertIn('--http1.1', text)
-        self.assertIn('switching remaining bounded recovery to HTTP/1.1', text)
-
     def test_inventory_is_the_only_inventory_and_matches_the_small_surface(self) -> None:
         inventory = yaml.safe_load((_prior.ROOT / "INVENTORY.yaml").read_text())
         self.assertEqual(
             set(inventory["workflows"]),
-            {"apple", "apple_credential_preflight", "repository", "repository_plan", "apple_binary", "apple_swiftpm", "library_package_release", "android", "cluster_inspector", "maven", "public_native_image_chart", "oci_reproducibility", "branch_delete", "ci_cancel", "source_snapshot_delete", "source_snapshot", "source_checkpoint_publish", "central_dispatch", "central_ci_settle", "ci_log_retention", "github_issue_dependency_projection", "self_check"},
+            {"apple", "apple_credential_preflight", "repository", "repository_plan", "apple_binary", "apple_swiftpm", "library_package_release", "android", "cluster_inspector", "maven", "public_native_image_chart", "oci_reproducibility", "branch_delete", "ci_cancel", "central_dispatch", "central_ci_settle", "github_issue_dependency_projection", "self_check"},
         )
-        self.assertEqual(set(inventory["actions"]), {"agent_state", "google_drive", "private_git", "source_snapshot", "dockerhub_read", "private_log_fallback"})
-        self.assertEqual(set(inventory["scripts"]), {"ci_cancel", "oci_reproducibility", "ci_log_reconcile", "ci_log_issue_fallback", "github_issue_dependency_projection", "repository_log_checkpoint", "repository_log_capture", "repository_test_fixtures", "repository_log_timeline", "repository_progress_relay", "repository_runtime_probe", "repository_execution_plan", "protected_deployed_conformance", "repository_apple_physical_device", "repository_macos_netrc", "apple_credential_preflight", "source_snapshot_delete", "source_snapshot_lifecycle", "source_checkpoint_publish", "source_checkpoint_recover", "swiftpm_binary", "apple_dependency_cache", "hosted_macos_dns"})
+        self.assertEqual(set(inventory["actions"]), {"agent_state", "s3_upload", "s3_log_stream", "private_git", "dockerhub_read"})
+        self.assertEqual(set(inventory["scripts"]), {"ci_cancel", "s3_put", "oci_reproducibility", "github_issue_dependency_projection", "repository_log_checkpoint", "repository_log_capture", "repository_test_fixtures", "repository_log_timeline", "repository_progress_relay", "repository_runtime_probe", "repository_execution_plan", "protected_deployed_conformance", "repository_apple_physical_device", "repository_macos_netrc", "apple_credential_preflight", "swiftpm_binary", "apple_dependency_cache", "hosted_macos_dns"})
         self.assertEqual(set(inventory["contracts"]), {"repository_ci_v1"})
         self.assertEqual(inventory["contracts"]["repository_ci_v1"], "contracts/repository-ci-v1.json")
         self.assertNotIn("services", inventory)
@@ -53,26 +40,22 @@ class CiHelperTests(_prior.CiHelperTests):
 
     def test_only_three_custom_actions_exist(self) -> None:
         actions = {p.name for p in (_prior.ROOT / "actions").iterdir() if p.is_dir()}
-        legacy = {"agent-state", "google-drive", "private-git", "source-snapshot", "dockerhub-read", "private-log-fallback"}
-        # per-purpose workflow building blocks (docs/per-purpose-ci-workflows.md); s3-* arrive with the S3 transport
-        added = {"ci-setup", "ci-cache", "setup-tailscale", "s3-upload", "s3-log-stream"}
+        legacy = {"agent-state", "s3-upload", "s3-log-stream", "private-git", "dockerhub-read"}
+        # per-purpose workflow building blocks (docs/per-purpose-ci-workflows.md)
+        added = {"ci-setup", "ci-cache", "setup-tailscale"}
         self.assertTrue(legacy <= actions <= legacy | added, actions ^ (legacy | added))
 
     def test_workflows_use_no_reusable_prefix(self) -> None:
         every = {p.name for p in (_prior.ROOT / ".github/workflows").glob("*.yml")}
         # the per-purpose ecosystem workflows (ci-<ecosystem>[-stage].yml) are checked in test_ci_per_purpose_workflows
         names = {n for n in every if not n.startswith(("ci-gradle", "ci-xcode", "ci-python"))}
-        self.assertEqual(len(names), 22)
+        self.assertEqual(len(names), 18)
         self.assertIn("apple-credential-preflight.yml", names)
         self.assertNotIn("broker.yml", names)
         self.assertFalse(any(name.startswith("reusable-") for name in names))
-        self.assertIn("source-snapshot-delete.yml", names)
         self.assertIn("repository-plan.yml", names)
-        self.assertIn("ci-log-retention.yml", names)
         self.assertIn("github-issue-dependency-projection.yml", names)
-        self.assertIn("source-snapshot.yml", names)
         self.assertNotIn("source-bundle-publish.yml", names)
-        self.assertIn("source-checkpoint-publish.yml", names)
         self.assertIn("cluster-inspector.yml", names)
         self.assertIn("apple-binary.yml", names)
         self.assertIn("apple-swiftpm.yml", names)
@@ -100,29 +83,10 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertEqual(apple["jobs"]["finish"]["timeout-minutes"], 10)
         for filename, job, minutes in (
             ("branch-delete.yml", "delete", 10),
-            ("source-snapshot-delete.yml", "delete", 10),
-            ("source-snapshot.yml", "snapshot", 30),
-            ("source-checkpoint-publish.yml", "publish", 30),
             ("cluster-inspector.yml", "inspect", 30),
         ):
             workflow = yaml.safe_load((workflows / filename).read_text())
             self.assertEqual(workflow["jobs"][job]["timeout-minutes"], minutes, f"{filename}:{job}")
-
-    def test_branch_delete_capability_is_bounded_and_fail_closed(self) -> None:
-        super().test_branch_delete_capability_is_bounded_and_fail_closed()
-        workflow = yaml.safe_load((_prior.ROOT / ".github/workflows/branch-delete.yml").read_text())
-        steps = workflow["jobs"]["delete"]["steps"]
-        by_name = {step.get("name"): step for step in steps if step.get("name")}
-        delete_step = by_name["Delete exact eligible branch"]
-        self.assertIn("X-Accepted-GitHub-Permissions", delete_step["run"])
-        self.assertIn("accepted-permissions=", delete_step["run"])
-        self.assertIn("private_rules_unavailable_message", delete_step["run"])
-        self.assertIn("Upgrade to GitHub Pro or make this repository public to enable this feature.", delete_step["run"])
-        self.assertIn('repository_value.get("private") is True', delete_step["run"])
-        self.assertIn("allow_private_feature_unavailable=private_repository", delete_step["run"])
-        cleanup = workflow["jobs"]["snapshot_cleanup"]
-        self.assertEqual(cleanup["with"]["repository"], "${{ needs.delete.outputs.repository }}")
-        self.assertEqual(cleanup["with"]["ref"], "${{ needs.delete.outputs.branch }}")
 
     def test_central_dispatch_preserves_newest_run_wins_with_snapshot_isolation(self) -> None:
         workflow = yaml.safe_load((_prior.ROOT / ".github/workflows/central-ci-dispatch.yml").read_text())
@@ -270,22 +234,16 @@ class CiHelperTests(_prior.CiHelperTests):
         self.assertEqual(branch_delete["group"], "central-ci-maintenance-${{ inputs.active_key }}")
         self.assertFalse(branch_delete["cancel-in-progress"])
 
-        checkpoint_publish = jobs["source_checkpoint_publish"]["concurrency"]
-        self.assertEqual(checkpoint_publish["group"], "central-ci-source-checkpoint-publish-${{ inputs.active_key }}")
-        self.assertFalse(checkpoint_publish["cancel-in-progress"])
-
-        snapshot = jobs["source_snapshot"]["concurrency"]
-        self.assertEqual(snapshot["group"], "central-ci-snapshot-${{ inputs.active_key }}")
-        self.assertTrue(snapshot["cancel-in-progress"])
-        self.assertNotEqual(snapshot["group"], jobs["repository"]["concurrency"]["group"])
+        self.assertNotIn("source_checkpoint_publish", jobs)
+        self.assertNotIn("source_snapshot", jobs)
 
         settlement = jobs["settle_cancelled"]
         self.assertNotIn("concurrency", settlement)
-        expected = {"request", *validation_jobs, *serialized_release_jobs, "ci_cancel", "branch_delete", "source_checkpoint_publish", "source_snapshot"}
+        expected = {"request", *validation_jobs, *serialized_release_jobs, "ci_cancel", "branch_delete"}
         self.assertEqual(set(settlement["needs"]), expected)
         self.assertIn("always()", settlement["if"])
         self.assertIn("needs.request.result != 'success'", settlement["if"])
-        for name in (*validation_jobs, *serialized_release_jobs, "ci_cancel", "branch_delete", "source_checkpoint_publish", "source_snapshot"):
+        for name in (*validation_jobs, *serialized_release_jobs, "ci_cancel", "branch_delete"):
             self.assertIn(f"needs.{name}.result == 'cancelled'", settlement["if"])
             self.assertIn(f"needs.{name}.result == 'failure'", settlement["if"])
             self.assertNotIn(f"needs.{name}.result != 'success'", settlement["if"])
@@ -433,191 +391,6 @@ class CiHelperTests(_prior.CiHelperTests):
         apple = (_prior.ROOT / ".github/workflows/apple.yml").read_text()
         self.assertNotIn("dependency-cache", apple)
         self.assertNotIn("apple-develop-cache", apple)
-
-    def test_source_snapshot_auto_refreshes_integration_pushes(self) -> None:
-        workflow_path = _prior.ROOT / ".github/workflows/source-snapshot.yml"
-        action_path = _prior.ROOT / "actions/source-snapshot/action.yml"
-        workflow = yaml.safe_load(workflow_path.read_text())
-        trigger = workflow["on"]
-        self.assertEqual(trigger["push"]["branches"], ["main", "develop"])
-        self.assertNotIn("schedule", trigger)
-        self.assertNotIn("workflow_call", trigger)
-        dispatch = trigger["workflow_dispatch"]["inputs"]
-        self.assertEqual(set(dispatch), {"repository", "repository_name", "ref", "source_sha"})
-        self.assertTrue(all(spec["required"] for spec in dispatch.values()))
-        self.assertEqual(workflow["permissions"], {"contents": "read"})
-        self.assertEqual(set(workflow["jobs"]), {"snapshot"})
-
-        text = workflow_path.read_text()
-        self.assertNotIn("source-snapshot-reconcile", text)
-        self.assertNotIn("source_snapshot_reconcile.py", text)
-        self.assertNotIn("actions/workflows/source-snapshot.yml/dispatches", text)
-        self.assertNotIn("ci-broker", text)
-        self.assertNotIn("AGENT_STATE_SUPABASE", text)
-        self.assertFalse((_prior.ROOT / "scripts/ci/source_snapshot_reconcile.py").exists())
-
-        job = workflow["jobs"]["snapshot"]
-        self.assertEqual(
-            job["concurrency"]["group"],
-            "source-snapshot-${{ github.event_name == 'push' && github.repository || inputs.repository }}-${{ github.event_name == 'push' && github.ref_name || inputs.ref }}",
-        )
-        self.assertFalse(job["concurrency"]["cancel-in-progress"])
-        self.assertIn("github.event_name == 'workflow_dispatch'", job["if"])
-        self.assertIn("inputs.ref == 'main'", job["if"])
-        self.assertIn("inputs.ref == 'develop'", job["if"])
-        by_name = {step.get("name"): step for step in job["steps"] if step.get("name")}
-        refresh = by_name["Refresh exact integration-branch snapshot"]
-        self.assertEqual(refresh["with"]["repository"], "${{ github.event_name == 'push' && github.repository || inputs.repository }}")
-        self.assertEqual(refresh["with"]["repository_name"], "${{ github.event_name == 'push' && github.event.repository.name || inputs.repository_name }}")
-        self.assertEqual(refresh["with"]["ref"], "${{ github.event_name == 'push' && github.ref_name || inputs.ref }}")
-        self.assertEqual(refresh["with"]["source_sha"], "${{ github.event_name == 'push' && github.sha || inputs.source_sha }}")
-
-        action = yaml.safe_load(action_path.read_text())
-        self.assertEqual(action["runs"]["using"], "composite")
-        action_text = action_path.read_text()
-        self.assertIn("Verify branch is still at triggering SHA", action_text)
-        self.assertIn("Recheck branch immediately before Drive mutation", action_text)
-        self.assertIn("git -C source archive --format=zip", action_text)
-        self.assertIn("snapshot-readback.zip", action_text)
-        self.assertIn("cmp -s", action_text)
-        self.assertNotIn("AGENT_STATE_SUPABASE", action_text)
-
-    def test_source_snapshot_reuses_drive_helper_and_updates_manifest_in_place(self) -> None:
-        dispatch = (_prior.ROOT / ".github/workflows/central-ci-dispatch.yml").read_text()
-        agents = (_prior.ROOT / "AGENTS.md").read_text()
-        self.assertIn("workflow_key == 'source.snapshot'", dispatch)
-        self.assertIn("git -C source archive --format=zip", dispatch)
-        self.assertIn("GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID", dispatch)
-        self.assertIn("Resolve durable Drive repository folder", dispatch)
-        self.assertIn("Google Drive repository folder ID", dispatch)
-        self.assertEqual(dispatch.count("repository_folder_id: ${{ steps.drive_repository.outputs.folder_id }}"), 3)
-        # Local agents use installed skills; snapshot metadata remains in the workflow.
-        self.assertIn("`workflow:iptv-workflow`", agents)
-        self.assertIn("`workflow:iptv-platform`", agents)
-        self.assertIn(".agents/skills/<skill>/SKILL.md", agents)
-        self.assertIn("file_name: ${{ steps.source_lifecycle.outputs.archive_filename }}", dispatch)
-        self.assertIn("previous_file_name: source.zip", dispatch)
-        self.assertIn('ref_slug = urllib.parse.quote(ref, safe="")', dispatch)
-        self.assertIn('f"{repository_name}-{ref_slug}.zip"', dispatch)
-        self.assertEqual(dispatch.count("file_name: manifest.json"), 2)
-        for key in (
-            '"repository_name"',
-            '"archive_format": "zip"',
-            '"archive_format_version": 1',
-            '"archive_filename"',
-            '"archive_sha256"',
-            '"archive_size_bytes"',
-            '"resolved_source_sha"',
-            '"tree_sha"',
-            '"source_zip_sha256"',
-            '"source_zip_size_bytes"',
-            '"manifest_file_id"',
-            '"archive_file_id"',
-            '"source_zip_file_id"',
-            '"folder_id"',
-        ):
-            self.assertIn(key, dispatch)
-        self.assertIn('test "${CREATED_MANIFEST_ID}" = "${MANIFEST_FILE_ID}"', dispatch)
-        self.assertIn("snapshot-readback.zip", dispatch)
-        self.assertIn("source_snapshot_lifecycle.py", dispatch)
-        self.assertIn("Clean snapshot workspace", dispatch)
-
-        workflow = yaml.safe_load(dispatch)
-        steps = workflow["jobs"]["source_snapshot"]["steps"]
-        by_name = {step.get("name"): step for step in steps if step.get("name")}
-        names = [step.get("name") for step in steps]
-        requested_ref = by_name["Resolve requested human Git ref"]
-        checkout = by_name["Check out requested source"]
-        identity = by_name["Resolve observed source SHA"]
-        record = by_name["Record observed source SHA"]
-        snapshot = by_name["Create exact tracked-source snapshot"]
-        lifecycle = by_name["Validate existing canonical source archive state"]
-        upload = by_name["Upload repository snapshot archive"]
-        readback = by_name["Verify stable identity and raw Drive readback"]
-        prune = by_name["Delete superseded canonical source archive objects"]
-        finish = by_name["Finish Agent State run"]
-        self.assertEqual(requested_ref["env"]["REQUESTED_REF"], "${{ needs.request.outputs.ref }}")
-        self.assertEqual(requested_ref["env"]["REQUESTED_IS_TAG"], "${{ needs.request.outputs.is_tag }}")
-        self.assertIn("false) namespace=refs/heads", requested_ref["run"])
-        self.assertIn("true) namespace=refs/tags", requested_ref["run"])
-        self.assertIn('git check-ref-format "${full_ref}"', requested_ref["run"])
-        self.assertNotIn(r"[0-9a-f]{40}", requested_ref["run"])
-        self.assertEqual(checkout["with"]["ref"], "${{ steps.requested_ref.outputs.full_ref }}")
-        self.assertNotEqual(checkout["with"]["ref"], "${{ needs.request.outputs.ref }}")
-        self.assertIn('source_sha="$(git -C source rev-parse HEAD)"', identity["run"])
-        self.assertIn("HEAD^{tree}", identity["run"])
-        self.assertNotIn("Protect unpublished canonical Drive checkpoint", by_name)
-        self.assertNotIn("if", snapshot)
-        self.assertNotIn("if", upload)
-        self.assertEqual(record["with"]["phase"], "observe-source")
-        self.assertEqual(record["with"]["observed_source_sha"], "${{ steps.source_identity.outputs.source_sha }}")
-        self.assertNotIn("github.sha", record["with"]["observed_source_sha"])
-        self.assertEqual(snapshot["env"]["OBSERVED_SOURCE_SHA"], "${{ steps.source_identity.outputs.source_sha }}")
-        self.assertIn('source_sha="${OBSERVED_SOURCE_SHA}"', snapshot["run"])
-        self.assertIn('ref_slug = urllib.parse.quote(ref, safe="")', snapshot["run"])
-        self.assertIn('archive_filename=%s\\n', snapshot["run"])
-        self.assertEqual(upload["with"]["file_name"], "${{ steps.source_lifecycle.outputs.archive_filename }}")
-        self.assertEqual(upload["with"]["previous_file_name"], "source.zip")
-        self.assertTrue(upload["with"]["fresh_object"])
-        self.assertEqual(lifecycle["env"]["TARGET_IS_TAG"], "${{ needs.request.outputs.is_tag }}")
-        self.assertIn("source_snapshot_lifecycle.py preflight", lifecycle["run"])
-        self.assertIn("snapshot-readback.zip", readback["run"])
-        self.assertIn("source_snapshot_lifecycle.py prune", prune["run"])
-        self.assertLess(names.index("Resolve requested human Git ref"), names.index("Check out requested source"))
-        self.assertLess(names.index("Check out requested source"), names.index("Resolve observed source SHA"))
-        self.assertLess(names.index("Resolve observed source SHA"), names.index("Record observed source SHA"))
-        self.assertLess(names.index("Record observed source SHA"), names.index("Create exact tracked-source snapshot"))
-        self.assertLess(names.index("Create exact tracked-source snapshot"), names.index("Validate existing canonical source archive state"))
-        self.assertLess(names.index("Validate existing canonical source archive state"), names.index("Upload repository snapshot archive"))
-        self.assertLess(names.index("Verify stable identity and raw Drive readback"), names.index("Delete superseded canonical source archive objects"))
-        self.assertEqual(finish["if"], "${{ always() }}")
-
-    def test_snapshot_archive_migration_reuses_legacy_file_and_refuses_ambiguous_siblings(self) -> None:
-        action = yaml.safe_load((_prior.ROOT / "actions/google-drive/action.yml").read_text())
-        self.assertEqual(action["inputs"]["previous_file_name"]["default"], "")
-        script = action["runs"]["steps"][0]["run"]
-        lines = script.splitlines()
-        start = next(i for i, line in enumerate(lines) if line.strip() == "drive_list_url() {")
-        end = next(i for i, line in enumerate(lines[start + 1 :], start + 1) if line.strip() == "merge_folder_candidates() {")
-        functions = "\n".join(lines[start:end])
-
-        def run(current: str, previous: str) -> subprocess.CompletedProcess[str]:
-            harness = f'''set -Eeuo pipefail
-{functions}
-access_token=masked
-target_folder_id=folder
-DRIVE_FILE_NAME=repo-main.zip
-DRIVE_PREVIOUS_FILE_NAME=source.zip
-CURRENT={current!r}
-PREVIOUS={previous!r}
-curl() {{
-  url="${{@: -1}}"
-  case "$url" in
-    *repo-main.zip*) printf '%s' "$CURRENT" ;;
-    *source.zip*) printf '%s' "$PREVIOUS" ;;
-    *) return 97 ;;
-  esac
-}}
-resolve_existing_file
-'''
-            return subprocess.run(
-                ["bash", "-c", harness],
-                cwd=_prior.ROOT,
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-
-        legacy_only = run('{"files":[]}', '{"files":[{"id":"legacy-id"}]}')
-        self.assertEqual(legacy_only.returncode, 0, legacy_only.stderr)
-        self.assertEqual(legacy_only.stdout, "legacy-id")
-
-        ambiguous = run(
-            '{"files":[{"id":"current-id"}]}',
-            '{"files":[{"id":"legacy-id"}]}',
-        )
-        self.assertNotEqual(ambiguous.returncode, 0)
-        self.assertIn("refusing ambiguous migration", ambiguous.stderr)
 
 
     def test_android_dependency_cache_uses_github_default_branch_writer_policy(self) -> None:

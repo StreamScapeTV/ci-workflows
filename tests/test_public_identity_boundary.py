@@ -17,11 +17,8 @@ LEGACY_RESIDUE_PATHS = {
     ".github/workflows/apple-binary.yml",
     ".github/workflows/apple.yml",
     ".github/workflows/central-ci-dispatch.yml",
-    "actions/google-drive/action.yml",
     "tests/test_apple_binary_workflow.py",
     "tests/test_ci_helpers.py",
-    "tests/test_google_drive_media_put.py",
-    "tests/test_google_drive_screenshot_files.py",
 }
 
 # Public/shared infrastructure repositories are not private consumers. Generic

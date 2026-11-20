@@ -48,15 +48,9 @@ name: Android CI
         required: false
       AGENT_STATE_SUPABASE_SECRET_KEY:
         required: false
-      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID:
+      S3_GITHUB_TRANSPORT_ACCESS_KEY:
         required: false
-      GOOGLE_DRIVE_REPOSITORIES_FOLDER_ID:
-        required: false
-      GOOGLE_DRIVE_CLIENT_ID:
-        required: false
-      GOOGLE_DRIVE_CLIENT_SECRET:
-        required: false
-      GOOGLE_DRIVE_REFRESH_TOKEN:
+      S3_GITHUB_TRANSPORT_SECRET_KEY:
         required: false
       CIW_MAVEN_PACKAGE_READ_TOKEN:
         required: false
@@ -215,9 +209,6 @@ jobs:
           CI_SECRET_SOURCE_TOKEN: ${{ steps.source.outputs.token }}
           CI_SECRET_GITHUB_TOKEN: ${{ github.token }}
           CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-          CI_SECRET_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          CI_SECRET_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          CI_SECRET_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
         run: |
           set -Eeuo pipefail
           python3 - "$CI_LOG" "$PHYSICAL_EVIDENCE_DIR" <<'PY_ANDROID_PHYSICAL_REDACT'
@@ -283,36 +274,36 @@ jobs:
           printf 'archive=%s\n' "$archive" >> "$GITHUB_OUTPUT"
 
       - name: Upload Android physical-performance private log
-        id: drive
+        id: log_upload
         if: ${{ always() && steps.scrub.outcome == 'success' && (inputs.ci_run_id != '' || inputs.upload_private_log) }}
-        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
-        env:
-          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
-          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+        uses: StreamScapeTV/ci-workflows/actions/s3-upload@main
         with:
+          kind: logs
           repository: StreamScapeTV/iptv-android
-          ref: ${{ inputs.ref }}
+          id: ${{ inputs.ci_run_id || github.run_id }}
           file_path: ${{ runner.temp }}/central-android-physical-performance.log
           file_name: ${{ github.run_id }}-${{ github.run_attempt }}-android-physical-performance.txt
-          mime_type: text/plain
+          content_type: text/plain
+          s3_access_key: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          s3_secret_key: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
 
       - name: Upload bounded Android physical-performance evidence
-        id: evidence_drive
+        id: evidence_upload
         if: ${{ always() && steps.evidence.outcome == 'success' && (inputs.ci_run_id != '' || inputs.upload_private_log) }}
-        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
-        env:
-          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
-          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+        uses: StreamScapeTV/ci-workflows/actions/s3-upload@main
         with:
+          kind: logs
           repository: StreamScapeTV/iptv-android
-          ref: ${{ inputs.ref }}
+          id: ${{ inputs.ci_run_id || github.run_id }}
           file_path: ${{ steps.evidence.outputs.archive }}
           file_name: ${{ github.run_id }}-${{ github.run_attempt }}-android-physical-performance-evidence.zip
-          mime_type: application/zip
+          content_type: application/zip
+          s3_access_key: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          s3_secret_key: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
 
       - name: Cleanup Android physical-performance state
         id: cleanup
@@ -336,8 +327,9 @@ jobs:
           FAILURE_CODE: ${{ steps.physical.outputs.failure_code }}
           SCRUB_OUTCOME: ${{ steps.scrub.outcome }}
           EVIDENCE_OUTCOME: ${{ steps.evidence.outcome }}
-          DRIVE_OUTCOME: ${{ steps.drive.outcome }}
-          EVIDENCE_DRIVE_OUTCOME: ${{ steps.evidence_drive.outcome }}
+          LOG_UPLOAD_OUTCOME: ${{ steps.log_upload.outcome }}
+          LOG_OBJECT_KEY: ${{ steps.log_upload.outputs.object_key }}
+          EVIDENCE_UPLOAD_OUTCOME: ${{ steps.evidence_upload.outcome }}
           CLEANUP_OUTCOME: ${{ steps.cleanup.outcome }}
         run: |
           set -Eeuo pipefail
@@ -345,7 +337,7 @@ jobs:
           error_summary=""
           if test "$PHYSICAL_OUTCOME" = success && test "$PHYSICAL_SUCCESS" = true \
             && test "$SCRUB_OUTCOME" = success && test "$EVIDENCE_OUTCOME" = success \
-            && test "$DRIVE_OUTCOME" = success && test "$EVIDENCE_DRIVE_OUTCOME" = success \
+            && test "$LOG_UPLOAD_OUTCOME" = success && test "$EVIDENCE_UPLOAD_OUTCOME" = success \
             && test "$CLEANUP_OUTCOME" = success; then
             success=true
           else
@@ -355,8 +347,8 @@ jobs:
           fi
           diagnostic_key=""
           diagnostic_status="unavailable"
-          if test "$DRIVE_OUTCOME" = success; then
-            diagnostic_key="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-android-physical-performance.txt"
+          if test "$LOG_UPLOAD_OUTCOME" = success; then
+            diagnostic_key="${LOG_OBJECT_KEY}"
             diagnostic_status="available"
           fi
           {
@@ -771,7 +763,7 @@ jobs:
             shift
             printf '\n===== %s =====\n' "${label}" >> "${CI_LOG}"
             if ! "$@" >> "${CI_LOG}" 2>&1; then
-              printf '%s failed; inspect the private Google Drive CI log.\n' "${label}" >&2
+              printf '%s failed; inspect the private CI log.\n' "${label}" >&2
               return 1
             fi
           }
@@ -1099,10 +1091,8 @@ jobs:
           CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
           CI_SECRET_AGENT_STATE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
           CI_SECRET_AGENT_STATE_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-          CI_SECRET_DRIVE_FOLDER: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
-          CI_SECRET_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          CI_SECRET_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          CI_SECRET_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          CI_SECRET_S3_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          CI_SECRET_S3_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
           CI_SECRET_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
           CI_SECRET_GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ inputs.test_profile == 'play' && secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 || '' }}
           CI_SECRET_ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64: ${{ inputs.test_profile == 'play' && secrets.ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64 || '' }}
@@ -1152,21 +1142,21 @@ jobs:
             printf 'error_summary=%s\n' "${summary}"
           } >> "${GITHUB_OUTPUT}"
 
-      - name: Upload CI log to Google Drive
-        id: drive
+      - name: Upload CI log to S3
+        id: log_upload
         if: ${{ always() && steps.scrub.outcome == 'success' && (inputs.ci_run_id != '' || inputs.upload_private_log) }}
-        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
-        env:
-          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
-          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+        uses: StreamScapeTV/ci-workflows/actions/s3-upload@main
         with:
+          kind: logs
           repository: ${{ inputs.repository || github.repository }}
-          ref: ${{ inputs.ref || github.ref_name }}
+          id: ${{ inputs.ci_run_id || github.run_id }}
           file_path: ${{ runner.temp }}/central-ci.log
           file_name: ${{ github.run_id }}-${{ github.run_attempt }}.txt
-          mime_type: text/plain
+          content_type: text/plain
+          s3_access_key: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          s3_secret_key: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
 
       - name: Classify Android terminal diagnostic
         id: terminal_diagnostic
@@ -1193,7 +1183,8 @@ jobs:
           MOBILE_BUMP_CLEANUP_OUTCOME: ${{ steps.mobile_bump_cleanup.outcome }}
           PLAY_CLEANUP_OUTCOME: ${{ steps.play_cleanup.outcome }}
           SCRUB_OUTCOME: ${{ steps.scrub.outcome }}
-          DRIVE_OUTCOME: ${{ steps.drive.outcome }}
+          LOG_UPLOAD_OUTCOME: ${{ steps.log_upload.outcome }}
+          LOG_OBJECT_KEY: ${{ steps.log_upload.outputs.object_key }}
           CACHE_MEASUREMENTS_OUTCOME: ${{ steps.android_cache_measurements.outcome }}
         run: |
           set -Eeuo pipefail
@@ -1218,7 +1209,7 @@ jobs:
             && test "${mobile_release_ok}" = true \
             && { test "${PLAY_CLEANUP_OUTCOME}" = success || test "${PLAY_CLEANUP_OUTCOME}" = skipped; } \
             && test "${SCRUB_OUTCOME}" = success \
-            && test "${DRIVE_OUTCOME}" = success \
+            && test "${LOG_UPLOAD_OUTCOME}" = success \
             && { test "${CACHE_MEASUREMENTS_OUTCOME}" = success || test "${CACHE_MEASUREMENTS_OUTCOME}" = skipped; }; then
             success=true
           fi
@@ -1243,7 +1234,7 @@ jobs:
               error_summary="Google Play publication succeeded, but the development build-number advance is incomplete. Rerun the same tag after correcting the bump failure; the product wrapper must reconcile the already-accepted version/build without republishing it."
             elif test "${SCRUB_OUTCOME}" != success; then
               error_summary="Android validation reached terminal evidence handling, but private log scrubbing failed."
-            elif test "${DRIVE_OUTCOME}" != success; then
+            elif test "${LOG_UPLOAD_OUTCOME}" != success; then
               error_summary="Android validation failed or completed, but private CI log upload did not succeed."
             else
               error_summary="Android ${TEST_PROFILE} validation failed during bounded Central post-processing; see the private CI log diagnostic when available."
@@ -1252,8 +1243,8 @@ jobs:
 
           diagnostic_key=""
           diagnostic_status="unavailable"
-          if test "${DRIVE_OUTCOME}" = success; then
-            diagnostic_key="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.txt"
+          if test "${LOG_UPLOAD_OUTCOME}" = success; then
+            diagnostic_key="${LOG_OBJECT_KEY}"
             diagnostic_status="available"
           fi
           {

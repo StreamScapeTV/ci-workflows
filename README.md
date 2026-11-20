@@ -35,7 +35,7 @@ Some separately governed paths remain because they have a genuinely different tr
 
 - **Specialized evidence:** Apple screenshot review and other currently authorized native/device-validation exceptions, until live consumers migrate safely. Android screenshots use the product-owned generic repository UI route.
 - **Release/publication:** tag-controlled image, chart, library, and app distribution paths, with publication-specific permissions and readback.
-- **Infrastructure:** source snapshot/checkpoint publication, branch maintenance, approved inspection, and private evidence retention.
+- **Infrastructure:** branch maintenance, approved inspection, and private evidence storage in the owner's S3 bucket.
 - **Repository self-validation:** workflow tests and runner-image checks, independent of a product's `.ci/` scripts.
 
 These paths are not a reason to keep legacy *ordinary* product build/test profiles. Those were already pruned as repositories adopted `.ci/`. Further simplification—including reducing visible dispatch complexity and retiring unused specialist routes—is tracked in [#1076](https://github.com/StreamScapeTV/ci-workflows/issues/1076), with existing consumer and dependency gates. Do not remove a workflow purely because its job appears in the Actions graph.

@@ -72,13 +72,9 @@ name: Repository-owned CI execution plan
         required: true
       AGENT_STATE_SUPABASE_SECRET_KEY:
         required: true
-      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID:
+      S3_GITHUB_TRANSPORT_ACCESS_KEY:
         required: false
-      GOOGLE_DRIVE_CLIENT_ID:
-        required: false
-      GOOGLE_DRIVE_CLIENT_SECRET:
-        required: false
-      GOOGLE_DRIVE_REFRESH_TOKEN:
+      S3_GITHUB_TRANSPORT_SECRET_KEY:
         required: false
       TS_OAUTH_CLIENT_ID:
         required: false
@@ -101,16 +97,6 @@ name: Repository-owned CI execution plan
       APPLE_DEVELOPMENT_P12_BASE64:
         required: false
       APPLE_DEVELOPMENT_P12_PASSWORD:
-        required: false
-      PROTECTED_DEPLOYED_HTTPS_TARGET:
-        required: false
-      PROTECTED_DEPLOYED_WSS_TARGET:
-        required: false
-      PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64:
-        required: false
-      PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO_GZIP_BASE64:
-        required: false
-      PROTECTED_DEPLOYED_SETUP_CREDENTIAL:
         required: false
       BACKUP_S3_ENDPOINT:
         required: false
@@ -278,10 +264,8 @@ jobs:
       DOCKERHUB_READ_TOKEN: ${{ matrix.host_os == 'linux' && secrets.DOCKERHUB_READ_TOKEN || '' }}
       AGENT_STATE_SUPABASE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
       AGENT_STATE_SUPABASE_SECRET_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
-      GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-      GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-      GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+      S3_GITHUB_TRANSPORT_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+      S3_GITHUB_TRANSPORT_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
       TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
       TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
       REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
@@ -298,11 +282,6 @@ jobs:
       APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ matrix.host_os == 'macos' && secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 || '' }}
       APPLE_DEVELOPMENT_P12_BASE64: ${{ inputs.operation == 'device-test' && matrix.host_os == 'macos' && secrets.APPLE_DEVELOPMENT_P12_BASE64 || '' }}
       APPLE_DEVELOPMENT_P12_PASSWORD: ${{ inputs.operation == 'device-test' && matrix.host_os == 'macos' && secrets.APPLE_DEVELOPMENT_P12_PASSWORD || '' }}
-      PROTECTED_DEPLOYED_HTTPS_TARGET: ${{ matrix.host_os == 'linux' && secrets.PROTECTED_DEPLOYED_HTTPS_TARGET || '' }}
-      PROTECTED_DEPLOYED_WSS_TARGET: ${{ matrix.host_os == 'linux' && secrets.PROTECTED_DEPLOYED_WSS_TARGET || '' }}
-      PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64: ${{ matrix.host_os == 'linux' && secrets.PROTECTED_DEPLOYED_HTTP_SCENARIO_GZIP_BASE64 || '' }}
-      PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO_GZIP_BASE64: ${{ matrix.host_os == 'linux' && secrets.PROTECTED_DEPLOYED_WEBSOCKET_SCENARIO_GZIP_BASE64 || '' }}
-      PROTECTED_DEPLOYED_SETUP_CREDENTIAL: ${{ matrix.host_os == 'linux' && secrets.PROTECTED_DEPLOYED_SETUP_CREDENTIAL || '' }}
 
   settle:
     if: ${{ always() }}

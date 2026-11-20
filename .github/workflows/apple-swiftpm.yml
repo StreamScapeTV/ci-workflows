@@ -37,13 +37,9 @@ name: Swift binary package publication
         required: false
       AGENT_STATE_SUPABASE_SECRET_KEY:
         required: false
-      GOOGLE_DRIVE_CI_LOGS_FOLDER_ID:
+      S3_GITHUB_TRANSPORT_ACCESS_KEY:
         required: false
-      GOOGLE_DRIVE_CLIENT_ID:
-        required: false
-      GOOGLE_DRIVE_CLIENT_SECRET:
-        required: false
-      GOOGLE_DRIVE_REFRESH_TOKEN:
+      S3_GITHUB_TRANSPORT_SECRET_KEY:
         required: false
       TS_OAUTH_CLIENT_ID:
         required: false
@@ -768,10 +764,8 @@ jobs:
           CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
           CI_SECRET_AGENT_STATE_URL: ${{ secrets.AGENT_STATE_SUPABASE_URL }}
           CI_SECRET_AGENT_STATE_KEY: ${{ secrets.AGENT_STATE_SUPABASE_SECRET_KEY }}
-          CI_SECRET_DRIVE_LOG_FOLDER: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
-          CI_SECRET_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          CI_SECRET_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          CI_SECRET_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
+          CI_SECRET_S3_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          CI_SECRET_S3_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
           CI_SECRET_TAILSCALE_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           CI_SECRET_TAILSCALE_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
           CI_SECRET_PACKAGE_USERNAME: ${{ secrets.PACKAGE_PUBLISH_USERNAME }}
@@ -795,21 +789,21 @@ jobs:
           path.write_bytes(data)
           PY_REDACT
 
-      - name: Upload CI log to Google Drive
-        id: drive
+      - name: Upload CI log to S3
+        id: log_upload
         if: ${{ always() && steps.scrub.outcome == 'success' && (inputs.ci_run_id != '' || inputs.upload_private_log) }}
-        uses: StreamScapeTV/ci-workflows/actions/google-drive@main
-        env:
-          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          GOOGLE_DRIVE_REFRESH_TOKEN: ${{ secrets.GOOGLE_DRIVE_REFRESH_TOKEN }}
-          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_CI_LOGS_FOLDER_ID }}
+        uses: StreamScapeTV/ci-workflows/actions/s3-upload@main
         with:
+          kind: logs
           repository: ${{ inputs.repository }}
-          ref: ${{ inputs.ref }}
+          id: ${{ inputs.ci_run_id || github.run_id }}
           file_path: ${{ runner.temp }}/central-ci.log
           file_name: ${{ github.run_id }}-${{ github.run_attempt }}-apple-swiftpm.txt
-          mime_type: text/plain
+          content_type: text/plain
+          s3_access_key: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          s3_secret_key: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
 
       - name: Clean Swift binary publication workspace
         id: cleanup
@@ -857,6 +851,6 @@ jobs:
                 && steps.consumer.outcome == 'success'
                 && steps.evidence.outcome == 'success'
                 && steps.scrub.outcome == 'success'
-                && steps.drive.outcome == 'success'
+                && steps.log_upload.outcome == 'success'
                 && steps.cleanup.outcome == 'success'
                 && 'succeeded' || 'failed' }}

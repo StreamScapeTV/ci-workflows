@@ -28,18 +28,17 @@ Immutable tags, releases, physical-device work, cluster inspections and source
 maintenance never join this cancelling lane. Same-ref physical-device requests
 retain non-cancelling serialization. GitHub concurrency itself does not guarantee
 strict ordering by original Agent State request creation time; Agent State and
-Central retain admission and terminal-settlement authority; the broker only
-forwards requests. A cancelled job is not a successful product test. The current issue's real-consumer
+Central retain admission and terminal-settlement authority; the dispatch
+workflow only claims and runs requests. A cancelled job is not a successful product test. The current issue's real-consumer
 cancellation proof is distinct from static source validation.
 
 ## Explicit stale cancellation
 
 Agent State authorizes exact stale cancellation through `request_ci_cancellation`
-and creates the real maintenance execution. The existing broker forwards its
-normal dispatch unchanged. Central's fixed cancellation workflow reads the
+and creates the real maintenance execution, which Agent State dispatches
+unchanged. Central's fixed cancellation workflow reads the
 backend-authorized target and checks its exact current GitHub attempt before
-requesting normal cancellation. No broker release or additional credential is
-required.
+requesting normal cancellation. No additional credential is required.
 
 The maintenance execution tracks its own GitHub run and result. Its success can
 mean only that GitHub accepted cancellation; the target remains nonterminal
@@ -151,11 +150,11 @@ For every admitted repository operation, Central owns the reusable execution env
 5. establish the same authorized shared capabilities independently for each child lifetime;
 6. invoke exactly one fixed tracked repository entrypoint per child, concurrently when more than one OS is selected;
 7. capture/scrub private text evidence and package bounded artifacts independently per child;
-8. upload OS-distinct private log/evidence objects through the shared Drive mechanisms;
+8. upload OS-distinct private log/evidence objects through the shared S3 upload action (`actions/s3-upload`);
 9. remove each child's ephemeral credentials, network state and evidence staging; and
 10. settle the single parent Agent State CI run only after all required children settle.
 
-Repository scripts do not implement this lifecycle and do not call Agent State or Drive directly.
+Repository scripts do not implement this lifecycle and do not call Agent State or S3 directly.
 
 The current-fleet non-host capability classification and publication migration plan are recorded in
 [`repository-ci-capability-audit.md`](repository-ci-capability-audit.md).
@@ -193,7 +192,7 @@ that every possible configuration is already warm. Dependency/version/lockfile
 changes create a new identity. Retire old broad v1 entries only after a successful
 v2 producer and actual warm consumer readback, leaving Apple/Tailscale entries alone.
 - `registry_oci_publish` — for an authorized Linux repository `release`, Central creates isolated Buildah/Skopeo and Helm registry authentication using the reviewed private registry write credential. Repository code receives authenticated tool defaults plus the fixed registry host, never the raw write token; image/chart namespaces and publication coordinates remain repository-owned.
-- `backup_s3_read` — authorized repository `release` only. Central requires a separate private descriptor bound to the exact project, Agent State CI run, repository, tag/ref, observed source SHA, and release operation, then exposes one fixed read-only S3-compatible backup connection bundle only to `.ci/release.sh`. Backup selection, Barman/CloudNativePG restore, PostgreSQL topology, migrations, health/smoke checks, restored-data handling, and cleanup remain repository-owned. Periodic raw-log checkpointing is disabled while this capability is active; final text/artifact evidence is still secret-scrubbed before Drive upload.
+- `backup_s3_read` — authorized repository `release` only. Central requires a separate private descriptor bound to the exact project, Agent State CI run, repository, tag/ref, observed source SHA, and release operation, then exposes one fixed read-only S3-compatible backup connection bundle only to `.ci/release.sh`. Backup selection, Barman/CloudNativePG restore, PostgreSQL topology, migrations, health/smoke checks, restored-data handling, and cleanup remain repository-owned. Periodic raw-log checkpointing is disabled while this capability is active; final text/artifact evidence is still secret-scrubbed before S3 upload.
 - `protected_deployed_conformance` — Linux `full` validation only, and only when the same trusted grant also includes `private_network`. Central resolves a separate private `protected_deployed_conformance` Agent State descriptor bound to the exact repository/run, writes the approved HTTP/WSS scenario documents as mode-0600 files, projects a finite protected bundle into repository-owned environment names, executes one tracked no-argv Python certifier after the ordinary `.ci/test-full.sh` succeeds, stores only bounded private diagnostics/evidence, performs the descriptor's same-origin reset/readback, then deletes the private bundle. Public callers cannot select the target, scenario, credential, entrypoint, environment names, reset target, expected protocol statuses, or pass/defer semantics.
 
 Capability authorization is private Agent State policy. Repository source cannot enable a capability,
@@ -254,7 +253,7 @@ Central combines the last safe structured product state with its fixed wrapper p
 | `CI_APP_STORE_CONNECT_API_KEY_P8_BASE64` | macOS `build`, `test`, `full`, `ui-test`, `device-test`, and authorized `release` | Existing App Store Connect API key material supplied by Central. Credential presence does not grant release authority. |
 
 Repository stdout/stderr is captured automatically by Central. The primary Central log path
-(`CI_LOG`), `RUNNER_TEMP`, credential files, runner labels, secrets and Drive paths are internal
+(`CI_LOG`), `RUNNER_TEMP`, credential files, runner labels, secrets and S3 object keys are internal
 implementation details and are not supported repository-script inputs.
 
 ### Structured semantics
@@ -306,7 +305,7 @@ A repository owns only product/toolchain behavior. It must:
 - own Xcode, Gradle, Android SDK, Node, Python, Flutter, Maven and other toolchain commands;
 - own product-local simulator/emulator/test-environment lifecycle where required;
 - write optional diagnostics only to `CI_LOG_DIR`, `CI_ARTIFACT_DIR` and `CI_PROGRESS_FILE`; and
-- avoid credential acquisition, runner selection, Drive upload, Agent State mutation and private-network setup.
+- avoid credential acquisition, runner selection, S3 upload, Agent State mutation and private-network setup.
 
 ### Minimal Linux build/test
 
@@ -370,13 +369,13 @@ ledger or consumer-to-capability/host bindings.
 
 When `backup_s3_read` is present in `repository_ci.capabilities`, the same private project state must carry `repository_ci_backup_s3_read_v1`. Its schema is deliberately identity-only: `schemaVersion`, `projectKey`, `ciRunId`, `repository`, `ref`, `sourceIsTag`, `sourceSha`, and `operation`. Every field must match the exact claimed Agent State release run and exact observed source, and `operation` must be `release`; otherwise capability admission fails closed. No endpoint, bucket, region, credential, backup selector, object prefix, command, or environment-map value is stored in Agent State.
 
-The fixed endpoint/bucket/optional-region/read-only credentials remain Central secrets. They are projected only into the single tracked `.ci/release.sh` process through the five `CI_BACKUP_S3_*` variables. Central disables periodic raw-log checkpoints while the capability is active, then performs the normal configured-secret scrub and artifact quarantine before any final private Drive evidence upload. Repository code owns backup selection and all recovery/database/migration/application/smoke/cleanup behavior.
+The fixed endpoint/bucket/optional-region/read-only credentials remain Central secrets. They are projected only into the single tracked `.ci/release.sh` process through the five `CI_BACKUP_S3_*` variables. Central disables periodic raw-log checkpoints while the capability is active, then performs the normal configured-secret scrub and artifact quarantine before any final private S3 evidence upload. Repository code owns backup selection and all recovery/database/migration/application/smoke/cleanup behavior.
 
 ### Protected deployed-conformance descriptor
 
 The generic capability authorization remains in `repository_ci.capabilities`. When `protected_deployed_conformance` is granted, the same private project state must also carry a separate `protected_deployed_conformance` descriptor. It is not a public workflow input. Schema version 2 binds exactly one repository, the `full` operation, one tracked `scripts/*.py` or `tools/*.py` no-argv entrypoint, a finite environment projection, the canonical SemVer release version, and a bounded same-origin reset/readback plan. The confidential target URLs, compressed scenario JSON and setup credential remain fixed Central secrets and are never stored in Agent State.
 
-The environment projection maps only the finite bundle fields (`httpsTarget`, `wssTarget`, the two mode-0600 scenario paths, `setupCredential`, canonical `releaseVersion`, run id and a fixed live flag) to repository-owned variable names. Git SHAs, image/chart digests, deployed digests and environment hashes are not part of this release-identity projection. Central rejects duplicate names and Central-owned prefixes such as `CI_`, `GITHUB_`, `RUNNER_`, `AGENT_STATE_`, registry, Drive or runner credential variables. The protected certifier is executed only after the normal tracked `full` entrypoint succeeds. Its stdout must be one bounded JSON object; protected targets, scenario paths and setup credentials are rejected from the retained evidence.
+The environment projection maps only the finite bundle fields (`httpsTarget`, `wssTarget`, the two mode-0600 scenario paths, `setupCredential`, canonical `releaseVersion`, run id and a fixed live flag) to repository-owned variable names. Git SHAs, image/chart digests, deployed digests and environment hashes are not part of this release-identity projection. Central rejects duplicate names and Central-owned prefixes such as `CI_`, `GITHUB_`, `RUNNER_`, `AGENT_STATE_`, registry, S3, Cloudflare Access or runner credential variables. The protected certifier is executed only after the normal tracked `full` entrypoint succeeds. Its stdout must be one bounded JSON object; protected targets, scenario paths and setup credentials are rejected from the retained evidence.
 
 The reset descriptor is lifecycle-only: it cannot change conformance expectations or pass/defer decisions. It may perform one same-origin authenticated POST/PATCH/DELETE with a subject selected from a protected scenario, followed by one same-origin GET readback whose exact scalar JSON-pointer value is checked. Redirects, transport errors, missing selectors, non-200 statuses, failed readback or incomplete private-file cleanup fail the Repository CI operation.
 
@@ -407,13 +406,13 @@ Central captures repository stdout/stderr into a bounded private rolling log, re
 context plus a terminal tail while continuously draining product output. The rolling capture stays
 below the reviewed text-evidence limit, preserves enough overlap for configured-secret values that
 cross a rollover boundary to remain detectable, and never changes the product exit status. Central
-then scrubs configured secrets, packages bounded eligible evidence, and uses the shared private Drive
+then scrubs configured secrets, packages bounded eligible evidence, and uses the shared private S3
 transport. Stable-log replacement, retention and follow behavior are Central policy and are not
 controlled by the repository.
 
 Cleanup runs independently of product success. Ephemeral authentication files, private-network state
 owned by the Central capability, log/evidence staging and other run-owned temporary state are removed
-before lifecycle settlement. Drive availability does not widen repository execution authority.
+before lifecycle settlement. S3 availability does not widen repository execution authority.
 
 ## Migration checklist
 
@@ -535,23 +534,33 @@ authority, and are removed during unconditional cleanup. Private evidence
 scrubbing covers the raw credentials and their derived authentication value.
 Existing private-registry publication checks and permissions still apply.
 
-### Log retention when Google Drive is unavailable
+### Private log, screenshot and release-archive storage
 
-Apple and generic Repository CI preserve an already-scrubbed text log on the
-existing private owning issue if its normal Drive log upload fails. The shared
-`private-log-fallback` action resolves the exact CI run's repository, issue,
-provider run/attempt and observed source before minting an issue-comment token
-scoped to that repository. It checks repository privacy and issue identity before
-transmitting the log. No personal token, native attachment API or public artifact
-is used.
+Central writes private text logs, bounded evidence archives, screenshots and kept
+release archives to one bucket of the owner's S3 API, reached
+over Tailscale. The endpoint and bucket are not in this public repository: set the repository variables
+`S3_ENDPOINT` (https URL) and `S3_BUCKET`; the helper has no default and fails closed without them.
+The credentials are the GitHub secrets `S3_GITHUB_TRANSPORT_ACCESS_KEY` and
+`S3_GITHUB_TRANSPORT_SECRET_KEY`. The shared `actions/s3-upload` action (script
+`scripts/ci/s3_put.py`, standard library SigV4) is the only writer and accepts only
+these key layouts:
 
-Logs are retained in collapsible, API-sized comment parts. Existing identical
-parts are reused, including after an uncertain POST; an unconfirmed write is not
-blindly replayed. Missing provenance, a public repository, an unsafe log path,
-non-UTF-8 data, or a log exceeding 16 MiB reports an explicit fallback failure.
-The native result and Drive failure remain failures even when retention succeeds.
-Detailed logs are never echoed into the public Central job log. The original log
-and all ordinary credentials/workspaces still follow normal cleanup.
+- `logs/<project>/<request_id>/<stage>/<seq>.log` live chunks plus `final.log` per stage (`actions/s3-log-stream`)
+- `logs/<project>/<request_id>/<file>` one-object logs of the older workflows
+- `screenshots/<project>/<id>/<file>`
+- `releases/<project>/<release version>/<file>` (plain version, no hashes)
+
+`actions/s3-log-stream` (`phase: start` before the stage, `phase: stop` with `if: always()` after it)
+uploads the scrubbed, growing log as zero-padded numbered chunks every few seconds (S3 has no append)
+and one merged `final.log` when the stage ends, so an agent can list the prefix and read the last chunk.
+The scrub covers every `CI_SECRET_*` environment value and the S3 credentials, and holds back the last
+bytes of each round so a secret split across two chunks is never exposed.
+
+When the endpoint is not yet reachable on a GitHub-hosted runner, the action connects
+the reviewed Tailscale capability first. Log text is scrubbed of configured secrets
+before upload exactly as before. Older workflows keep their Agent State calls; Android's finish records the log's object key as `diagnostic_key`. Retention is a bucket lifecycle rule set by
+the owner on the bucket, not a Central workflow. A failed upload is a failed run; there is
+no issue-comment fallback.
 
 ### Native test selector lists
 

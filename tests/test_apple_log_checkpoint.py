@@ -18,8 +18,8 @@ COMMAND = STEPS['Run fixed Apple lane']
 class AppleLogCheckpointTests(unittest.TestCase):
     def test_seed_and_terminal_upload_share_exact_private_object_identity(self):
         seed = STEPS['Seed stable private Apple CI log object']
-        final = STEPS['Upload CI log to Google Drive']
-        for key in ('repository', 'ref', 'file_name', 'mime_type'):
+        final = STEPS['Upload CI log to S3']
+        for key in ('kind', 'repository', 'id', 'file_name', 'content_type'):
             self.assertEqual(seed['with'][key], final['with'][key])
         self.assertTrue(seed['continue-on-error'])
         names = list(STEPS)
@@ -35,7 +35,7 @@ class AppleLogCheckpointTests(unittest.TestCase):
                 continue
             self.assertEqual(COMMAND['env'][key], value)
         self.assertIn('repository_log_checkpoint.py', COMMAND['run'])
-        self.assertIn('steps.log_seed.outputs.file_id', COMMAND['env']['CHECKPOINT_FILE_ID'])
+        self.assertIn('steps.log_seed.outputs.object_key', COMMAND['env']['CHECKPOINT_OBJECT_KEY'])
         self.assertIn('steps.log_seed.outputs.file_sha256', COMMAND['env']['CHECKPOINT_SEED_SHA256'])
         self.assertIn("steps.log_seed.outcome == 'success'", COMMAND['env']['CHECKPOINT_ENABLED'])
 
@@ -56,10 +56,9 @@ class AppleLogCheckpointTests(unittest.TestCase):
                 script += 'exit ' + str(status) + '\n'
                 result = subprocess.run(['bash', '-c', script], cwd=root, env={**os.environ,
                     'CENTRAL_APPLE_HELPERS': str(root / 'central-ci'), 'CI_LOG': str(root / 'log'), 'RUNNER_TEMP': td, 'CHECKPOINT_ENABLED': 'true',
-                    'CHECKPOINT_FILE_ID': 'fixedPrivateFile', 'CHECKPOINT_SEED_SHA256': '0' * 64,
-                    'CHECKPOINT_GOOGLE_DRIVE_CLIENT_ID': 'fixture-client',
-                    'CHECKPOINT_GOOGLE_DRIVE_CLIENT_SECRET': 'fixture-secret',
-                    'CHECKPOINT_GOOGLE_DRIVE_REFRESH_TOKEN': 'fixture-refresh'},
+                    'CHECKPOINT_OBJECT_KEY': 'logs/repo/run/fixed.txt', 'CHECKPOINT_SEED_SHA256': '0' * 64,
+                    'CHECKPOINT_S3_ACCESS_KEY': 'fixture-client',
+                    'CHECKPOINT_S3_SECRET_KEY': 'fixture-secret'},
                     capture_output=True, text=True, timeout=10)
                 self.assertEqual(result.returncode, status, result.stderr)
                 self.assertNotIn('fixture-secret', result.stdout + result.stderr)

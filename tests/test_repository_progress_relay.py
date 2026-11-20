@@ -223,8 +223,8 @@ class RepositoryProgressRelayTests(unittest.TestCase):
             "EXECUTE_OUTCOME",
             "SCRUB_OUTCOME",
             "EVIDENCE_OUTCOME",
-            "DRIVE_OUTCOME",
-            "EVIDENCE_DRIVE_OUTCOME",
+            "LOG_UPLOAD_OUTCOME",
+            "EVIDENCE_UPLOAD_OUTCOME",
             "CLEANUP_OUTCOME",
         ):
             self.assertIn(key, env)
@@ -235,8 +235,8 @@ class RepositoryProgressRelayTests(unittest.TestCase):
             "EXECUTE_OUTCOME",
             "SCRUB_OUTCOME",
             "EVIDENCE_OUTCOME",
-            "DRIVE_OUTCOME",
-            "EVIDENCE_DRIVE_OUTCOME",
+            "LOG_UPLOAD_OUTCOME",
+            "EVIDENCE_UPLOAD_OUTCOME",
             "CLEANUP_OUTCOME",
         ):
             self.assertIn(f'test "${{{name}}}" = success', script)

@@ -28,8 +28,6 @@ legacy_pairs:
   - {key: validation.android,    profile: "*",         target: ci-gradle ui-test operation, status: planned, tailscale: true}
   - {key: maintenance.ci-cancel, profile: cancel,      target: runner, status: implemented, tailscale: false}
   - {key: maintenance.branch-delete, profile: delete,  target: runner, status: implemented, tailscale: false}
-  - {key: source.checkpoint-publish, profile: publish, target: runner, status: implemented, tailscale: false}
-  - {key: source.snapshot,       profile: "*",         target: runner, status: implemented, tailscale: false}
   - {key: validation.node,       profile: "*",         target: retired, status: implemented, tailscale: false}
   - {key: validation.flutter,    profile: "*",         target: retired, status: implemented, tailscale: false}
   - {key: validation.container-service, profile: "*",  target: retired, status: implemented, tailscale: false}
@@ -53,5 +51,5 @@ capabilities:
   "physical-device execution and device-provider orchestration": ci-xcode device-test (planned)
   "screenshot review and visual-acceptance orchestration": runner
   "immutable Maven publication/readback archive lifecycle": ci-maven (planned)
-  "source snapshot/checkpoint publication and branch deletion": runner
+  "branch deletion": runner (maintenance.branch-delete)
   "technology-specific dependency caches": actions/ci-cache (Gradle, SwiftPM; Maven planned)

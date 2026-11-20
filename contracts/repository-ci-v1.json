@@ -41,7 +41,7 @@
       "Optionally add tracked .ci/execution-plan.json when one semantic operation must run on more than one reviewed operating system; the plan selects only finite OS identifiers, never runners or commands.",
       "Read CI_HOST_OS and CI_INPUTS_JSON when product target, selectors, UI mode, or release identity are needed.",
       "Validate and translate reviewed semantics inside the repository before invoking Xcode, Gradle, Python, Node, Flutter, or other product commands.",
-      "Do not upload evidence or request Drive, registry, runner, or secret configuration from the caller.",
+      "Do not upload evidence or request log storage, registry, runner, or secret configuration from the caller.",
       "Request private infrastructure authorization through the project's trusted private Agent State configuration; public Central changes only when a new generic capability type or shared mechanism is required."
     ],
     "forbiddenCallerSurface": [
@@ -433,7 +433,7 @@
         "classification": "separately-governed"
       },
       {
-        "capability": "source snapshot/checkpoint publication and branch deletion",
+        "capability": "branch deletion",
         "classification": "separately-governed"
       },
       {
