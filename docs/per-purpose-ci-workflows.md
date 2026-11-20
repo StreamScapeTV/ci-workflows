@@ -35,7 +35,7 @@ Status, logs and cancel are plain GitHub run operations done by the runner backe
    secrets only, never `secrets: inherit`).
 3. **Entry workflows**: `ci-gradle.yml`, `ci-xcode.yml` (`workflow_dispatch`): job `plan`
    (validate), then separate jobs `lint`, `test`, `build` (named after the operation, `needs:` chain) so GitHub itself shows stage and time. Small tests are expected locally by default; the remote workflows are mainly for build/full/ui-test/release.
-   Concurrency lane = repository + ref + operation, newer run supersedes older, never for tags.
+   Concurrency: a safety-net group per repository + ref with `cancel-in-progress: false` (one pipeline per project and branch; the agent runner enforces this and cancels by request id, workflows never cancel another request). Each stage is its own job with its own checkout and cache restore; Gradle/SwiftPM caches and the Gradle build cache are what avoid repeating work between the `lint`, `test` and `build` jobs. Every later stage runs only when the previous one succeeded.
    There is **no global macOS or device cap**.
 
 Nothing calls Agent State, a mirror, Cloudflare Access or Google Drive.
@@ -86,10 +86,10 @@ could write caches. No action was pinned by SHA.
 New rules (owner v2/v3): Gradle (wrapper, dependencies, build cache) and SwiftPM only for now;
 Xcode DerivedData and Maven follow in their PRs; no image layer cache. **Only the integration
 branch writes**: `develop`, or `main` for a repository without `develop` (checked with
-`gh api repos/<r>/git/ref/heads/develop` using the read-only source token); other branches, pull
+`gh api repos/<r>/git/ref/heads/develop`: only an HTTP 404 means "no develop"; any other error fails closed, restore only); other branches, pull
 requests and tags restore only. Keys are narrow for the shared 10 GB budget: repository hash +
-OS/arch + Gradle version + dependency fingerprint + month, one entry per such tuple;
-`restore-keys` fall back to the same fingerprint of an older month, then to the same
+OS/arch + Gradle version + dependency fingerprint + day, one entry per such tuple (a per-run key would multiply writes against the 10 GB budget; the daily key refreshes the build cache once a day);
+`restore-keys` fall back to the same fingerprint of an older day, then to the same
 repository/toolchain. A save needs a successful stage, an exact-key miss (`lookup-only`) and a guard
 pass (no symlinks, < 4 GiB / 200000 files, no credential value).
 

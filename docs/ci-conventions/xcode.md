@@ -21,7 +21,9 @@ scheme named in the request (`options.scheme`):
 destination (build only), `macos` uses `platform=macOS`. `options.build_configuration` is `debug`
 (default) or `release`.
 
-**Lint**: a tracked `.swiftlint.yml`; the workflow runs `swiftlint lint --strict`.
+**Lint**: a tracked `.swiftlint.yml`; the workflow runs `swiftlint lint --strict`. Without it the `lint` stage is **skipped** (green, with the reason in the log), never red.
+
+A stage the convention does not cover is skipped the same way: `test` for `product_target` `ios`/`tvos` (simulator tests are not standardised; keep `.ci/test.sh` to run them). A project can therefore request `build` without lint or simulator tests.
 
 Dependencies come from SwiftPM (`Package.resolved` is the cache fingerprint). Private packages are
 reached with the ephemeral netrc/Git credential the workflow sets up (github.com and the Forgejo

@@ -112,10 +112,12 @@ class StageResolutionTests(unittest.TestCase):
         for options in ({}, {"scheme": "App"}):
             with self.assertRaises(SystemExit):
                 stage.resolve("xcode", "build", project, options)
-        with self.assertRaises(SystemExit):  # simulator tests are not standardised
-            stage.resolve("xcode", "test", project, {"scheme": "App", "product_target": "ios"})
-        with self.assertRaises(SystemExit):
-            stage.resolve("xcode", "lint", project, {})
+        # stages without a convention are skipped cleanly, never red
+        skipped = stage.resolve("xcode", "test", project, {"scheme": "App", "product_target": "ios"})
+        self.assertEqual((skipped["mode"], skipped["argv"]), ("skip", []))
+        self.assertIn("not standardised", skipped["reason"])
+        self.assertEqual(stage.resolve("xcode", "lint", project, {})["mode"], "skip")
+        self.assertEqual(stage.resolve("xcode", "lint", git_repo({".swiftlint.yml": "x"}), {})["mode"], "convention")
         both = git_repo({"A.xcodeproj/project.pbxproj": "x", "B.xcodeproj/project.pbxproj": "x"})
         with self.assertRaises(SystemExit):
             stage.resolve("xcode", "build", both, {"scheme": "A", "product_target": "macos"})
@@ -141,7 +143,7 @@ class CacheIdentityTests(unittest.TestCase):
         (root / "app/src/Main.kt").write_text("fun main() { println() }\n")
         self.assertEqual(before["key"], self.identity(root)["key"])
         self.assertIn("g9.7.1", before["key"])
-        self.assertTrue(before["key"].endswith("202611"))
+        self.assertTrue(before["key"].endswith("20261120"))
         keys = before["restore_keys"].split("\n")
         self.assertEqual(keys[0], before["exact_prefix"])
         self.assertTrue(before["key"].startswith(keys[0]) and keys[0].startswith(keys[1]))
@@ -160,6 +162,7 @@ class CacheIdentityTests(unittest.TestCase):
         self.assertEqual(self.identity(root, "issue-1-x")["save_allowed"], "false")
         self.assertEqual(self.identity(root, "develop", "true")["save_allowed"], "false")  # a tag named develop
         self.assertEqual(self.identity(root, "1.0_1", "true")["save_allowed"], "false")
+        self.assertEqual(self.identity(root, "develop", integration="none")["save_allowed"], "false")  # undetermined: restore only
         with self.assertRaises(SystemExit):
             self.identity(root, integration="release")
 
@@ -241,6 +244,21 @@ class SecretAndLogTests(unittest.TestCase):
             self.assertEqual(stat.S_IMODE(log.stat().st_mode), 0o600)
 
 
+class SkipStageTests(unittest.TestCase):
+    def test_a_stage_without_a_convention_succeeds_and_says_why(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = git_repo({"App.xcodeproj/project.pbxproj": "x"})
+            log = base / "stage.log"
+            completed = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/ci/ci_run_stage.py"), "--ecosystem", "xcode", "--stage", "lint",
+                 "--source", str(source), "--contract", str(ROOT / "contracts/repository-ci-v1.json"),
+                 "--host-os", "macos", "--work-dir", str(base / "work"), "--log-path", str(log)],
+                env=dict(os.environ, CI_OPTIONS_JSON="{}"), capture_output=True, text=True)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn("skipped", log.read_text())
+
+
 class WorkflowShapeTests(unittest.TestCase):
     def entry(self, name):
         return yaml.safe_load((ROOT / f".github/workflows/ci-{name}.yml").read_text())
@@ -258,8 +276,8 @@ class WorkflowShapeTests(unittest.TestCase):
             self.assertEqual(set(inputs), {"request_id", "repository", "ref", "is_tag", "operation", "options"})
             self.assertIn("inputs.request_id", document["run-name"])
             self.assertEqual(document["permissions"], {"contents": "read"})
-            self.assertIn(name, document["concurrency"]["group"])
-            self.assertEqual(document["concurrency"]["cancel-in-progress"], "${{ inputs.is_tag != 'true' }}")
+            # safety net only: one pipeline per repository + ref, never cancels another request
+            self.assertEqual(document["concurrency"], {"group": "ci-${{ inputs.repository }}-${{ inputs.ref }}", "cancel-in-progress": False})
             self.assertEqual(list(document["jobs"]), ["plan", "lint", "test", "build"])
 
     def test_workflows_never_call_agent_state_or_drive_or_a_global_cap(self):
@@ -278,10 +296,10 @@ class WorkflowShapeTests(unittest.TestCase):
                 if value is None:
                     continue
                 if value.startswith("./central-ci/"):
-                    self.assertTrue((ROOT / value[len("./central-ci/"):] / "action.yml").is_file(), value)
-                elif value.startswith("StreamScapeTV/ci-workflows/actions/"):
-                    # Central's own shared actions are consumed at main (the S3 uploader of the mirror/S3 change).
-                    self.assertRegex(value, r"^StreamScapeTV/ci-workflows/actions/[a-z0-9-]+@main$")
+                    # actions/s3-log-stream arrives with the S3 transport change (PR 1213); until it is merged it is the one
+                    # reference allowed to be absent
+                    if value != "./central-ci/actions/s3-log-stream":
+                        self.assertTrue((ROOT / value[len("./central-ci/"):] / "action.yml").is_file(), value)
                 else:
                     self.assertRegex(value, SHA_PIN, f"{path.name}: {value}")
 
@@ -309,6 +327,10 @@ class WorkflowShapeTests(unittest.TestCase):
             document = self.entry(name)
             self.assertEqual(document["jobs"]["test"]["needs"], ["plan", "lint"])
             self.assertEqual(document["jobs"]["build"]["needs"], ["plan", "test"])
+            # every later stage runs only when the previous stage succeeded (a failed lint stops the chain)
+            self.assertTrue(document["jobs"]["test"]["if"].endswith("&& needs.lint.result == 'success' }}"))
+            self.assertTrue(document["jobs"]["build"]["if"].endswith("&& needs.test.result == 'success' }}"))
+            self.assertNotIn("!=", document["jobs"]["build"]["if"].split("contains")[-1])
             for job in ("lint", "build", "test"):
                 self.assertEqual(document["jobs"][job]["uses"], f"./.github/workflows/ci-{name}-stage.yml")
                 self.assertEqual(document["jobs"][job]["with"]["stage"], job)
@@ -316,14 +338,32 @@ class WorkflowShapeTests(unittest.TestCase):
     def test_each_stage_streams_logs_to_s3_around_the_run_and_stops_with_always(self):
         for name in ECOSYSTEMS:
             steps = yaml.safe_load((ROOT / f".github/workflows/ci-{name}-stage.yml").read_text())["jobs"]["stage"]["steps"]
-            streams = [(i, s) for i, s in enumerate(steps) if s.get("uses", "").endswith("/s3-log-stream@main")]
+            streams = [(i, s) for i, s in enumerate(steps) if s.get("uses", "") == "./central-ci/actions/s3-log-stream"]
             self.assertEqual([s["with"]["phase"] for _, s in streams], ["start", "stop"])
             run = next(i for i, s in enumerate(steps) if s.get("id") == "run")
             self.assertLess(streams[0][0], run)
             self.assertGreater(streams[1][0], run)
             self.assertEqual(streams[1][1]["if"], "${{ always() }}")
+            self.assertTrue(streams[1][1]["continue-on-error"], "an S3 outage must not red the stage")
+            self.assertNotIn("env", streams[0][1], "the background uploader process gets no credentials in its environment")
             self.assertIn("inputs.request_id", streams[0][1]["with"]["request_id"])
             self.assertIn("S3_GITHUB_TRANSPORT_ACCESS_KEY", streams[0][1]["with"]["s3_access_key"])
+
+    def test_xcode_fixture_values_are_in_the_scrub_list_of_the_run_step(self):
+        steps = yaml.safe_load((ROOT / ".github/workflows/ci-xcode-stage.yml").read_text())["jobs"]["stage"]["steps"]
+        env = next(step for step in steps if step.get("id") == "run")["env"]
+        for name in ("STREAMSCAPE_API_BASE", "STREAMSCAPE_EMAIL", "STREAMSCAPE_PASSWORD", "STREAMSCAPE_DEMO_EMAIL",
+                     "STREAMSCAPE_DEMO_PASSWORD", "XTREAM_URL", "XTREAM_USERNAME", "XTREAM_PASSWORD"):
+            self.assertEqual(env[f"CI_SECRET_FIXTURE_{name}"], f"${{{{ secrets.{name} }}}}")
+
+    def test_cache_action_fails_closed_and_logs_into_the_stage_log(self):
+        action = (ROOT / "actions/ci-cache/action.yml").read_text()
+        self.assertIn('grep -q "HTTP 404"', action)
+        self.assertIn("integration=none", action)
+        self.assertIn('>> "${LOG_PATH}"', action)
+        for name in ECOSYSTEMS:
+            text = (ROOT / f".github/workflows/ci-{name}-stage.yml").read_text()
+            self.assertLess(text.index("Prepare the stage log file"), text.index("Restore "))
 
     def test_stage_runs_without_central_secrets_in_the_product_environment_and_only_trusted_cache_saves(self):
         for name in ECOSYSTEMS:

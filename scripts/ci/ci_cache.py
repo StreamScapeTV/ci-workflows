@@ -6,13 +6,13 @@
 * The key names the repository, OS/arch and the toolchain generation (Gradle version) plus a
   fingerprint of tracked dependency inputs and an month. It never names the commit, branch,
   test selector or workflow run.
-* ``restore-keys`` fall back first to the same fingerprint of an older month, then to any entry of
+* ``restore-keys`` fall back first to the same fingerprint of an older day, then to any entry of
   the same repository/toolchain. A dependency change therefore starts from the previous cache and
   downloads only the difference, instead of starting cold.
 * Only the integration branch may save: ``develop``, or ``main`` for a repository that has no
   ``develop``. Other branches, pull requests and tags only restore, so they cannot plant bytes that
   later runs restore. The 10 GB budget is shared by the whole organization, so keys are narrow
-  (one entry per repository, toolchain generation, dependency fingerprint and month).
+  (one entry per repository, toolchain generation, dependency fingerprint and day).
 
 ``guard`` refuses to save a cache directory that contains symlinks, is too large or contains a
 configured credential value.
@@ -106,8 +106,11 @@ def swiftpm_fingerprint(root: Path):
 
 
 def trust_of(ref: str, is_tag: str, integration_branch: str) -> str:
+    # "none" = the integration branch could not be determined: fail closed, restore only.
+    if integration_branch == "none":
+        return "untrusted"
     if integration_branch not in INTEGRATION_BRANCHES:
-        raise SystemExit("integration branch must be develop or main")
+        raise SystemExit("integration branch must be develop, main or none")
     return "trusted" if is_tag == "false" and ref == integration_branch else "untrusted"
 
 
@@ -117,7 +120,7 @@ def identity(kind: str, root: Path, repository: str, ref: str, is_tag: str, runn
         raise SystemExit("cache repository is outside the reviewed bound")
     if is_tag not in ("true", "false"):
         raise SystemExit("cache source kind is invalid")
-    period = f"{today.year}{today.month:02d}"
+    period = today.strftime("%Y%m%d")
     repo = hashlib.sha256(repository.encode()).hexdigest()[:16]
     arch = re.sub(r"[^A-Za-z0-9]", "", runner_arch)
     osname = re.sub(r"[^A-Za-z0-9]", "", runner_os)

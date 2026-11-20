@@ -24,6 +24,10 @@ inputs:
   token:
     description: Read-only source token used to check whether the repository has a develop branch
     required: true
+  log_path:
+    description: Stage log file the restore result line is appended to (so it reaches the S3 log)
+    required: false
+    default: ""
   secrets_to_guard:
     description: Newline separated credential values that must not appear in a saved cache
     required: false
@@ -44,9 +48,14 @@ runs:
         GH_TOKEN: ${{ inputs.token }}
       run: |
         set -Eeuo pipefail
-        integration=develop
-        if ! gh api "repos/${SOURCE_REPOSITORY}/git/ref/heads/develop" --silent 2>/dev/null; then
+        # develop if it exists, main only on an explicit 404, anything else fails closed (restore only).
+        integration=none
+        if output="$(gh api "repos/${SOURCE_REPOSITORY}/git/ref/heads/develop" 2>&1)"; then
+          integration=develop
+        elif grep -q "HTTP 404" <<<"${output}"; then
           integration=main
+        else
+          echo "::warning::cannot determine the integration branch; this run only restores caches" >&2
         fi
         export INTEGRATION_BRANCH="${integration}"
         python3 central-ci/scripts/ci/ci_cache.py identity --kind "${CACHE_KIND}" --source source --home "${CACHE_HOME}"
@@ -70,9 +79,12 @@ runs:
         MATCHED_KEY: ${{ steps.restore.outputs.cache-matched-key }}
         TRUST: ${{ steps.identity.outputs.trust }}
         INTEGRATION: ${{ steps.identity.outputs.integration_branch }}
+        LOG_PATH: ${{ inputs.log_path }}
       run: |
-        printf '== %s-cache: exact_hit=%s matched_key=%s ref_trust=%s integration_branch=%s ==\n' \
-          "${KIND}" "${CACHE_HIT:-false}" "${MATCHED_KEY:-none}" "${TRUST}" "${INTEGRATION}"
+        line="$(printf '== %s-cache: exact_hit=%s matched_key=%s ref_trust=%s integration_branch=%s ==' \
+          "${KIND}" "${CACHE_HIT:-false}" "${MATCHED_KEY:-none}" "${TRUST}" "${INTEGRATION}")"
+        printf '%s\n' "${line}"
+        if test -n "${LOG_PATH}"; then printf '%s\n' "${line}" >> "${LOG_PATH}"; fi
 
     - name: Check whether this exact key already exists
       id: exists

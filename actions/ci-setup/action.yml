@@ -44,13 +44,25 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Prepare source token
+    - name: Resolve repository name
+      id: name
+      shell: bash
+      env:
+        REPOSITORY: ${{ inputs.repository }}
+      run: |
+        set -Eeuo pipefail
+        [[ "${REPOSITORY}" =~ ^StreamScapeTV/[A-Za-z0-9_.-]{1,100}$ ]] || { echo "repository must be StreamScapeTV/<name>" >&2; exit 2; }
+        printf 'name=%s\n' "${REPOSITORY#*/}" >> "${GITHUB_OUTPUT}"
+
+    - name: Prepare source token (this repository only unless github_git)
       id: token
       uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
       with:
         app-id: ${{ inputs.app_id }}
         private-key: ${{ inputs.private_key }}
         owner: StreamScapeTV
+        # The checkout needs only this repository; github_git (private SwiftPM packages) needs the organization.
+        repositories: ${{ inputs.github_git == 'true' && '' || steps.name.outputs.name }}
         permission-contents: read
         permission-metadata: read
 

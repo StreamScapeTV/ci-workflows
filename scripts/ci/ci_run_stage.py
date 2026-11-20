@@ -95,6 +95,10 @@ def main(argv=None) -> int:
     env = child_environment(args, stage_inputs)
 
     stream = LogFile(Path(args.log_path), secrets_from_environment())
+    if command["mode"] == "skip":
+        stream.add(f"== stage {args.stage} skipped: {command['reason']} ==\n".encode())
+        stream.close()
+        return 0
     stream.add(f"== stage {args.stage} ({command['mode']}) ==\n".encode())
     process = subprocess.Popen(command["argv"], cwd=source, env=env, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, bufsize=0)

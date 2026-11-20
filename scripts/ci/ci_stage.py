@@ -31,6 +31,10 @@ def _fail(message: str):
     raise SystemExit(message)
 
 
+def _skip(reason: str):
+    return {"mode": "skip", "argv": [], "reason": reason}
+
+
 def _script(source: Path, stage: str):
     relative = SCRIPT[stage]
     mode = _tracked(source, relative)
@@ -54,7 +58,7 @@ def xcode(source: Path, stage: str, options: dict, derived_data: str = "DerivedD
     if stage == "lint":
         if ".swiftlint.yml" in names:
             return {"mode": "convention", "argv": ["swiftlint", "lint", "--strict"]}
-        _fail("Xcode convention: lint needs a tracked .swiftlint.yml (or a transition .ci/lint.sh)")
+        return _skip("no lint convention: add a tracked .swiftlint.yml (or a transition .ci/lint.sh) to enable it")
     workspaces = sorted({n.split("/")[0] for n in names if n.endswith(".xcworkspace/contents.xcworkspacedata") and n.count("/") == 1})
     projects = sorted({n.split("/")[0] for n in names if n.endswith(".xcodeproj/project.pbxproj") and n.count("/") == 1})
     configuration = {"debug": "Debug", "release": "Release", None: "Debug"}[options.get("build_configuration")]
@@ -75,7 +79,7 @@ def xcode(source: Path, stage: str, options: dict, derived_data: str = "DerivedD
     if platform not in destinations:
         _fail("Xcode convention: pass options.product_target as ios, tvos or macos")
     if stage == "test" and platform != "macos":
-        _fail("Xcode convention: simulator tests are not standardised yet; run macos tests or keep .ci/test.sh (transition)")
+        return _skip("simulator tests are not standardised yet: use product_target macos or keep .ci/test.sh (transition)")
     flag = "-workspace" if workspaces else "-project"
     argv = ["xcodebuild", flag, container[0], "-scheme", scheme, "-configuration", configuration,
             "-destination", destinations[platform], "-derivedDataPath", derived_data,

@@ -38,10 +38,11 @@ run-name: CI gradle ${{ inputs.request_id }}
 permissions:
   contents: read
 
-# One lane per repository + ref + purpose: a newer run supersedes an older one (never for tags).
+# Safety net only: one pipeline per project and branch at a time (the runner enforces this and
+# cancels by request id; it never relies on concurrency to cancel). Never cancels another request.
 concurrency:
-  group: ci-gradle-${{ inputs.repository }}-${{ inputs.ref }}-${{ inputs.operation }}
-  cancel-in-progress: ${{ inputs.is_tag != 'true' }}
+  group: ci-${{ inputs.repository }}-${{ inputs.ref }}
+  cancel-in-progress: false
 
 jobs:
   plan:
@@ -105,7 +106,7 @@ jobs:
 
   test:
     needs: [plan, lint]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && contains(fromJSON(needs.plan.outputs.stages), 'test') && needs.lint.result != 'failure' && needs.lint.result != 'cancelled' }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && contains(fromJSON(needs.plan.outputs.stages), 'test') && needs.lint.result == 'success' }}
     uses: ./.github/workflows/ci-gradle-stage.yml
     with:
       request_id: ${{ inputs.request_id }}
@@ -126,7 +127,7 @@ jobs:
 
   build:
     needs: [plan, test]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && contains(fromJSON(needs.plan.outputs.stages), 'build') && needs.test.result != 'failure' && needs.test.result != 'cancelled' }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && contains(fromJSON(needs.plan.outputs.stages), 'build') && needs.test.result == 'success' }}
     uses: ./.github/workflows/ci-gradle-stage.yml
     with:
       request_id: ${{ inputs.request_id }}

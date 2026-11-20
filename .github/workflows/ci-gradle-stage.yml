@@ -86,17 +86,6 @@ jobs:
           distribution: temurin
           java-version: "25"
 
-      - name: Restore Gradle caches
-        uses: ./central-ci/actions/ci-cache
-        with:
-          phase: restore
-          kind: gradle
-          repository: ${{ inputs.repository }}
-          ref: ${{ inputs.ref }}
-          is_tag: ${{ inputs.is_tag }}
-          home: ${{ steps.setup.outputs.auth_home }}/.gradle
-          token: ${{ steps.setup.outputs.token }}
-
       - name: Prepare the stage log file
         shell: bash
         run: |
@@ -105,15 +94,20 @@ jobs:
           : > "${RUNNER_TEMP}/ci-work/stage.log"
           chmod 600 "${RUNNER_TEMP}/ci-work/stage.log"
 
+      - name: Restore Gradle caches
+        uses: ./central-ci/actions/ci-cache
+        with:
+          phase: restore
+          log_path: ${{ runner.temp }}/ci-work/stage.log
+          kind: gradle
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          is_tag: ${{ inputs.is_tag }}
+          home: ${{ steps.setup.outputs.auth_home }}/.gradle
+          token: ${{ steps.setup.outputs.token }}
+
       - name: Start live log stream to S3
-        uses: StreamScapeTV/ci-workflows/actions/s3-log-stream@main
-        env:
-          CI_SECRET_SOURCE_TOKEN: ${{ steps.setup.outputs.token }}
-          CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-          CI_SECRET_TAILSCALE_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          CI_SECRET_TAILSCALE_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
-          CI_SECRET_REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
-          CI_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+        uses: ./central-ci/actions/s3-log-stream
         with:
           phase: start
           repository: ${{ inputs.repository }}
@@ -155,7 +149,8 @@ jobs:
 
       - name: Stop live log stream and write the merged log
         if: ${{ always() }}
-        uses: StreamScapeTV/ci-workflows/actions/s3-log-stream@main
+        continue-on-error: true
+        uses: ./central-ci/actions/s3-log-stream
         with:
           phase: stop
           repository: ${{ inputs.repository }}
