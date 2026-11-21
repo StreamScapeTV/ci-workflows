@@ -46,11 +46,29 @@ def _script(source: Path, stage: str):
     return {"mode": "script", "argv": ["./" + relative]}
 
 
+ANDROID_MARKERS = ("build.gradle", "build.gradle.kts", "app/build.gradle", "app/build.gradle.kts", "gradle/libs.versions.toml")
+
+
+def android_project(source: Path) -> bool:
+    """An Android project applies a com.android.* plugin in a root/app build file or the version catalog."""
+    for name in ANDROID_MARKERS:
+        path = source / name
+        if path.is_file() and "com.android." in path.read_text(encoding="utf-8", errors="replace"):
+            return True
+    return False
+
+
+def gradle_tasks(source: Path, stage: str) -> list:
+    """Android: the debug variant only (all variants, benchmark and release included, is too slow and memory hungry)."""
+    if android_project(source):
+        return {"lint": ["lintDebug"], "build": ["assembleDebug"], "test": ["testDebugUnitTest"]}[stage]
+    return {"lint": ["check", "-x", "test"], "build": ["assemble"], "test": ["test"]}[stage]
+
+
 def gradle(source: Path, stage: str, options: dict):
     if _tracked(source, "gradlew") != "100755" or (source / "gradlew").is_symlink():
         _fail("Gradle convention: commit an executable gradlew (mode 100755) and gradle/wrapper/gradle-wrapper.properties")
-    tasks = {"lint": ["check", "-x", "test"], "build": ["assemble"], "test": ["test"]}[stage]
-    return {"mode": "convention", "argv": ["./gradlew", "--no-daemon", *tasks]}
+    return {"mode": "convention", "argv": ["./gradlew", "--no-daemon", *gradle_tasks(source, stage)]}
 
 
 def xcode(source: Path, stage: str, options: dict, derived_data: str = "DerivedData"):

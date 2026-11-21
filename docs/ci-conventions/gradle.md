@@ -11,15 +11,16 @@ A repository chosen for the Gradle workflow needs **no `.ci` directory** if it p
 
 | Stage (operation) | Command | What the project provides |
 | --- | --- | --- |
-| `lint` | `check -x test` | verification tasks attached to `check` (Android lint, detekt, ktlint, ...) |
-| `build` | `assemble` | the artifacts to build |
-| `test` | `test` | JVM unit tests (no emulator; emulator/instrumentation is a separate workflow) |
+| `lint` | `check -x test` (Android: `lintDebug`) | verification tasks attached to `check` (Android lint, detekt, ktlint, ...) |
+| `build` | `assemble` (Android: `assembleDebug`) | the artifacts to build |
+| `test` | `test` (Android: `testDebugUnitTest`) | JVM unit tests (no emulator; emulator/instrumentation is a separate workflow) |
 
 3. Product specifics in Gradle itself (tasks, `gradle.properties`, build types), never in a CI script.
    Enable the build cache (`org.gradle.caching=true`) and, if wanted, the configuration cache.
 4. Dependencies: public repositories, or the private Forgejo Maven reached through the properties the
    workflow writes (`centralRegistryUsername`, `centralRegistryReadToken` in the ephemeral
    `GRADLE_USER_HOME/gradle.properties`). Read them with `providers.gradleProperty`.
+An Android project (a `com.android.*` plugin in the root/`app` build file or the version catalog) runs the debug variant only, with `--max-workers=2`: all variants (benchmark, release, R8) in parallel froze a hosted runner for an hour.
 5. JDK 25 (Temurin) is provided by the workflow.
 
 Request options: `build_configuration` (`debug`/`release`), `test_selectors` (test stage), `product_target`.
