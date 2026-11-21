@@ -4,7 +4,10 @@ A repository chosen for the Gradle workflow needs **no `.ci` directory** if it p
 
 1. A tracked, executable `gradlew` (mode 100755) and `gradle/wrapper/gradle-wrapper.properties`
    whose `distributionUrl` names the Gradle version. The version selects the cache generation.
-2. The standard lifecycle tasks, which the workflow runs with `./gradlew --no-daemon`:
+2. The standard lifecycle tasks. The workflow runs every requested stage in ONE job and ONE invocation,
+   `./gradlew --no-daemon --continue --parallel <tasks>` (for example `assemble check` for lint+test+build;
+   `check` contains `test`), so compilation happens once. A `--dry-run` of each stage's own tasks decides
+   which task output and which failure belongs to which stage (the S3 logs are per stage):
 
 | Stage (operation) | Command | What the project provides |
 | --- | --- | --- |
@@ -21,6 +24,9 @@ A repository chosen for the Gradle workflow needs **no `.ci` directory** if it p
 
 Request options: `build_configuration` (`debug`/`release`), `test_selectors` (test stage), `product_target`.
 They reach a transition script as `CI_INPUTS_JSON` only; the convention commands ignore them today.
+
+A failed `lint` is a warning (reported, findings in the S3 log) and does not fail a `test` or `build` request; a failed `test` or `build` fails the request; when `lint` itself is the requested operation a failure fails it.
+With transition scripts (`.ci/*.sh`) the stages run one after the other in the same job, build first, and a failed stage never stops the next one; delete the scripts to get the single shared invocation.
 
 Failure messages name what is missing (for example "commit an executable gradlew"). Transition: a
 tracked executable `.ci/lint.sh`, `.ci/build.sh` or `.ci/test.sh` is used instead of the command
