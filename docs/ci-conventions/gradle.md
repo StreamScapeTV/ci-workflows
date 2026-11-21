@@ -27,3 +27,7 @@ tracked executable `.ci/lint.sh`, `.ci/build.sh` or `.ci/test.sh` is used instea
 above until the project follows the standard; then delete the script.
 
 Caches (integration branch writes only): Gradle `caches/modules-2`, `caches/build-cache-1`, `wrapper/dists`.
+Only the last stage of a request saves, under a key that ends with that stage (`...-<day>-build`), so a
+`build` request leaves a cache holding everything its build downloaded. The stage log starts with
+`== <kind>-cache: exact_hit=... ==`, then `== <kind>-cache-restore: seconds=N ==`; the saving stage
+ends with `== <kind>-cache-save: seconds=N saved=<true|false> ==` (kind `gradle` or `swiftpm`).

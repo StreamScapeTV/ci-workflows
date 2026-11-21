@@ -36,5 +36,9 @@ Test fixtures: the `test` stage (only) gets the shared integration fixtures as a
 Transition: a tracked executable `.ci/lint.sh`, `.ci/build.sh` or `.ci/test.sh` is used instead
 until the project follows the convention; then delete it.
 
-Caches (integration branch writes only): SwiftPM `artifacts` and `repositories`. DerivedData reuse
+Caches (integration branch writes only): SwiftPM `artifacts` and `repositories`.
+Only the last stage of a request saves, under a key that ends with that stage (`...-<day>-build`), so a
+`build` request leaves a cache holding everything its build downloaded. The stage log starts with
+`== <kind>-cache: exact_hit=... ==`, then `== <kind>-cache-restore: seconds=N ==`; the saving stage
+ends with `== <kind>-cache-save: seconds=N saved=<true|false> ==` (kind `gradle` or `swiftpm`). DerivedData reuse
 needs a small product change (see `per-purpose-ci-workflows.md`).
