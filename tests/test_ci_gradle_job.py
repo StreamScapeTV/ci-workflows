@@ -14,6 +14,7 @@ spec = importlib.util.spec_from_file_location("ci_run_gradle_job", ROOT / "scrip
 job = importlib.util.module_from_spec(spec)
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 spec.loader.exec_module(job)
+import ci_stage  # noqa: E402
 
 # A fake gradlew: --dry-run lists the closure of the requested tasks, a real run prints a Gradle-like
 # transcript (tasks interleave with their own output) and fails the task named in FAKE_FAIL.
@@ -55,7 +56,7 @@ def repo(files: dict, executable=()) -> Path:
     return directory
 
 
-def run_job(source: Path, stages: list, top: str, fail: str = "", extra_env=None):
+def run_job(source: Path, stages: list, top: str, fail: str = "", extra_env=None, extra_args=()):
     base = Path(tempfile.mkdtemp())
     (base / "logs").mkdir()
     out = base / "github_output"
@@ -65,7 +66,7 @@ def run_job(source: Path, stages: list, top: str, fail: str = "", extra_env=None
     done = subprocess.run(
         [sys.executable, str(ROOT / "scripts/ci/ci_run_gradle_job.py"), "--stages", json.dumps(stages), "--top", top,
          "--source", str(source), "--contract", str(ROOT / "contracts/repository-ci-v1.json"),
-         "--work-dir", str(base / "work"), "--log-dir", str(base / "logs"), "--s3-base", "logs/app/req1/"],
+         "--work-dir", str(base / "work"), "--log-dir", str(base / "logs"), "--s3-base", "logs/app/req1/", *extra_args],
         env=env, capture_output=True, text=True)
     outputs = dict(line.split("=", 1) for line in out.read_text().split()) if out.exists() else {}
     calls = (base / "calls").read_text().splitlines() if (base / "calls").exists() else []
@@ -81,7 +82,7 @@ class GradleOneJobTests(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(outputs, {"build": "passed", "test": "passed", "lint": "passed", "request_ok": "true"})
         real = [c for c in calls if "--dry-run" not in c]
-        self.assertEqual(real, ["--no-daemon --console=plain --continue --parallel assemble check"])  # check holds test
+        self.assertEqual(real, ["--no-daemon --console=plain --continue --parallel --max-workers=2 assemble check"])  # check holds test
         self.assertEqual(len([c for c in calls if "--dry-run" in c]), 3)
         self.assertIn("output of :compile", (logs / "stage-lint.log").read_text())
         self.assertIn("output of :assembleDebug", (logs / "stage-build.log").read_text())
@@ -97,6 +98,29 @@ class GradleOneJobTests(unittest.TestCase):
     def test_the_closure_sizes_are_a_status_line_of_the_actions_log(self):
         done, _, _, _ = run_job(self.source, ["lint", "test", "build"], "build")
         self.assertIn("gradle closures build=2 test=2 lint=2", done.stdout + done.stderr)
+
+    def test_an_android_project_runs_the_debug_variant_only(self):
+        android = repo({"gradlew": FAKE_GRADLEW, "app/build.gradle.kts": 'plugins { id("com.android.application") }'})
+        self.assertEqual(job.root_tasks(["lint", "test", "build"], android), ["assembleDebug", "testDebugUnitTest", "lintDebug"])
+        self.assertEqual(job.root_tasks(["lint"], android), ["lintDebug"])
+        done, outputs, calls, _ = run_job(android, ["lint", "test", "build"], "build")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        real = [c for c in calls if "--dry-run" not in c]
+        self.assertEqual(real, ["--no-daemon --console=plain --continue --parallel --max-workers=2 assembleDebug testDebugUnitTest lintDebug"])
+        catalog = repo({"gradlew": FAKE_GRADLEW, "gradle/libs.versions.toml": 'agp = { id = "com.android.application" }'})
+        self.assertTrue(ci_stage.android_project(catalog))
+        self.assertFalse(ci_stage.android_project(self.source))
+
+    def test_a_hung_run_is_dumped_killed_and_still_ends_every_stage_with_an_exit_line(self):
+        hang = repo({"gradlew": FAKE_GRADLEW.replace('echo "Starting a Gradle Daemon"', 'echo "Starting a Gradle Daemon"; sleep 60')})
+        done, outputs, _, logs = run_job(hang, ["lint", "test", "build"], "build", extra_env={}, extra_args=["--timeout-minutes", "0.03", "--stall-minutes", "0.01"])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(outputs, {"build": "failed", "test": "failed", "lint": "failed", "request_ok": "false"})
+        for stage in ("lint", "test", "build"):
+            text = (logs / f"stage-{stage}.log").read_text()
+            self.assertIn("watchdog: no output for", text)
+            self.assertIn("watchdog: killing the Gradle process group", text)
+            self.assertIn(f"== stage {stage} exit 1 ==", text)
 
     def test_the_actions_log_carries_status_lines_only(self):
         done, _o, _c, _l = run_job(self.source, ["lint", "build"], "build")
@@ -137,9 +161,9 @@ class GradleOneJobTests(unittest.TestCase):
         self.assertIn("test-ran", (logs / "stage-test.log").read_text())  # a failed build did not stop test
 
     def test_pure_decisions(self):
-        self.assertEqual(job.root_tasks(["build", "test"]), ["assemble", "test"])
-        self.assertEqual(job.root_tasks(["lint", "test", "build"]), ["assemble", "check"])
-        self.assertEqual(job.root_tasks(["lint"]), ["check", "-x", "test"])
+        self.assertEqual(job.root_tasks(["build", "test"], self.source), ["assemble", "test"])
+        self.assertEqual(job.root_tasks(["lint", "test", "build"], self.source), ["assemble", "check"])
+        self.assertEqual(job.root_tasks(["lint"], self.source), ["check", "-x", "test"])
         self.assertTrue(job.request_ok(["lint", "build"], {"lint": "failed", "build": "passed"}, "build"))
         self.assertFalse(job.request_ok(["lint"], {"lint": "failed"}, "lint"))
         self.assertFalse(job.request_ok(["test"], {}, "test"))  # no result is never ok

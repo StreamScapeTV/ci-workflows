@@ -11,15 +11,16 @@ A repository chosen for the Gradle workflow needs **no `.ci` directory** if it p
 
 | Stage (operation) | Command | What the project provides |
 | --- | --- | --- |
-| `lint` | `check -x test` | verification tasks attached to `check` (Android lint, detekt, ktlint, ...) |
-| `build` | `assemble` | the artifacts to build |
-| `test` | `test` | JVM unit tests (no emulator; emulator/instrumentation is a separate workflow) |
+| `lint` | `check -x test` (Android: `lintDebug`) | verification tasks attached to `check` (Android lint, detekt, ktlint, ...) |
+| `build` | `assemble` (Android: `assembleDebug`) | the artifacts to build |
+| `test` | `test` (Android: `testDebugUnitTest`) | JVM unit tests (no emulator; emulator/instrumentation is a separate workflow) |
 
 3. Product specifics in Gradle itself (tasks, `gradle.properties`, build types), never in a CI script.
    Enable the build cache (`org.gradle.caching=true`) and, if wanted, the configuration cache.
 4. Dependencies: public repositories, or the private Forgejo Maven reached through the properties the
    workflow writes (`centralRegistryUsername`, `centralRegistryReadToken` in the ephemeral
    `GRADLE_USER_HOME/gradle.properties`). Read them with `providers.gradleProperty`.
+An Android project (a `com.android.*` plugin in the root/`app` build file or the version catalog) runs the debug variant only, with `--max-workers=2`: all variants (benchmark, release, R8) in parallel froze a hosted runner for an hour.
 5. JDK 25 (Temurin) is provided by the workflow.
 
 Request options: `build_configuration` (`debug`/`release`), `test_selectors` (test stage), `product_target`.
@@ -27,6 +28,8 @@ They reach a transition script as `CI_INPUTS_JSON` only; the convention commands
 
 A failed `lint` is a warning (reported, findings in the S3 log) and does not fail a `test` or `build` request; a failed `test` or `build` fails the request; when `lint` itself is the requested operation a failure fails it.
 With transition scripts (`.ci/*.sh`) the stages run one after the other in the same job, build first, and a failed stage never stops the next one; delete the scripts to get the single shared invocation.
+
+Watchdog (convention path): after 20 minutes without output the runner writes a `jstack` of every JVM into all stage logs; after 90 minutes (job limit 120) it dumps again and kills the Gradle process group, marks the stages failed and still writes each stage's `exit` line and final log (`--stall-minutes`, `--timeout-minutes`). Kills of the runner itself by GitHub cannot be caught.
 
 Failure messages name what is missing (for example "commit an executable gradlew"). Transition: a
 tracked executable `.ci/lint.sh`, `.ci/build.sh` or `.ci/test.sh` is used instead of the command
