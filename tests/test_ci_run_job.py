@@ -69,6 +69,29 @@ class NodeOneJobTests(unittest.TestCase):
             self.assertNotIn("supersecretvalue", (logs / f"stage-{stage}.log").read_text())
         self.assertNotIn("npm said", done.stdout)  # the Actions log carries status lines only
 
+    def test_node_lint_starts_after_the_build_finishes_while_the_test_runs_alongside(self):
+        directory = Path(tempfile.mkdtemp())
+        events = directory / "events"
+        npm = directory / "npm"
+        # build takes longest; test is slow too; lint is instant: lint must still start only after build ended
+        npm.write_text('#!/bin/sh\ncase "$*" in\n  ci*) exit 0;;\n  "run build") echo "build-start" >> "%s"; sleep 1; echo "build-end" >> "%s";;\n'
+                       '  "run lint") echo "lint-start" >> "%s";;\n  test) echo "test-start" >> "%s"; sleep 1.5; echo "test-end" >> "%s";;\nesac\nexit 0\n'
+                       % (events, events, events, events, events))
+        npm.chmod(0o755)
+        source = repo({"package.json": PACKAGE, "package-lock.json": "{}"})
+        _d, outputs, _l = run_job("node", source, ["lint", "test", "build"], "build", str(directory))
+        self.assertEqual(outputs["request_ok"], "true")
+        seen = events.read_text().splitlines()
+        self.assertLess(seen.index("build-end"), seen.index("lint-start"))  # lint never starts under a running build
+        self.assertLess(seen.index("test-start"), seen.index("build-end"))  # the test overlaps the build
+        self.assertEqual(outputs["lint"], "passed")
+
+    def test_a_failed_build_does_not_stop_the_lint_that_follows(self):
+        calls = Path(tempfile.mkdtemp()) / "calls"
+        source = repo({"package.json": PACKAGE, "package-lock.json": "{}"})
+        _d, outputs, _l = run_job("node", source, ["lint", "build"], "build", fake_npm(calls, fail=("build",)))
+        self.assertEqual((outputs["build"], outputs["lint"], outputs["request_ok"]), ("failed", "passed", "false"))
+
     def test_lint_failure_is_a_warning_and_test_or_build_failure_fails_the_request(self):
         source = repo({"package.json": PACKAGE, "package-lock.json": "{}"})
         calls = Path(tempfile.mkdtemp()) / "calls"
