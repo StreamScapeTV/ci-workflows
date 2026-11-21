@@ -1,7 +1,8 @@
 # Ecosystem workflow: Node. Dispatched directly by the agent runner, which finds
 # the run by the request id in run-name. No Agent State, no broker. A project that follows the
 # Node standard (docs/ci-conventions/node.md) needs no .ci directory; a tracked
-# .ci/<stage>.sh is still honoured during the transition.
+# .ci/<stage>.sh is still honoured during the transition. All requested stages run in ONE job
+# ('node / stages'): one install, then the stages as parallel processes; lint never fails a build/test request.
 name: Central CI Node
 
 run-name: CI node ${{ inputs.request_id }}
@@ -57,6 +58,7 @@ jobs:
     outputs:
       stages: ${{ steps.validate.outputs.stages }}
       options: ${{ steps.validate.outputs.options }}
+      job_stages: ${{ steps.validate.outputs.job_stages }}
     steps:
       - name: Check out Central CI contract and helpers
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -86,64 +88,20 @@ jobs:
           {
             printf 'stages=%s\n' "$(jq -c '.stages' <<<"${result}")"
             printf 'options=%s\n' "$(jq -c '.options' <<<"${result}")"
+            printf 'job_stages=%s\n' "$(jq -c 'map(select(. != "release"))' <<<"$(jq -c '.stages' <<<"${result}")")"
           } >> "${GITHUB_OUTPUT}"
 
-  lint:
+  node:
     needs: plan
-    if: ${{ contains(fromJSON(needs.plan.outputs.stages), 'lint') }}
+    if: ${{ needs.plan.result == 'success' && needs.plan.outputs.job_stages != '[]' }}
     uses: ./.github/workflows/ci-node-stage.yml
     with:
       request_id: ${{ inputs.request_id }}
       repository: ${{ inputs.repository }}
       ref: ${{ inputs.ref }}
       is_tag: ${{ inputs.is_tag }}
-      stage: lint
-      options: ${{ needs.plan.outputs.options }}
-    secrets:
-      SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
-      SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-      TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-      TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
-      FORGEJO_REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
-      CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
-      S3_GITHUB_TRANSPORT_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
-      S3_GITHUB_TRANSPORT_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
-      S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-      S3_BUCKET: ${{ secrets.S3_BUCKET }}
-
-  test:
-    needs: [plan, lint]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && contains(fromJSON(needs.plan.outputs.stages), 'test') && needs.lint.result == 'success' }}
-    uses: ./.github/workflows/ci-node-stage.yml
-    with:
-      request_id: ${{ inputs.request_id }}
-      repository: ${{ inputs.repository }}
-      ref: ${{ inputs.ref }}
-      is_tag: ${{ inputs.is_tag }}
-      stage: test
-      options: ${{ needs.plan.outputs.options }}
-    secrets:
-      SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
-      SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
-      TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-      TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
-      FORGEJO_REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
-      CIW_MAVEN_PACKAGE_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
-      S3_GITHUB_TRANSPORT_ACCESS_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
-      S3_GITHUB_TRANSPORT_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
-      S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-      S3_BUCKET: ${{ secrets.S3_BUCKET }}
-
-  build:
-    needs: [plan, test]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && contains(fromJSON(needs.plan.outputs.stages), 'build') && needs.test.result == 'success' }}
-    uses: ./.github/workflows/ci-node-stage.yml
-    with:
-      request_id: ${{ inputs.request_id }}
-      repository: ${{ inputs.repository }}
-      ref: ${{ inputs.ref }}
-      is_tag: ${{ inputs.is_tag }}
-      stage: build
+      stages: ${{ needs.plan.outputs.job_stages }}
+      top: ${{ inputs.operation }}
       options: ${{ needs.plan.outputs.options }}
     secrets:
       SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
@@ -158,8 +116,8 @@ jobs:
       S3_BUCKET: ${{ secrets.S3_BUCKET }}
 
   release:
-    needs: [plan, build]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && contains(fromJSON(needs.plan.outputs.stages), 'release') && needs.build.result == 'success' }}
+    needs: [plan, node]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && contains(fromJSON(needs.plan.outputs.stages), 'release') && needs.node.result == 'success' }}
     uses: ./.github/workflows/ci-oci-release-stage.yml
     with:
       request_id: ${{ inputs.request_id }}
