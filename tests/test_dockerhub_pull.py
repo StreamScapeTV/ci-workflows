@@ -80,64 +80,8 @@ class DockerHubPullTests(unittest.TestCase):
             self.assertEqual(code, 1); self.assertEqual(calls, [])
             self.assertEqual((root / 'existing').read_text(), 'do not borrow')
 
-    def test_all_pull_paths_use_default_setup_and_always_cleanup(self):
-        for workflow, job in [('repository', 'execute'), ('public-native-image-chart', 'publish'), ('oci-reproducibility', 'prove')]:
-            with self.subTest(workflow=workflow):
-                value = yaml.safe_load((ROOT / '.github/workflows' / (workflow + '.yml')).read_text())
-                steps = value['jobs'][job]['steps']
-                setup = next(s for s in steps if s.get('id') == 'dockerhub_read')
-                cleanup = next(s for s in steps if s.get('id') == 'dockerhub_read_cleanup')
-                self.assertNotIn('capabilities', setup.get('if', ''))
-                self.assertEqual(setup['uses'], 'StreamScapeTV/ci-workflows/actions/dockerhub-read@main')
-                self.assertIn('always()', cleanup['if'])
-                self.assertEqual(cleanup['with'], {'phase': 'cleanup'})
-                for secret in ['DOCKERHUB_USERNAME', 'DOCKERHUB_READ_TOKEN']:
-                    self.assertIn(secret, value['on']['workflow_call']['secrets'])
-                self.assertIn('CI_SECRET_DOCKERHUB_READ_TOKEN', (ROOT / '.github/workflows' / (workflow + '.yml')).read_text())
-        contract = json.loads((ROOT / 'contracts/repository-ci-v1.json').read_text())
-        self.assertNotIn('dockerhub_public_pull', contract['capabilityTypes'])
-        dispatch = yaml.safe_load((ROOT / '.github/workflows/central-ci-dispatch.yml').read_text())
-        for job in ['repository', 'repository_release']:
-            self.assertEqual(dispatch['jobs'][job]['secrets']['DOCKERHUB_READ_TOKEN'], '${{ secrets.DOCKERHUB_READ_TOKEN }}')
-        plan = yaml.safe_load((ROOT / '.github/workflows/repository-plan.yml').read_text())
-        self.assertNotIn('release', plan['jobs']['execute']['secrets']['DOCKERHUB_READ_TOKEN'])
 
-    def test_cleanup_failure_cannot_report_success_to_agent_state(self):
-        import re
-        for workflow, job in [('repository', 'execute'), ('public-native-image-chart', 'publish'), ('oci-reproducibility', 'prove')]:
-            value = yaml.safe_load((ROOT / '.github/workflows' / (workflow + '.yml')).read_text())
-            finish = next(s for s in value['jobs'][job]['steps'] if s.get('with', {}).get('phase') == 'finish')
-            expression = finish['with']['status'].strip()[3:-2].strip()
-            for failed in ('dockerhub_read', 'dockerhub_read_cleanup'):
-                current = re.sub(r"steps\.([a-z_]+)\.outcome", lambda m: repr('failure' if m[1] == failed else 'success'), expression)
-                current = current.replace('needs.resolve_host.outputs.host_os', repr('linux')).replace('&&', ' and ').replace('||', ' or ')
-                self.assertEqual(eval(' '.join(current.split()), {'__builtins__': {}}), 'failed', (workflow, failed))
-        library = yaml.safe_load((ROOT / '.github/workflows/library-package-release.yml').read_text())
-        dispatch = yaml.safe_load((ROOT / '.github/workflows/central-ci-dispatch.yml').read_text())
-        for secret in ('DOCKERHUB_USERNAME', 'DOCKERHUB_READ_TOKEN'):
-            self.assertIn(secret, library['on']['workflow_call']['secrets'])
-            self.assertIn('secrets.' + secret, library['jobs']['readiness']['secrets'][secret])
-            self.assertEqual(dispatch['jobs']['library_package_release']['secrets'][secret], '${{ secrets.' + secret + ' }}')
-        repository = yaml.safe_load((ROOT / '.github/workflows/repository.yml').read_text())
-        cleanup = next(s for s in repository['jobs']['execute']['steps'] if s.get('id') == 'dockerhub_read_cleanup')
-        self.assertIn("needs.resolve_host.outputs.host_os == 'linux'", cleanup['if'])
-        text = (ROOT / '.github/workflows/repository.yml').read_text()
-        self.assertIn('test "${DOCKERHUB_READ_CLEANUP_OUTCOME}" = success', text)
 
-    def test_private_evidence_scrubs_default_raw_and_derived_secrets(self):
-        from tests.test_repository_workflow import RepositoryWorkflowTests
-        harness = RepositoryWorkflowTests(methodName='test_private_agent_state_capability_grant_is_exactly_bound_and_fail_closed')
-        harness.setUpClass()
-        with harness.evidence_fixture() as (directory, env):
-            user, token = 'synthetic-reader', 'synthetic-token-0123456789'
-            encoded = base64.b64encode((user + ':' + token).encode()).decode()
-            env.update(CI_SECRET_DOCKERHUB_USERNAME=user, CI_SECRET_DOCKERHUB_READ_TOKEN=token)
-            (directory / 'central.log').write_text('raw ' + token + ' encoded ' + encoded + '\n')
-            result = harness.execute_evidence_fixture(env)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertNotIn(token, (directory / 'central.log').read_text())
-            self.assertNotIn(encoded, (directory / 'central.log').read_text())
-            self.assertIn('[REDACTED]', (directory / 'central.log').read_text())
 
 if __name__ == '__main__':
     unittest.main()

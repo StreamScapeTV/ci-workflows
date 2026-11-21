@@ -97,16 +97,6 @@ class PrivateNetworkReadinessTests(unittest.TestCase):
         self.assertEqual(run.call_count, 4)
         self.assertNotIn('private resolver details', err.getvalue())
 
-    def test_readiness_is_shared_without_changing_product_execution(self):
-        for name in ('repository', 'apple'):
-            workflow = (ROOT / '.github/workflows' / (name + '.yml')).read_text()
-            self.assertIn('StreamScapeTV/ci-workflows/actions/private-git@main', workflow)
-        workflow = yaml.safe_load((ROOT / '.github/workflows/repository.yml').read_text())
-        steps = workflow['jobs']['execute']['steps']
-        for name in ('Cleanup ephemeral registry and repository evidence', 'Finalize bounded Agent State progress relay'):
-            step = next(step for step in steps if step.get('name') == name)
-            self.assertIn('always()', step['if'])
-            self.assertNotIn('success()', step['if'])
 
 
 if __name__ == '__main__':

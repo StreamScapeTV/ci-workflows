@@ -1,5 +1,7 @@
 # Repository-owned CI v1
 
+> The Agent State admission chain (`central-ci-dispatch`, `repository`, `repository-plan`, the Agent State action, cancellation and settlement workflows) was retired (OP 7160). CI now runs only through the four ecosystem entry workflows (`ci-gradle`, `ci-xcode`, `ci-node`, `ci-python`) dispatched by the agent runner; see [per-purpose-ci-workflows.md](per-purpose-ci-workflows.md). Sections below that describe the old chain are historical.
+
 Central CI executes fixed tracked repository scripts and owns shared infrastructure. Repositories own toolchain and product commands.
 
 ## Fixed operations
@@ -32,21 +34,6 @@ Central retain admission and terminal-settlement authority; the dispatch
 workflow only claims and runs requests. A cancelled job is not a successful product test. The current issue's real-consumer
 cancellation proof is distinct from static source validation.
 
-## Explicit stale cancellation
-
-Agent State authorizes exact stale cancellation through `request_ci_cancellation`
-and creates the real maintenance execution, which Agent State dispatches
-unchanged. Central's fixed cancellation workflow reads the
-backend-authorized target and checks its exact current GitHub attempt before
-requesting normal cancellation. No additional credential is required.
-
-The maintenance execution tracks its own GitHub run and result. Its success can
-mean only that GitHub accepted cancellation; the target remains nonterminal
-until its own normal cleanup and terminal settlement, or exact terminal provider
-race evidence. Failed or unknown delivery never establishes target completion.
-Tag/release, physical-device and maintenance operations cannot be selected as
-ordinary cancellation targets. Existing backend stale thresholds and claim,
-source, provider and actor fences remain authoritative.
 
 ## Tracked multi-OS execution plan
 
@@ -84,7 +71,7 @@ The reviewed v1 catalog is:
 
 Concrete runner labels and machines are Central implementation details and are not part of the repository contract. A new class requires a reviewed reusable Central change; a repository cannot create a class by configuration.
 
-For direct single-OS child execution, Central resolves the effective class through the service-only Agent State `resolve_repository_ci_host_class` decision for the exact project, repository, CI run, and operation. For a tracked multi-OS parent plan, each child uses the service-only `resolve_repository_ci_host_class_for_os` decision bound to the same parent plus the selected child OS. Decisions are replay-safe and OS/class compatibility remains fail-closed. The existing `host_os` request value is a compatibility fallback only when `.ci/execution-plan.json` is absent; it is never a runner-label or host-class input.
+Central chooses the execution class from the reviewed workflow (hosted Linux or macOS); a repository cannot select runner labels or machines.
 
 The library-package aggregate uses the tagged repository's tracked `.ci/execution-plan.json` for its `full` readiness OS set when that plan exists; repositories without a tracked plan retain the aggregate's reviewed two-OS compatibility readiness. Every generic readiness/preparation child then resolves its execution class through the same trusted OS-aware repository policy as planned Repository CI. The aggregate caller still cannot provide a host class, runner label, or machine identity. Its fixed Maven publication child also reuses that trusted parent to resolve the repository's reviewed macOS `release` class, while the standalone Maven publication route keeps its existing hosted-Linux default. Apple SwiftPM remains on the reviewed self-hosted `macos-latest-xl` lane, so a repository whose release policy selects `macos-high-capacity` can serialize both package publishers on one approved Mac without widening the public workflow API.
 

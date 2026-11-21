@@ -383,7 +383,7 @@ class WorkflowShapeTests(unittest.TestCase):
     def test_workflows_never_call_agent_state_or_drive_or_a_global_cap(self):
         for path in self.all_paths():
             text = path.read_text()
-            for forbidden in ("agent-state", "AGENT_STATE", "MIRROR", "CF_ACCESS", "ci_run_id", "claim_ci_run",
+            for forbidden in ("agent-state", "AGENT_STATE", "MIRROR", "CF_ACCESS", "ci_run_id", "claim_ci_",
                               "google-drive", "GOOGLE_DRIVE", "CI_PROGRESS", "CI_LOG_UPLOADER", "secrets: inherit", "max-parallel"):
                 self.assertNotIn(forbidden, text, f"{path.name}: {forbidden}")
 
