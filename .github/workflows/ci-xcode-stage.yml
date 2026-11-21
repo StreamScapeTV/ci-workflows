@@ -266,14 +266,16 @@ jobs:
             --git-config "${GIT_CONFIG_PATH}"
 
       - name: Save SwiftPM caches (integration branch only)
-        # The run step exits 0 once the stages ran, so a failed stage still warms the cache.
-        if: ${{ steps.run.outcome == 'success' }}
+        # Runs after failure, cancellation and the job timeout too; only a fully successful request saves the
+        # exact key, anything else a `-partial` key (see actions/ci-cache). Trust rules stay in the action.
+        if: ${{ always() && steps.setup.outcome == 'success' && steps.run.outcome != 'skipped' }}
         uses: ./central-ci/actions/ci-cache
         with:
           phase: save
           log_path: ${{ runner.temp }}/ci-work/stage-${{ inputs.last_stage }}.log
           kind: swiftpm
           slot: ${{ inputs.last_stage }}
+          complete: ${{ steps.run.outcome == 'success' && steps.run.outputs.request_ok == 'true' }}
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
           is_tag: ${{ inputs.is_tag }}

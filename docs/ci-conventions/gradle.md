@@ -35,6 +35,8 @@ Failure messages name what is missing (for example "commit an executable gradlew
 tracked executable `.ci/lint.sh`, `.ci/build.sh` or `.ci/test.sh` is used instead of the command
 above until the project follows the standard; then delete the script.
 
+Cache save runs with `always()`: after a failed stage, a watchdog kill, cancellation and the job timeout too. Only a fully successful request saves the exact key; anything else saves `<key>-partial` (one per day and slot, never an exact hit, only a restore-key fallback). Untrusted refs and tags never save.
+
 Caches (integration branch writes only): Gradle `caches/modules-2`, `caches/build-cache-1`, `wrapper/dists`.
 Only the last stage of a request saves, under a key that ends with that stage (`...-<day>-build`), so a
 `build` request leaves a cache holding everything its build downloaded. The stage log starts with

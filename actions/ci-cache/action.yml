@@ -2,8 +2,8 @@ name: Central CI toolchain cache
 description: >-
   Restore or save one toolchain cache (Gradle or SwiftPM) with narrow keys. Only the integration
   branch (develop, or main when the repository has no develop) saves; every other ref, pull request
-  and tag restores only. Run phase restore before the stage and phase save after a successful
-  stage. Central must be checked out at ./central-ci and the repository checked out at ./source.
+  and tag restores only. Run phase restore before the stage and phase save after the stage, also after a failure, cancellation or
+  timeout (always()); `complete` decides the exact or the partial key. Central must be checked out at ./central-ci and the repository checked out at ./source.
 
 inputs:
   phase:
@@ -32,6 +32,13 @@ inputs:
     description: Last stage of the request (lint, test or build); part of the exact key so a build request warms a build cache
     required: false
     default: ""
+  complete:
+    description: >-
+      'true' only when the run finished and its request succeeded: the cache is saved under the exact key.
+      Anything else (failed stage, kill, timeout, cancellation) saves under a separate `<key>-partial` key,
+      which is never an exact hit; it only serves as a restore-key fallback.
+    required: false
+    default: "true"
   secrets_to_guard:
     description: Newline separated credential values that must not appear in a saved cache
     required: false
@@ -42,11 +49,13 @@ runs:
   steps:
     - name: Note the cache phase start
       id: clock
+      if: ${{ always() }}
       shell: bash
       run: printf 'start=%s\n' "$(date +%s)" >> "${GITHUB_OUTPUT}"
 
     - name: Resolve cache identity
       id: identity
+      if: ${{ always() }}
       shell: bash
       env:
         SOURCE_REPOSITORY: ${{ inputs.repository }}
@@ -110,16 +119,16 @@ runs:
 
     - name: Check whether this exact key already exists
       id: exists
-      if: ${{ inputs.phase == 'save' && steps.identity.outputs.save_allowed == 'true' }}
+      if: ${{ always() && inputs.phase == 'save' && steps.identity.outputs.save_allowed == 'true' }}
       uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: ${{ steps.identity.outputs.paths }}
-        key: ${{ steps.identity.outputs.key }}
+        key: ${{ inputs.complete == 'true' && steps.identity.outputs.key || format('{0}-partial', steps.identity.outputs.key) }}
         lookup-only: true
 
     - name: Check cache is safe to save
       id: guard
-      if: ${{ steps.exists.outcome == 'success' && steps.exists.outputs.cache-hit != 'true' }}
+      if: ${{ always() && steps.exists.outcome == 'success' && steps.exists.outputs.cache-hit != 'true' }}
       shell: bash
       env:
         CACHE_PATHS: ${{ steps.identity.outputs.paths }}
@@ -133,11 +142,11 @@ runs:
         python3 central-ci/scripts/ci/ci_cache.py guard "${args[@]+"${args[@]}"}"
 
     - name: Save cache (integration branch only)
-      if: ${{ steps.guard.outputs.save_allowed == 'true' }}
+      if: ${{ always() && steps.guard.outputs.save_allowed == 'true' }}
       uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: ${{ steps.identity.outputs.paths }}
-        key: ${{ steps.identity.outputs.key }}
+        key: ${{ inputs.complete == 'true' && steps.identity.outputs.key || format('{0}-partial', steps.identity.outputs.key) }}
 
     - name: Record cache save duration
       if: ${{ always() && inputs.phase == 'save' && steps.identity.outputs.enabled == 'true' }}
