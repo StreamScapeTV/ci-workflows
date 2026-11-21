@@ -466,6 +466,34 @@ class WorkflowShapeTests(unittest.TestCase):
             self.assertIn("steps.probe.outputs.joined != 'true'", connect["if"], name)
             self.assertIn("steps.probe.outputs.reachable != 'true'", connect["if"], name)
 
+    def test_node_version_comes_from_the_source_nvmrc_with_a_22_fallback(self):
+        text = (ROOT / ".github/workflows/ci-node-stage.yml").read_text()
+        steps = yaml.safe_load(text)["jobs"]["stage"]["steps"]
+        names = [step.get("name", "") for step in steps]
+        resolve = next(step for step in steps if step.get("id") == "node")
+        setup = next(step for step in steps if "setup-node" in step.get("uses", ""))
+        self.assertLess(names.index("Set up source, private network and registry authentication"), steps.index(resolve))
+        self.assertLess(steps.index(resolve), steps.index(setup))
+        self.assertEqual(setup["with"]["node-version"], "${{ steps.node.outputs.version }}")
+        script = resolve["run"]
+
+        def resolved(nvmrc):
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / "source").mkdir()
+                if nvmrc is not None:
+                    (root / "source/.nvmrc").write_text(nvmrc)
+                out = root / "out"
+                subprocess.run(["bash", "-c", script], cwd=root, check=True, capture_output=True,
+                               env={**os.environ, "GITHUB_OUTPUT": str(out)})
+                return out.read_text().strip()
+
+        self.assertEqual(resolved("26.7.0\n"), "version=26.7.0")
+        self.assertEqual(resolved("v22\n"), "version=22")
+        self.assertEqual(resolved(None), "version=22")
+        self.assertEqual(resolved("lts/*\n"), "version=22")
+        self.assertEqual(resolved("26.7.0; rm -rf /\n"), "version=22")
+
     def test_stage_cleanup_keeps_the_local_actions_the_post_steps_reload(self):
         # Deleting central-ci before the post-job phase made the runner lose ci-setup's action.yml (run 44815453792).
         for name in ECOSYSTEMS + ("oci-release",):
