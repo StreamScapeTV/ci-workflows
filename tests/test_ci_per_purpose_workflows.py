@@ -120,12 +120,13 @@ class StageResolutionTests(unittest.TestCase):
         scripted = git_repo({"package.json": pkg, "package-lock.json": "{}", ".ci/test.sh": "#!/bin/sh\n"}, executable=(".ci/test.sh",))
         self.assertEqual(stage.resolve("node", "test", scripted, {})["mode"], "script")
 
-    def test_release_is_an_operation_of_the_node_ecosystem_only(self):
-        ok = validate.validate(contract=CONTRACT, ecosystem="node", request_id="req-0123456789",
-                               repository="StreamScapeTV/example-app", ref="1.2.3", is_tag="true",
-                               operation="release", options_raw="{}")
-        self.assertEqual(ok["stages"], ["lint", "test", "build", "release"])
-        for ecosystem in ("gradle", "xcode", "python"):
+    def test_release_is_an_operation_of_the_node_and_python_ecosystems_only(self):
+        for ecosystem in ("node", "python"):
+            ok = validate.validate(contract=CONTRACT, ecosystem=ecosystem, request_id="req-0123456789",
+                                   repository="StreamScapeTV/example-app", ref="1.2.3", is_tag="true",
+                                   operation="release", options_raw="{}")
+            self.assertEqual(ok["stages"], ["lint", "test", "build", "release"])
+        for ecosystem in ("gradle", "xcode"):
             with self.assertRaises(SystemExit):
                 validate.validate(contract=CONTRACT, ecosystem=ecosystem, request_id="req-0123456789",
                                   repository="StreamScapeTV/example-app", ref="1.2.3", is_tag="true",
@@ -144,6 +145,11 @@ class StageResolutionTests(unittest.TestCase):
         self.assertEqual(stage.resolve("python", "lint", plain, {})["mode"], "skip")
         self.assertEqual(stage.resolve("python", "build", plain, {})["mode"], "skip")
         self.assertEqual(stage.resolve("python", "test", git_repo({"requirements.txt": "x"}), {})["mode"], "skip")
+        bare = git_repo({"app.py": "x"})  # no manifest: lint and build are skipped (transition-script projects), test is refused
+        for name in ("lint", "build"):
+            self.assertEqual(stage.resolve("python", name, bare, {})["mode"], "skip")
+        with self.assertRaises(SystemExit):
+            stage.resolve("python", "test", bare, {})
         with self.assertRaises(SystemExit):
             stage.resolve("python", "test", git_repo({"README.md": "x"}), {})
 
@@ -370,7 +376,7 @@ class WorkflowShapeTests(unittest.TestCase):
             self.assertEqual(document["permissions"], {"contents": "read"})
             # safety net only: one pipeline per repository + ref, never cancels another request
             self.assertEqual(document["concurrency"], {"group": "ci-${{ inputs.repository }}-${{ inputs.ref }}", "cancel-in-progress": False})
-            expected = ["plan", name] + (["release"] if name == "node" else []) if name in ONE_JOB else ["plan", "lint", "test", "build"]
+            expected = ["plan", name] + (["release"] if name in ("node", "python") else []) if name in ONE_JOB else ["plan", "lint", "test", "build"]
             self.assertEqual(list(document["jobs"]), expected)
 
     def test_no_automatic_triggers(self):
@@ -409,7 +415,7 @@ class WorkflowShapeTests(unittest.TestCase):
         for name in ECOSYSTEMS:
             for suffix in ("", "-stage"):
                 text = (ROOT / f".github/workflows/ci-{name}{suffix}.yml").read_text()
-                if name == "node" and suffix == "":  # the release job (and only it) carries the publication secrets
+                if name in ("node", "python") and suffix == "":  # the release job (and only it) carries the publication secrets
                     text = text.split("\n  release:\n")[0]
                 used = set(re.findall(r"secrets\.([A-Z0-9_]+)", text))
                 for token in forbidden:
@@ -427,10 +433,12 @@ class WorkflowShapeTests(unittest.TestCase):
             self.assertFalse([k for k in (other.get("env") or {}) if "STREAMSCAPE" in k or "XTREAM" in k], other.get("name"))
 
     def test_release_operation_runs_the_chain_and_the_write_credential_is_publish_only(self):
-        node = self.entry("node")
-        release = node["jobs"]["release"]
-        self.assertEqual(release["needs"], ["plan", "node"])  # the node job succeeds only when build and test passed
-        self.assertTrue(release["if"].endswith("&& needs.node.result == 'success' }}"))
+        for ecosystem in ("node", "python"):
+            self.assertEqual(self.entry(ecosystem)["jobs"]["release"]["needs"], ["plan", ecosystem])  # succeeds only when build and test passed
+            self.assertTrue(self.entry(ecosystem)["jobs"]["release"]["if"].endswith(f"&& needs.{ecosystem}.result == 'success' }}}}"))
+            self.assertEqual(self.entry(ecosystem)["jobs"]["release"]["with"], self.entry("node")["jobs"]["release"]["with"])
+            self.assertEqual(self.entry(ecosystem)["jobs"]["release"]["secrets"], self.entry("node")["jobs"]["release"]["secrets"])
+        release = self.entry("node")["jobs"]["release"]
         self.assertIn("contains(fromJSON(needs.plan.outputs.stages), 'release')", release["if"])
         self.assertEqual(release["uses"], "./.github/workflows/ci-oci-release-stage.yml")
         self.assertNotIn("inherit", str(release["secrets"]))
@@ -441,7 +449,7 @@ class WorkflowShapeTests(unittest.TestCase):
         for text in ((ROOT / ".github/workflows/ci-node-stage.yml").read_text(),):
             self.assertNotIn("FORGEJO_REGISTRY_TOKEN", text)
         self.assertIn("always()", next(s for s in steps if s["name"].startswith("Stop live log"))["if"])
-        for gradle in ("gradle", "xcode", "python"):  # only node publishes today
+        for gradle in ("gradle", "xcode"):  # only node and python publish today
             self.assertNotIn("release", self.entry(gradle)["jobs"])
 
     def test_every_ecosystem_runs_all_stages_in_one_job_with_a_stream_per_stage_and_static_stage_steps(self):

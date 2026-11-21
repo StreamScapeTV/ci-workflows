@@ -37,7 +37,7 @@ Status, logs and cancel are plain GitHub run operations done by the runner backe
    `ci-python-stage.yml` (`workflow_call`, explicit secrets only, never `secrets: inherit`); each holds ONE
    job named `stages`.
 3. **Entry workflows**: `ci-gradle.yml`, `ci-xcode.yml`, `ci-node.yml`, `ci-python.yml` (`workflow_dispatch`): job `plan`
-   (validate), then ONE job named after the ecosystem (`gradle`, `xcode`, `node`, `python`; GitHub shows `<ecosystem> / stages`) that runs every requested stage; Node adds a `release` job after it. There is no `lint -> test -> build` job chain; the stage states are static steps of that job (below). Small tests are expected locally by default; the remote workflows are mainly for build/full/ui-test/release.
+   (validate), then ONE job named after the ecosystem (`gradle`, `xcode`, `node`, `python`; GitHub shows `<ecosystem> / stages`) that runs every requested stage; Node and Python add a `release` job after it. There is no `lint -> test -> build` job chain; the stage states are static steps of that job (below). Small tests are expected locally by default; the remote workflows are mainly for build/full/ui-test/release.
    Concurrency: a safety-net group per repository + ref with `cancel-in-progress: false` (one pipeline per project and branch; the agent runner enforces this and cancels by request id, workflows never cancel another request). All ecosystems: all requested stages run in ONE job (`<ecosystem> / stages`): Gradle in one Gradle invocation (compilation, daemon and build cache shared), Xcode with `build-for-testing` once, `test-without-building` and SwiftLint alongside on one macOS runner, Node and Python with one install and then parallel processes (Node starts lint after the build when both are requested); each stage has its own S3 log stream and the job carries the stage states as static steps (`stage <op> requested`, `stage <op> passed|failed`, plus `skipped` for Xcode, Node and Python) that ci-broker reads. A failed lint is a warning and never fails a build/test request; it fails the request only when lint is the requested top operation.
    There is **no global macOS or device cap**.
 
@@ -151,7 +151,7 @@ No new secret is invented by these workflows; they use names that already exist 
 | `S3_ENDPOINT` / `S3_BUCKET` | every stage workflow (live logs), legacy uploads | GitHub Actions secrets, mapped explicitly; also scrubbed from logs. A repository variable of the same name is only a fallback. |
 | `SOURCE_APP_ID` / `SOURCE_APP_PRIVATE_KEY` | every workflow | Token is scoped to the one source repository. |
 | `TS_OAUTH_CLIENT_ID` / `TS_OAUTH_SECRET` | every workflow | Private network for the registry and S3 endpoint. |
-| `FORGEJO_REGISTRY_USERNAME` / `FORGEJO_REGISTRY_TOKEN` | node `release` operation only | Registry write; exists only in the publish step (`ci-oci-release-stage.yml`). Optional `DOCKERHUB_USERNAME` / `DOCKERHUB_READ_TOKEN` for authenticated base image pulls. |
+| `FORGEJO_REGISTRY_USERNAME` / `FORGEJO_REGISTRY_TOKEN` | node and python `release` operation only | Registry write; exists only in the publish step (`ci-oci-release-stage.yml`). Optional `DOCKERHUB_USERNAME` / `DOCKERHUB_READ_TOKEN` for authenticated base image pulls. |
 | `FORGEJO_REGISTRY_USERNAME` / `CIW_MAVEN_PACKAGE_READ_TOKEN` | gradle, xcode, python, node | Private registry read access. |
 | `STREAMSCAPE_*`, `XTREAM_*` fixture secrets | xcode `test` job only | Already used by the legacy path. |
 | Project setting: ecosystem workflow | runner/OpenProject | The project names `gradle`, `xcode` or `python`; nothing is auto-detected. |
@@ -173,14 +173,13 @@ request whose top operation is `lint` fails when lint fails.
 Stage identifier: the stage id is `lint`, `test` or `build`. It is the `<stage>` segment of the S3 path
 `logs/<project>/<request_id>/<stage>/<seq>.log` (and `final.log`). The GitHub API names the jobs of a
 reusable workflow `<caller job> / <called job>`: one job per ecosystem, here `gradle / stages`, `xcode / stages`,
-`node / stages`, `python / stages` (Node's release job: `release / ...`). The per-stage state is carried by static steps of that
+`node / stages`, `python / stages` (the `release / ...` job of Node and Python). The per-stage state is carried by static steps of that
 job (`stage <op> requested`, `stage <op> passed|failed|skipped`, conclusion `success` when that step ran), which ci-broker
 reads (stage conclusion `warning` = lint failed in a request that does not depend on lint). Older shapes with one job
 per stage (`lint / lint`) are still read by the broker.
 
 ## Release (images and charts)
 
-`ci-node.yml` accepts operation `release` (lint, test, build, then release). The release stage is the reusable
-`ci-oci-release-stage.yml` with the building block `actions/ci-release` (`scripts/ci/ci_release.py`); other
-ecosystems can call it later. See `docs/ci-conventions/node.md` for the `.ci/release.json` declaration, the
+`ci-node.yml` and `ci-python.yml` accept operation `release` (lint, test, build, then release; lint never gates it). The release stage is the reusable
+`ci-oci-release-stage.yml` with the building block `actions/ci-release` (`scripts/ci/ci_release.py`); Gradle and Xcode can call it later. See `docs/ci-conventions/node.md` for the `.ci/release.json` declaration, the
 version authority (tag equal to the root `VERSION`, or `main`), the immutable publication and read-back.
