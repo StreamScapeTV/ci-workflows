@@ -83,10 +83,28 @@ jobs:
           private_key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
           registry_netrc: "true"
 
+      - name: Resolve the Node.js version (source .nvmrc, else 22)
+        id: node
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          version=22
+          if test -f source/.nvmrc && ! test -L source/.nvmrc; then
+            candidate="$(head -c 64 source/.nvmrc | tr -d ' \t\r\n')"
+            candidate="${candidate#v}"
+            if [[ "${candidate}" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; then
+              version="${candidate}"
+            else
+              echo "::warning::source .nvmrc is not a plain version number; using Node 22" >&2
+            fi
+          fi
+          echo "Node.js ${version}"
+          printf 'version=%s\n' "${version}" >> "${GITHUB_OUTPUT}"
+
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: "22"
+          node-version: ${{ steps.node.outputs.version }}
 
       - name: Prepare the stage log file
         shell: bash

@@ -2,7 +2,7 @@
 
 A repository chosen for the Node workflow needs **no `.ci` script** for lint, test and build if it
 commits `package.json` and `package-lock.json` at the repository root. The workflow runs on
-`ubuntu-latest` with Node 22, installs with `npm ci --no-audit --no-fund` and runs the script of the stage:
+`ubuntu-latest` with the Node version of the tracked `.nvmrc` (a plain version such as `26.7.0` or `v22`; Node 22 when there is none), installs with `npm ci --no-audit --no-fund` and runs the script of the stage:
 
 | Stage (operation) | package.json script | When there is none |
 | --- | --- | --- |
