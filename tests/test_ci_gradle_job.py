@@ -56,7 +56,7 @@ def repo(files: dict, executable=()) -> Path:
     return directory
 
 
-def run_job(source: Path, stages: list, top: str, fail: str = "", extra_env=None):
+def run_job(source: Path, stages: list, top: str, fail: str = "", extra_env=None, extra_args=()):
     base = Path(tempfile.mkdtemp())
     (base / "logs").mkdir()
     out = base / "github_output"
@@ -66,7 +66,7 @@ def run_job(source: Path, stages: list, top: str, fail: str = "", extra_env=None
     done = subprocess.run(
         [sys.executable, str(ROOT / "scripts/ci/ci_run_gradle_job.py"), "--stages", json.dumps(stages), "--top", top,
          "--source", str(source), "--contract", str(ROOT / "contracts/repository-ci-v1.json"),
-         "--work-dir", str(base / "work"), "--log-dir", str(base / "logs"), "--s3-base", "logs/app/req1/"],
+         "--work-dir", str(base / "work"), "--log-dir", str(base / "logs"), "--s3-base", "logs/app/req1/", *extra_args],
         env=env, capture_output=True, text=True)
     outputs = dict(line.split("=", 1) for line in out.read_text().split()) if out.exists() else {}
     calls = (base / "calls").read_text().splitlines() if (base / "calls").exists() else []
@@ -110,6 +110,17 @@ class GradleOneJobTests(unittest.TestCase):
         catalog = repo({"gradlew": FAKE_GRADLEW, "gradle/libs.versions.toml": 'agp = { id = "com.android.application" }'})
         self.assertTrue(ci_stage.android_project(catalog))
         self.assertFalse(ci_stage.android_project(self.source))
+
+    def test_a_hung_run_is_dumped_killed_and_still_ends_every_stage_with_an_exit_line(self):
+        hang = repo({"gradlew": FAKE_GRADLEW.replace('echo "Starting a Gradle Daemon"', 'echo "Starting a Gradle Daemon"; sleep 60')})
+        done, outputs, _, logs = run_job(hang, ["lint", "test", "build"], "build", extra_env={}, extra_args=["--timeout-minutes", "0.03", "--stall-minutes", "0.01"])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(outputs, {"build": "failed", "test": "failed", "lint": "failed", "request_ok": "false"})
+        for stage in ("lint", "test", "build"):
+            text = (logs / f"stage-{stage}.log").read_text()
+            self.assertIn("watchdog: no output for", text)
+            self.assertIn("watchdog: killing the Gradle process group", text)
+            self.assertIn(f"== stage {stage} exit 1 ==", text)
 
     def test_android_build_configuration_release_builds_release_while_lint_and_test_stay_debug(self):
         android = repo({"gradlew": FAKE_GRADLEW, "app/build.gradle.kts": 'plugins { id("com.android.application") }'})

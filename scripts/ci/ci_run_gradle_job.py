@@ -23,8 +23,11 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import sys
+import threading
+import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ci_run_stage  # noqa: E402
@@ -72,12 +75,62 @@ def closures(stages: list, source: Path, env: dict, options: dict | None = None)
     return result
 
 
-def run_combined(stages, source, env, logs, closure, options=None) -> dict:
+def thread_dump(logs: list, reason: str) -> None:
+    """jstack of every JVM on the runner (Gradle daemon, test workers, Kotlin daemon), into the given logs."""
+    def add(text: str) -> None:
+        for log in logs:
+            log.add((text + "\n").encode())
+
+    add(f"== watchdog: {reason}; thread dump of every JVM ==")
+    try:
+        listing = subprocess.run(["jps", "-l"], text=True, capture_output=True, timeout=60).stdout.splitlines()
+    except (OSError, subprocess.SubprocessError) as error:
+        add(f"== watchdog: jps unavailable ({type(error).__name__}) ==")
+        return
+    for line in listing:
+        pid = line.split(" ", 1)[0]
+        if not pid.isdigit() or "Jps" in line:
+            continue
+        add(f"== jstack {line} ==")
+        try:
+            dump = subprocess.run(["jstack", pid], text=True, capture_output=True, timeout=60)
+            add(dump.stdout + dump.stderr)
+        except (OSError, subprocess.SubprocessError) as error:
+            add(f"== jstack failed ({type(error).__name__}) ==")
+
+
+def run_combined(stages, source, env, logs, closure, options=None, timeout_s=90 * 60, stall_s=20 * 60) -> dict:
+    """One Gradle run with a watchdog: a thread dump after ``stall_s`` without output, and thread dump plus kill
+    of the whole process group after ``timeout_s``, so the stages still end with an exit line and a final log."""
     process = subprocess.Popen([*COMMON, *root_tasks(stages, source, options)], cwd=source, env=env, stdout=subprocess.PIPE,
-                               stderr=subprocess.STDOUT, bufsize=0)
+                               stderr=subprocess.STDOUT, bufsize=0, start_new_session=True)
+    state = {"last": time.monotonic(), "dumped": False, "killed": False}
+    everyone = [logs[stage] for stage in stages]
+    started = time.monotonic()
+
+    def watch() -> None:
+        while process.poll() is None:
+            time.sleep(1)
+            now = time.monotonic()
+            if not state["dumped"] and now - state["last"] > stall_s:
+                state["dumped"] = True
+                thread_dump(everyone, f"no output for {int(stall_s)} s")
+            if now - started > timeout_s:
+                state["killed"] = True
+                thread_dump(everyone, f"run time limit {int(timeout_s)} s reached")
+                for log in everyone:
+                    log.add(f"== watchdog: killing the Gradle process group after {int(timeout_s)} s ==\n".encode())
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except OSError:
+                    pass
+                return
+
+    threading.Thread(target=watch, daemon=True).start()
     current: set | None = None
     failed_tasks: list = []
     for raw in iter(process.stdout.readline, b""):
+        state["last"] = time.monotonic()
         text = raw.decode("utf-8", "replace").rstrip("\n")
         header = HEADER.match(text)
         if header:
@@ -93,6 +146,8 @@ def run_combined(stages, source, env, logs, closure, options=None) -> dict:
             logs[stage].add(raw)
     code = process.wait()
     results = {stage: "passed" for stage in stages}
+    if state["killed"]:
+        return {stage: "failed" for stage in stages}  # unfinished: which stage was stuck is in the thread dump
     if code != 0:
         hit = {s for s in stages if any(t in closure[s] for t in failed_tasks)}
         for stage in (hit or stages):  # no failed task in any closure: a configuration failure fails everything
@@ -123,6 +178,8 @@ def main(argv=None) -> int:
     parser.add_argument("--home", default="")
     parser.add_argument("--gradle-user-home", default="")
     parser.add_argument("--git-config", default="")
+    parser.add_argument("--timeout-minutes", type=float, default=90, help="kill the Gradle run after this long")
+    parser.add_argument("--stall-minutes", type=float, default=20, help="thread dump after this long without output")
     parser.add_argument("--s3-base", default="", help="logs/<repo>/<request_id>/ ; the stage name is appended")
     args = parser.parse_args(argv)
 
@@ -156,7 +213,7 @@ def main(argv=None) -> int:
         closure = closures(stages, source, env, options)
         ci_run_stage.status("gradle closures " + " ".join(f"{s}={len(closure[s])}" for s in stages)
                             + " (one combined invocation)")
-        results = run_combined(stages, source, env, logs, closure, options)
+        results = run_combined(stages, source, env, logs, closure, options, args.timeout_minutes * 60, args.stall_minutes * 60)
     else:
         results = run_scripts(stages, source, commands, env_for, logs)
     for stage in stages:
