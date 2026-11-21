@@ -483,7 +483,9 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertNotIn("continue-on-error", steps[run])
         if name in CACHED:
             save = next(s for s in steps if s.get("name", "").startswith("Save "))
-            self.assertEqual(save["if"], "${{ steps.run.outputs.request_ok == 'true' }}")
+            # Xcode saves after any finished run (a cold source build must warm the cache even if a stage failed).
+            expected = "steps.run.outcome == 'success'" if name == "xcode" else "steps.run.outputs.request_ok == 'true'"
+            self.assertEqual(save["if"], "${{ " + expected + " }}")
             self.assertLess(steps.index(save), names.index("Stop live log stream and write the merged log (lint)"))
         else:
             self.assertFalse([n for n in names if n.startswith(("Save ", "Restore "))], "python and node have no cache")

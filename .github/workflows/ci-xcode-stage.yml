@@ -83,7 +83,8 @@ jobs:
   stages:
     name: stages
     runs-on: macos-latest
-    timeout-minutes: 120
+    # A cold build of source-built dependencies (VLC, ffmpeg) needs more than 2 hours; the cache is then warm.
+    timeout-minutes: 300
     steps:
       - name: stage lint requested
         if: ${{ contains(fromJSON(inputs.stages), 'lint') }}
@@ -265,7 +266,8 @@ jobs:
             --git-config "${GIT_CONFIG_PATH}"
 
       - name: Save SwiftPM caches (integration branch only)
-        if: ${{ steps.run.outputs.request_ok == 'true' }}
+        # The run step exits 0 once the stages ran, so a failed stage still warms the cache.
+        if: ${{ steps.run.outcome == 'success' }}
         uses: ./central-ci/actions/ci-cache
         with:
           phase: save
