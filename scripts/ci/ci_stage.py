@@ -138,6 +138,8 @@ def python_parts(source: Path, stage: str):
         if name == "pyproject.toml" or (name.startswith("requirements") and name.endswith(".txt")):
             text += (source / name).read_text(encoding="utf-8", errors="replace")
     if "pyproject.toml" not in top and not any(n.startswith("requirements") for n in top):
+        if stage != "test":  # a project with transition scripts only (no manifest) has no lint or build convention: skipped
+            return "skip", f"no {stage} convention: provide pyproject.toml or requirements.txt"
         _fail("Python convention: provide pyproject.toml or requirements.txt")
     venv = "python3 -m venv .ci-venv && . .ci-venv/bin/activate && python -m pip install --quiet --upgrade pip"
     if "requirements-dev.txt" in top:

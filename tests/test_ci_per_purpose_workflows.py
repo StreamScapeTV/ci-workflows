@@ -145,6 +145,11 @@ class StageResolutionTests(unittest.TestCase):
         self.assertEqual(stage.resolve("python", "lint", plain, {})["mode"], "skip")
         self.assertEqual(stage.resolve("python", "build", plain, {})["mode"], "skip")
         self.assertEqual(stage.resolve("python", "test", git_repo({"requirements.txt": "x"}), {})["mode"], "skip")
+        bare = git_repo({"app.py": "x"})  # no manifest: lint and build are skipped (transition-script projects), test is refused
+        for name in ("lint", "build"):
+            self.assertEqual(stage.resolve("python", name, bare, {})["mode"], "skip")
+        with self.assertRaises(SystemExit):
+            stage.resolve("python", "test", bare, {})
         with self.assertRaises(SystemExit):
             stage.resolve("python", "test", git_repo({"README.md": "x"}), {})
 
