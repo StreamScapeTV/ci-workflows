@@ -1,7 +1,7 @@
 # Per-ecosystem Central CI workflows (OpenProject 7160)
 
-Status: PR 1 of the split. Gradle and Xcode/Swift ecosystem workflows plus the shared composites,
-**added next to the legacy route**. No legacy workflow is changed. Design v3 (owner, 20 Nov 2026):
+Status: Gradle, Xcode/Swift, Node and Python ecosystem workflows plus the shared composites,
+**added next to the legacy route** (each runs all its requested stages in one job, see below). No legacy workflow is changed. Design v3 (owner, 20 Nov 2026):
 no ci-broker, no Agent State CI lifecycle, no `ci_run_id`; the agent runner dispatches a workflow
 directly and finds the run by the request id in `run-name`.
 
@@ -15,7 +15,7 @@ input is rejected by GitHub):
 | `request_id` | UUID/id chosen by the runner; appears in `run-name` (`CI gradle <request_id>`) so the run can be found |
 | `repository` | `StreamScapeTV/<name>` (anything else fails in the `plan` job before a credential is used) |
 | `ref`, `is_tag` | branch or tag name, `true`/`false` |
-| `operation` | the TOP operation: `lint`, `test` or `build`. Operations form a hierarchy lint < test < build (< full/ui-test < release in later workflows); the workflow runs every operation below the requested one first, as stage jobs of the same run (`needs:` chain), so a build or release never depends on another run |
+| `operation` | the TOP operation: `lint`, `test` or `build`. Operations form a hierarchy lint < test < build (< full/ui-test < release in later workflows); the workflow runs every operation below the requested one too, as stages of the same run and the same job, so a build or release never depends on another run |
 | `options` | JSON object of reviewed semantic options (default `{}`) |
 
 Options are validated against the semantic fields of `contracts/repository-ci-v1.json`
@@ -29,13 +29,16 @@ Status, logs and cancel are plain GitHub run operations done by the runner backe
    Tailscale, ephemeral Git/registry auth), `ci-cache` (restore/save with the integration-branch
    rule), `setup-tailscale` (thin wrapper over `actions/private-git`, the one place to change the
    mechanism). Helpers in `scripts/ci/`: `ci_validate_inputs.py`, `ci_stage.py` (command
-   resolution), `ci_run_stage.py` (run + scrub + numbered log chunks), `ci_cache.py`,
-   `ci_registry_auth.py`, `ci_scrub_log.py`.
-2. **Reusable stage workflows**: `ci-gradle-stage.yml`, `ci-xcode-stage.yml` (`workflow_call`, explicit
-   secrets only, never `secrets: inherit`).
-3. **Entry workflows**: `ci-gradle.yml`, `ci-xcode.yml` (`workflow_dispatch`): job `plan`
-   (validate), then separate jobs `lint`, `test`, `build` (named after the operation, `needs:` chain) so GitHub itself shows stage and time. Small tests are expected locally by default; the remote workflows are mainly for build/full/ui-test/release.
-   Concurrency: a safety-net group per repository + ref with `cancel-in-progress: false` (one pipeline per project and branch; the agent runner enforces this and cancels by request id, workflows never cancel another request). All ecosystems: all requested stages run in ONE job (`<ecosystem> / stages`): Gradle in one Gradle invocation (compilation, daemon and build cache shared), Xcode with `build-for-testing` once, `test-without-building` and SwiftLint alongside on one macOS runner, Node and Python with one install and then parallel processes; each stage has its own S3 log stream and the job carries the stage states as static steps (`stage <op> requested`, `stage <op> passed|failed`, plus `skipped` for Xcode, Node and Python) that ci-broker reads. A failed lint is a warning and never fails a build/test request; it fails the request only when lint is the requested top operation.
+   resolution and the Xcode/Node/Python plans), `ci_run_gradle_job.py`, `ci_run_xcode_job.py` and
+   `ci_run_job.py` (Node and Python): each runs every requested stage of its ecosystem in one job and
+   writes one scrubbed log file per stage; `ci_run_stage.py` is their shared library (log file, status
+   lines, child environment); `ci_cache.py`, `ci_registry_auth.py`, `ci_scrub_log.py`.
+2. **Reusable stage workflows**: `ci-gradle-stage.yml`, `ci-xcode-stage.yml`, `ci-node-stage.yml`,
+   `ci-python-stage.yml` (`workflow_call`, explicit secrets only, never `secrets: inherit`); each holds ONE
+   job named `stages`.
+3. **Entry workflows**: `ci-gradle.yml`, `ci-xcode.yml`, `ci-node.yml`, `ci-python.yml` (`workflow_dispatch`): job `plan`
+   (validate), then ONE job named after the ecosystem (`gradle`, `xcode`, `node`, `python`; GitHub shows `<ecosystem> / stages`) that runs every requested stage; Node adds a `release` job after it. There is no `lint -> test -> build` job chain; the stage states are static steps of that job (below). Small tests are expected locally by default; the remote workflows are mainly for build/full/ui-test/release.
+   Concurrency: a safety-net group per repository + ref with `cancel-in-progress: false` (one pipeline per project and branch; the agent runner enforces this and cancels by request id, workflows never cancel another request). All ecosystems: all requested stages run in ONE job (`<ecosystem> / stages`): Gradle in one Gradle invocation (compilation, daemon and build cache shared), Xcode with `build-for-testing` once, `test-without-building` and SwiftLint alongside on one macOS runner, Node and Python with one install and then parallel processes (Node starts lint after the build when both are requested); each stage has its own S3 log stream and the job carries the stage states as static steps (`stage <op> requested`, `stage <op> passed|failed`, plus `skipped` for Xcode, Node and Python) that ci-broker reads. A failed lint is a warning and never fails a build/test request; it fails the request only when lint is the requested top operation.
    There is **no global macOS or device cap**.
 
 Nothing calls Agent State, a mirror, Cloudflare Access or Google Drive. **No workflow has a push, tag, pull_request or schedule trigger** (owner decision, 20 Nov 2026): CI runs only when an agent requests it through the runner (`workflow_dispatch`); the stage workflows are `workflow_call` only. Cache writes therefore happen only in explicitly requested runs on the integration branch (non-tag), and the cache-warm entry per toolchain is likewise an explicit request.
@@ -43,7 +46,7 @@ Nothing calls Agent State, a mirror, Cloudflare Access or Google Drive. **No wor
 ## Convention over per-project scripts
 
 A project that follows the ecosystem standard needs no `.ci` directory. See
-[`ci-conventions/gradle.md`](ci-conventions/gradle.md) and [`ci-conventions/xcode.md`](ci-conventions/xcode.md).
+[`ci-conventions/gradle.md`](ci-conventions/gradle.md), [`ci-conventions/xcode.md`](ci-conventions/xcode.md), [`ci-conventions/node.md`](ci-conventions/node.md) and [`ci-conventions/python.md`](ci-conventions/python.md).
 Transition: a tracked executable `.ci/<stage>.sh` is used instead of the convention until the
 project conforms (iptv-android, iptv-apple), then deleted. The workflows fail with a message that
 names what the project must provide.
@@ -60,7 +63,7 @@ step that presigns the PUT URLs of this request's own log objects (6 h expiry); 
 uploader and the product code in the same job never see a bucket key (a leaked URL can only overwrite
 this request's log objects). The stage runner redacts every `CI_SECRET_*` value before it writes
 the log. No new S3 key is needed. A cancelled run still flushes: the stop step runs with
-`if: always()`, writes the partial `final.log`, and an S3 outage there never reds the stage.
+`if: always()`, writes the partial `final.log`. A log that cannot reach S3 fails the job (logs live only in S3, never in the Actions log).
 
 ## DECISION FOR THE OWNER: capabilities fixed per workflow
 
@@ -68,9 +71,8 @@ Each workflow hard-wires the credentials its purpose needs; nothing is resolved 
 
 | Workflow | Secrets (names only) | Tailscale | Not available |
 | --- | --- | --- | --- |
-| `ci-gradle` (all stages) | `SOURCE_APP_ID`, `SOURCE_APP_PRIVATE_KEY`, `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`, `FORGEJO_REGISTRY_USERNAME`, `CIW_MAVEN_PACKAGE_READ_TOKEN`, `S3_GITHUB_TRANSPORT_ACCESS_KEY`, `S3_GITHUB_TRANSPORT_SECRET_KEY` | yes (checkout of private deps, Forgejo Maven, S3) | github.com Git credential, Docker Hub, fixtures, signing, registry write, backup S3, protected conformance |
-| `ci-xcode` lint, build | same names as Gradle | yes (Forgejo SwiftPM, S3) | Apple signing/App Store Connect, Docker Hub, fixtures, registry write |
-| `ci-xcode` test | same plus `STREAMSCAPE_*` / `XTREAM_*` fixtures, **only this job** | yes | same as above |
+| `ci-gradle`, `ci-node`, `ci-python` (all stages) | `SOURCE_APP_ID`, `SOURCE_APP_PRIVATE_KEY`, `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`, `FORGEJO_REGISTRY_USERNAME`, `CIW_MAVEN_PACKAGE_READ_TOKEN`, `S3_GITHUB_TRANSPORT_ACCESS_KEY`, `S3_GITHUB_TRANSPORT_SECRET_KEY` | yes (checkout of private deps, Forgejo Maven, S3) | github.com Git credential, Docker Hub, fixtures, signing, registry write, backup S3, protected conformance |
+| `ci-xcode` (all stages) | same names as Gradle plus `STREAMSCAPE_*` / `XTREAM_*` fixtures, materialized **only when the test stage runs** and visible to the test stage only (`CI_TEST_FIXTURE_FILE`) | yes (Forgejo SwiftPM, S3) | Apple signing/App Store Connect, Docker Hub, registry write |
 
 Git/netrc access to github.com is enabled for Xcode (SwiftPM private packages) and not for Gradle;
 Gradle gets the private-Maven properties. Assumptions to confirm: Android needs no github.com Git
@@ -156,20 +158,25 @@ No new secret is invented by these workflows; they use names that already exist 
 
 ## Input contract with the runner and stage identifiers
 
-Every entry workflow (`ci-gradle.yml`, `ci-xcode.yml`, `ci-python.yml`) is dispatched with exactly these
+Every entry workflow (`ci-gradle.yml`, `ci-xcode.yml`, `ci-node.yml`, `ci-python.yml`) is dispatched with exactly these
 inputs: `request_id`, `repository`, `ref`, `is_tag`, `operation` (required: the top requested operation),
 `target` (optional, accepted and ignored) and `options` (JSON, default `{}`). Any other input makes GitHub
 answer 422, so the runner must not send more. `operation` today is `lint`, `test` or `build`; `full`,
 `ui-test` and `release` are rejected by `plan` until their workflows exist (see `docs/ci-parity.yaml`).
 
-Hierarchy: operation X runs every stage below it in the same run, each as its own job
-(`lint` < `test` < `build`): `lint` runs lint; `test` runs lint then test; `build` runs lint, test, build.
-A later stage runs only if the previous one succeeded.
+Hierarchy: operation X runs every stage below it in the same run and the same job
+(`lint` < `test` < `build`): `lint` runs lint; `test` runs lint and test; `build` runs lint, test and build. The
+stages do not wait for lint (the build starts first or together; Node starts lint after its build). A failed
+`lint` is a warning and never fails a `test` or `build` request; `test` and `build` decide the request; a
+request whose top operation is `lint` fails when lint fails.
 
 Stage identifier: the stage id is `lint`, `test` or `build`. It is the `<stage>` segment of the S3 path
 `logs/<project>/<request_id>/<stage>/<seq>.log` (and `final.log`). The GitHub API names the jobs of a
-reusable workflow `<caller job> / <called job>`, here `lint / lint`, `test / test`, `build / build`; the
-stage id is the part before ` / `. A reader that needs the job name must match on that prefix.
+reusable workflow `<caller job> / <called job>`: one job per ecosystem, here `gradle / stages`, `xcode / stages`,
+`node / stages`, `python / stages` (Node's release job: `release / ...`). The per-stage state is carried by static steps of that
+job (`stage <op> requested`, `stage <op> passed|failed|skipped`, conclusion `success` when that step ran), which ci-broker
+reads (stage conclusion `warning` = lint failed in a request that does not depend on lint). Older shapes with one job
+per stage (`lint / lint`) are still read by the broker.
 
 ## Release (images and charts)
 
