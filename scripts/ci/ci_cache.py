@@ -6,6 +6,9 @@
 * The key names the repository, OS/arch and the toolchain generation (Gradle version) plus a
   fingerprint of tracked dependency inputs and an month. It never names the commit, branch,
   test selector or workflow run.
+* The optional slot (the last stage of the request: lint, test or build) is appended to the exact key,
+  so a request that ends at ``build`` restores and saves a cache that holds everything its build needed
+  and is never blocked by a same-day cache a shorter request (lint only) saved earlier.
 * ``restore-keys`` fall back first to the same fingerprint of an older day, then to any entry of
   the same repository/toolchain. A dependency change therefore starts from the previous cache and
   downloads only the difference, instead of starting cold.
@@ -36,6 +39,7 @@ MAX_IDENTITY_FILES = 512
 MAX_IDENTITY_FILE_BYTES = 1024 * 1024
 MAX_IDENTITY_TOTAL_BYTES = 8 * 1024 * 1024
 REPOSITORY = re.compile(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")
+SLOT = re.compile(r"[a-z][a-z0-9-]{0,15}")
 
 
 def _tracked(root: Path) -> list:
@@ -115,11 +119,14 @@ def trust_of(ref: str, is_tag: str, integration_branch: str) -> str:
 
 
 def identity(kind: str, root: Path, repository: str, ref: str, is_tag: str, runner_os: str,
-             runner_arch: str, home: Path, today: datetime.date, integration_branch: str = "develop") -> dict:
+             runner_arch: str, home: Path, today: datetime.date, integration_branch: str = "develop",
+             slot: str = "") -> dict:
     if REPOSITORY.fullmatch(repository) is None:
         raise SystemExit("cache repository is outside the reviewed bound")
     if is_tag not in ("true", "false"):
         raise SystemExit("cache source kind is invalid")
+    if slot and SLOT.fullmatch(slot) is None:
+        raise SystemExit("cache slot is outside the reviewed bound")
     period = today.strftime("%Y%m%d")
     repo = hashlib.sha256(repository.encode()).hexdigest()[:16]
     arch = re.sub(r"[^A-Za-z0-9]", "", runner_arch)
@@ -145,7 +152,7 @@ def identity(kind: str, root: Path, repository: str, ref: str, is_tag: str, runn
         "trust": trust,
         "save_allowed": "true" if trust == "trusted" else "false",
         "fingerprint": fingerprint,
-        "key": f"{prefix}{fingerprint}-{period}",
+        "key": f"{prefix}{fingerprint}-{period}" + (f"-{slot}" if slot else ""),
         "restore_keys": f"{prefix}{fingerprint}-\n{prefix}",
         "exact_prefix": f"{prefix}{fingerprint}-",
         "paths": "\n".join(str(path) for path in paths),
@@ -211,7 +218,7 @@ def main(argv=None) -> int:
             args.kind, Path(args.source), os.environ["SOURCE_REPOSITORY"], os.environ["SOURCE_REF"],
             os.environ["SOURCE_IS_TAG"], os.environ["RUNNER_OS"], os.environ["RUNNER_ARCH"],
             Path(args.home), datetime.datetime.now(datetime.timezone.utc).date(),
-            os.environ.get("INTEGRATION_BRANCH", "develop"),
+            os.environ.get("INTEGRATION_BRANCH", "develop"), os.environ.get("CACHE_SLOT", ""),
         )
         _write_output(values)
         return 0

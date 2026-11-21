@@ -57,6 +57,7 @@ jobs:
     outputs:
       stages: ${{ steps.validate.outputs.stages }}
       options: ${{ steps.validate.outputs.options }}
+      last_stage: ${{ steps.validate.outputs.last_stage }}
     steps:
       - name: Check out Central CI contract and helpers
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -86,6 +87,7 @@ jobs:
           {
             printf 'stages=%s\n' "$(jq -c '.stages' <<<"${result}")"
             printf 'options=%s\n' "$(jq -c '.options' <<<"${result}")"
+            printf 'last_stage=%s\n' "$(jq -r '.stages[-1]' <<<"${result}")"
           } >> "${GITHUB_OUTPUT}"
 
   lint:
@@ -99,6 +101,7 @@ jobs:
       is_tag: ${{ inputs.is_tag }}
       stage: lint
       options: ${{ needs.plan.outputs.options }}
+      last_stage: ${{ needs.plan.outputs.last_stage }}
     secrets:
       SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
       SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
@@ -122,6 +125,7 @@ jobs:
       is_tag: ${{ inputs.is_tag }}
       stage: test
       options: ${{ needs.plan.outputs.options }}
+      last_stage: ${{ needs.plan.outputs.last_stage }}
     secrets:
       SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
       SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
@@ -145,6 +149,7 @@ jobs:
       is_tag: ${{ inputs.is_tag }}
       stage: build
       options: ${{ needs.plan.outputs.options }}
+      last_stage: ${{ needs.plan.outputs.last_stage }}
     secrets:
       SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
       SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}

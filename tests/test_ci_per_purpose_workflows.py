@@ -526,6 +526,41 @@ class WorkflowShapeTests(unittest.TestCase):
             self.assertLess(text.index("Prepare the stage log file"), text.index("Restore "))
         self.assertNotIn("ci-cache", (ROOT / ".github/workflows/ci-python-stage.yml").read_text())
 
+    def test_a_build_request_warms_a_build_cache_only_its_last_stage_saves(self):
+        for name in CACHED:
+            entry = (ROOT / f".github/workflows/ci-{name}.yml").read_text()
+            self.assertIn("last_stage: ${{ steps.validate.outputs.last_stage }}", entry)
+            self.assertIn("jq -r '.stages[-1]'", entry)
+            self.assertEqual(entry.count("last_stage: ${{ needs.plan.outputs.last_stage }}"), 3, name)
+            text = (ROOT / f".github/workflows/ci-{name}-stage.yml").read_text()
+            steps = yaml.safe_load(text)["jobs"]["stage"]["steps"]
+            names = [step.get("name", "") for step in steps]
+            save = next(step for step in steps if step.get("name", "").startswith("Save "))
+            self.assertIn("inputs.stage == inputs.last_stage", save["if"])
+            self.assertEqual(save["with"]["slot"], "${{ inputs.last_stage }}")
+            self.assertEqual(save["with"]["log_path"], "${{ runner.temp }}/ci-work/stage.log")
+            restore = next(step for step in steps if step.get("name", "").startswith("Restore "))
+            self.assertEqual(restore["with"]["slot"], "${{ inputs.last_stage }}")
+            # the save line must reach the S3 log: the save runs before the stream stops
+            self.assertLess(steps.index(save), names.index("Stop live log stream and write the merged log"))
+        action = (ROOT / "actions/ci-cache/action.yml").read_text()
+        self.assertIn("-cache-restore: seconds=", action)
+        self.assertIn("-cache-save: seconds=", action)
+
+    def test_the_slot_extends_the_exact_key_only(self):
+        root = git_repo({"gradle/wrapper/gradle-wrapper.properties": "distributionUrl=https://x/gradle-9.7.1-bin.zip\n", "build.gradle.kts": "x"})
+        args = ("gradle", root, "o/r", "develop", "false", "Linux", "X64", Path("/home/g"), datetime.date(2026, 11, 21), "develop")
+        plain = cache.identity(*args)
+        lint = cache.identity(*args, slot="lint")
+        build = cache.identity(*args, slot="build")
+        self.assertEqual(lint["key"], plain["key"] + "-lint")
+        self.assertNotEqual(lint["key"], build["key"])
+        self.assertEqual(lint["restore_keys"], plain["restore_keys"], "fallbacks stay slot-free so an older or other-stage cache still helps")
+        self.assertEqual(build["fingerprint"], plain["fingerprint"])
+        for bad in ("Build", "a/b", "x" * 17, "-x", "a b"):
+            with self.assertRaises(SystemExit):
+                cache.identity(*args, slot=bad)
+
     def test_stage_runs_without_central_secrets_in_the_product_environment_and_only_trusted_cache_saves(self):
         for name in ECOSYSTEMS:
             text = (ROOT / f".github/workflows/ci-{name}-stage.yml").read_text()

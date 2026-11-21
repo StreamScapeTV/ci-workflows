@@ -24,6 +24,11 @@ name: Central CI Gradle stage
         type: string
         required: false
         default: "{}"
+      last_stage:
+        description: Last stage of the request; only that stage saves the cache and it names the cache slot
+        type: string
+        required: false
+        default: ""
     secrets:
       SOURCE_APP_ID:
         required: true
@@ -104,6 +109,7 @@ jobs:
           phase: restore
           log_path: ${{ runner.temp }}/ci-work/stage.log
           kind: gradle
+          slot: ${{ inputs.last_stage }}
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
           is_tag: ${{ inputs.is_tag }}
@@ -153,6 +159,21 @@ jobs:
             --gradle-user-home "${AUTH_HOME}/.gradle" \
             --git-config "${GIT_CONFIG_PATH}"
 
+      - name: Save Gradle caches (integration branch only)
+        if: ${{ success() && (inputs.last_stage == '' || inputs.stage == inputs.last_stage) }}
+        uses: ./central-ci/actions/ci-cache
+        with:
+          phase: save
+          log_path: ${{ runner.temp }}/ci-work/stage.log
+          kind: gradle
+          slot: ${{ inputs.last_stage }}
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          is_tag: ${{ inputs.is_tag }}
+          home: ${{ steps.setup.outputs.auth_home }}/.gradle
+          token: ${{ steps.setup.outputs.token }}
+          secrets_to_guard: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+
       - name: Stop live log stream and write the merged log
         if: ${{ always() }}
         continue-on-error: true
@@ -162,19 +183,6 @@ jobs:
           repository: ${{ inputs.repository }}
           request_id: ${{ inputs.request_id }}
           stage: ${{ inputs.stage }}
-
-      - name: Save Gradle caches (integration branch only)
-        if: ${{ success() }}
-        uses: ./central-ci/actions/ci-cache
-        with:
-          phase: save
-          kind: gradle
-          repository: ${{ inputs.repository }}
-          ref: ${{ inputs.ref }}
-          is_tag: ${{ inputs.is_tag }}
-          home: ${{ steps.setup.outputs.auth_home }}/.gradle
-          token: ${{ steps.setup.outputs.token }}
-          secrets_to_guard: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
 
       - name: Remove credentials, source and private logs
         if: ${{ always() }}

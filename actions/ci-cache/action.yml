@@ -28,6 +28,10 @@ inputs:
     description: Stage log file the restore result line is appended to (so it reaches the S3 log)
     required: false
     default: ""
+  slot:
+    description: Last stage of the request (lint, test or build); part of the exact key so a build request warms a build cache
+    required: false
+    default: ""
   secrets_to_guard:
     description: Newline separated credential values that must not appear in a saved cache
     required: false
@@ -36,6 +40,11 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Note the cache phase start
+      id: clock
+      shell: bash
+      run: printf 'start=%s\n' "$(date +%s)" >> "${GITHUB_OUTPUT}"
+
     - name: Resolve cache identity
       id: identity
       shell: bash
@@ -45,6 +54,7 @@ runs:
         SOURCE_IS_TAG: ${{ inputs.is_tag }}
         CACHE_KIND: ${{ inputs.kind }}
         CACHE_HOME: ${{ inputs.home }}
+        CACHE_SLOT: ${{ inputs.slot }}
         GH_TOKEN: ${{ inputs.token }}
       run: |
         set -Eeuo pipefail
@@ -86,6 +96,18 @@ runs:
         printf '%s\n' "${line}"
         if test -n "${LOG_PATH}"; then printf '%s\n' "${line}" >> "${LOG_PATH}"; fi
 
+    - name: Record cache restore duration
+      if: ${{ inputs.phase == 'restore' && steps.identity.outputs.enabled == 'true' }}
+      shell: bash
+      env:
+        KIND: ${{ inputs.kind }}
+        STARTED: ${{ steps.clock.outputs.start }}
+        LOG_PATH: ${{ inputs.log_path }}
+      run: |
+        line="$(printf '== %s-cache-restore: seconds=%s ==' "${KIND}" "$(( $(date +%s) - STARTED ))")"
+        printf '%s\n' "${line}"
+        if test -n "${LOG_PATH}"; then printf '%s\n' "${line}" >> "${LOG_PATH}"; fi
+
     - name: Check whether this exact key already exists
       id: exists
       if: ${{ inputs.phase == 'save' && steps.identity.outputs.save_allowed == 'true' }}
@@ -116,3 +138,16 @@ runs:
       with:
         path: ${{ steps.identity.outputs.paths }}
         key: ${{ steps.identity.outputs.key }}
+
+    - name: Record cache save duration
+      if: ${{ always() && inputs.phase == 'save' && steps.identity.outputs.enabled == 'true' }}
+      shell: bash
+      env:
+        KIND: ${{ inputs.kind }}
+        STARTED: ${{ steps.clock.outputs.start }}
+        SAVED: ${{ steps.guard.outputs.save_allowed == 'true' && 'true' || 'false' }}
+        LOG_PATH: ${{ inputs.log_path }}
+      run: |
+        line="$(printf '== %s-cache-save: seconds=%s saved=%s ==' "${KIND}" "$(( $(date +%s) - STARTED ))" "${SAVED}")"
+        printf '%s\n' "${line}"
+        if test -n "${LOG_PATH}"; then printf '%s\n' "${line}" >> "${LOG_PATH}"; fi
