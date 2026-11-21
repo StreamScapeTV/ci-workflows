@@ -96,7 +96,7 @@ class GradleOneJobTests(unittest.TestCase):
 
     def test_the_closure_sizes_are_a_status_line_of_the_actions_log(self):
         done, _, _, _ = run_job(self.source, ["lint", "test", "build"], "build")
-        self.assertIn("gradle closures lint=2 test=2 build=2", done.stdout + done.stderr)
+        self.assertIn("gradle closures build=2 test=2 lint=2", done.stdout + done.stderr)
 
     def test_the_actions_log_carries_status_lines_only(self):
         done, _o, _c, _l = run_job(self.source, ["lint", "build"], "build")
