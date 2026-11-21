@@ -1,6 +1,10 @@
-# One stage (lint, build or test) of the Xcode and Swift ecosystem. Called by ci-xcode.yml.
+# All requested stages (lint, test, build) of the Xcode and Swift ecosystem in ONE job on one macOS runner
+# (scripts/ci/ci_run_xcode_job.py): build-for-testing once, test-without-building on the same DerivedData,
+# lint as a parallel process. Each stage has its own S3 log stream; the job carries the stage states as static
+# step names the broker reads (stage <op> requested / passed / failed / skipped). A lint failure is a warning
+# unless lint is the requested top operation.
 # Credentials are fixed for this purpose and passed explicitly (never inherited wholesale).
-name: Central CI Xcode stage
+name: Central CI Xcode stages
 
 "on":
   workflow_call:
@@ -17,7 +21,12 @@ name: Central CI Xcode stage
       is_tag:
         type: string
         required: true
-      stage:
+      stages:
+        description: JSON array of the requested stages (lint, test, build)
+        type: string
+        required: true
+      top:
+        description: Requested top operation; lint decides the request only when it is the top
         type: string
         required: true
       options:
@@ -71,11 +80,24 @@ permissions:
   contents: read
 
 jobs:
-  stage:
-    name: ${{ inputs.stage }}
+  stages:
+    name: stages
     runs-on: macos-latest
     timeout-minutes: 120
     steps:
+      - name: stage lint requested
+        if: ${{ contains(fromJSON(inputs.stages), 'lint') }}
+        shell: bash
+        run: echo "lint is part of this request"
+      - name: stage test requested
+        if: ${{ contains(fromJSON(inputs.stages), 'test') }}
+        shell: bash
+        run: echo "test is part of this request"
+      - name: stage build requested
+        if: ${{ contains(fromJSON(inputs.stages), 'build') }}
+        shell: bash
+        run: echo "build is part of this request"
+
       - name: Check out Central CI contract and helpers
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -109,8 +131,8 @@ jobs:
         shell: bash
         run: python3 central-ci/scripts/ci/repository_macos_netrc.py install
 
-      - name: Materialize integration-test fixtures (test stage only)
-        if: ${{ inputs.stage == 'test' }}
+      - name: Materialize integration-test fixtures (only when the test stage runs; only that stage sees them)
+        if: ${{ contains(fromJSON(inputs.stages), 'test') }}
         shell: bash
         env:
           STREAMSCAPE_API_BASE: ${{ secrets.STREAMSCAPE_API_BASE }}
@@ -131,19 +153,23 @@ jobs:
         shell: bash
         run: printf 'home=%s\n' "$(python3 -c 'import os, pwd; print(pwd.getpwuid(os.getuid()).pw_dir)')" >> "${GITHUB_OUTPUT}"
 
-      - name: Prepare the stage log file
+      - name: Prepare one log file per stage
         shell: bash
+        env:
+          STAGES: ${{ inputs.stages }}
         run: |
           set -Eeuo pipefail
           mkdir -p "${RUNNER_TEMP}/ci-work"
-          : > "${RUNNER_TEMP}/ci-work/stage.log"
-          chmod 600 "${RUNNER_TEMP}/ci-work/stage.log"
+          for stage in $(jq -r '.[]' <<<"${STAGES}"); do
+            : > "${RUNNER_TEMP}/ci-work/stage-${stage}.log"
+            chmod 600 "${RUNNER_TEMP}/ci-work/stage-${stage}.log"
+          done
 
       - name: Restore SwiftPM caches
         uses: ./central-ci/actions/ci-cache
         with:
           phase: restore
-          log_path: ${{ runner.temp }}/ci-work/stage.log
+          log_path: ${{ runner.temp }}/ci-work/stage-${{ inputs.last_stage }}.log
           kind: swiftpm
           slot: ${{ inputs.last_stage }}
           repository: ${{ inputs.repository }}
@@ -152,14 +178,15 @@ jobs:
           home: ${{ steps.native.outputs.home }}
           token: ${{ steps.setup.outputs.token }}
 
-      - name: Start live log stream to S3
+      - name: Start live log stream to S3 (lint)
+        if: ${{ contains(fromJSON(inputs.stages), 'lint') }}
         uses: ./central-ci/actions/s3-log-stream
         with:
           phase: start
           repository: ${{ inputs.repository }}
           request_id: ${{ inputs.request_id }}
-          stage: ${{ inputs.stage }}
-          log_path: ${{ runner.temp }}/ci-work/stage.log
+          stage: lint
+          log_path: ${{ runner.temp }}/ci-work/stage-lint.log
           s3_access_key: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
           s3_secret_key: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
           s3_endpoint: ${{ secrets.S3_ENDPOINT }}
@@ -167,7 +194,39 @@ jobs:
           ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
 
-      - name: Run stage
+      - name: Start live log stream to S3 (test)
+        if: ${{ contains(fromJSON(inputs.stages), 'test') }}
+        uses: ./central-ci/actions/s3-log-stream
+        with:
+          phase: start
+          repository: ${{ inputs.repository }}
+          request_id: ${{ inputs.request_id }}
+          stage: test
+          log_path: ${{ runner.temp }}/ci-work/stage-test.log
+          s3_access_key: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          s3_secret_key: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          s3_endpoint: ${{ secrets.S3_ENDPOINT }}
+          s3_bucket: ${{ secrets.S3_BUCKET }}
+          ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
+
+      - name: Start live log stream to S3 (build)
+        if: ${{ contains(fromJSON(inputs.stages), 'build') }}
+        uses: ./central-ci/actions/s3-log-stream
+        with:
+          phase: start
+          repository: ${{ inputs.repository }}
+          request_id: ${{ inputs.request_id }}
+          stage: build
+          log_path: ${{ runner.temp }}/ci-work/stage-build.log
+          s3_access_key: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          s3_secret_key: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          s3_endpoint: ${{ secrets.S3_ENDPOINT }}
+          s3_bucket: ${{ secrets.S3_BUCKET }}
+          ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
+
+      - name: Run the requested stages
         id: run
         shell: bash
         env:
@@ -186,31 +245,31 @@ jobs:
           CI_SECRET_FIXTURE_XTREAM_URL: ${{ secrets.XTREAM_URL }}
           CI_SECRET_FIXTURE_XTREAM_USERNAME: ${{ secrets.XTREAM_USERNAME }}
           CI_SECRET_FIXTURE_XTREAM_PASSWORD: ${{ secrets.XTREAM_PASSWORD }}
-          STAGE: ${{ inputs.stage }}
+          STAGES: ${{ inputs.stages }}
+          TOP: ${{ inputs.top }}
           REPOSITORY: ${{ inputs.repository }}
           REQUEST_ID: ${{ inputs.request_id }}
           AUTH_HOME: ${{ steps.setup.outputs.auth_home }}
           GIT_CONFIG_PATH: ${{ steps.setup.outputs.git_config }}
         run: |
           set -Eeuo pipefail
-          python3 central-ci/scripts/ci/ci_run_stage.py \
-            --ecosystem xcode \
-            --stage "${STAGE}" \
-            --s3-prefix "logs/${REPOSITORY##*/}/${REQUEST_ID}/${STAGE}/" \
+          python3 central-ci/scripts/ci/ci_run_xcode_job.py \
+            --stages "${STAGES}" \
+            --top "${TOP}" \
             --source source \
             --contract central-ci/contracts/repository-ci-v1.json \
-            --host-os macos \
             --work-dir "${RUNNER_TEMP}/ci-work" \
-            --log-path "${RUNNER_TEMP}/ci-work/stage.log" \
+            --log-dir "${RUNNER_TEMP}/ci-work" \
+            --s3-base "logs/${REPOSITORY##*/}/${REQUEST_ID}/" \
             --home "${AUTH_HOME}" \
             --git-config "${GIT_CONFIG_PATH}"
 
       - name: Save SwiftPM caches (integration branch only)
-        if: ${{ success() && (inputs.last_stage == '' || inputs.stage == inputs.last_stage) }}
+        if: ${{ steps.run.outputs.request_ok == 'true' }}
         uses: ./central-ci/actions/ci-cache
         with:
           phase: save
-          log_path: ${{ runner.temp }}/ci-work/stage.log
+          log_path: ${{ runner.temp }}/ci-work/stage-${{ inputs.last_stage }}.log
           kind: swiftpm
           slot: ${{ inputs.last_stage }}
           repository: ${{ inputs.repository }}
@@ -220,14 +279,76 @@ jobs:
           token: ${{ steps.setup.outputs.token }}
           secrets_to_guard: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
 
-      - name: Stop live log stream and write the merged log
-        if: ${{ always() }}
+      - name: Stop live log stream and write the merged log (lint)
+        if: ${{ always() && contains(fromJSON(inputs.stages), 'lint') }}
         uses: ./central-ci/actions/s3-log-stream
         with:
           phase: stop
           repository: ${{ inputs.repository }}
           request_id: ${{ inputs.request_id }}
-          stage: ${{ inputs.stage }}
+          stage: lint
+
+      - name: Stop live log stream and write the merged log (test)
+        if: ${{ always() && contains(fromJSON(inputs.stages), 'test') }}
+        uses: ./central-ci/actions/s3-log-stream
+        with:
+          phase: stop
+          repository: ${{ inputs.repository }}
+          request_id: ${{ inputs.request_id }}
+          stage: test
+
+      - name: Stop live log stream and write the merged log (build)
+        if: ${{ always() && contains(fromJSON(inputs.stages), 'build') }}
+        uses: ./central-ci/actions/s3-log-stream
+        with:
+          phase: stop
+          repository: ${{ inputs.repository }}
+          request_id: ${{ inputs.request_id }}
+          stage: build
+
+      - name: stage lint passed
+        if: ${{ always() && steps.run.outputs.lint == 'passed' }}
+        shell: bash
+        run: echo "lint passed"
+      - name: stage lint failed
+        if: ${{ always() && steps.run.outputs.lint == 'failed' }}
+        shell: bash
+        run: echo "lint failed"
+      - name: stage lint skipped
+        if: ${{ always() && steps.run.outputs.lint == 'skipped' }}
+        shell: bash
+        run: echo "lint skipped"
+      - name: stage test passed
+        if: ${{ always() && steps.run.outputs.test == 'passed' }}
+        shell: bash
+        run: echo "test passed"
+      - name: stage test failed
+        if: ${{ always() && steps.run.outputs.test == 'failed' }}
+        shell: bash
+        run: echo "test failed"
+      - name: stage test skipped
+        if: ${{ always() && steps.run.outputs.test == 'skipped' }}
+        shell: bash
+        run: echo "test skipped"
+      - name: stage build passed
+        if: ${{ always() && steps.run.outputs.build == 'passed' }}
+        shell: bash
+        run: echo "build passed"
+      - name: stage build failed
+        if: ${{ always() && steps.run.outputs.build == 'failed' }}
+        shell: bash
+        run: echo "build failed"
+      - name: stage build skipped
+        if: ${{ always() && steps.run.outputs.build == 'skipped' }}
+        shell: bash
+        run: echo "build skipped"
+
+      - name: Decide the request result (build and test decide; lint only as the top operation)
+        if: ${{ always() && steps.run.outputs.request_ok != 'true' }}
+        shell: bash
+        run: |
+          echo "request failed: see the stage logs in S3" >&2
+          exit 1
 
       - name: Remove native netrc, credentials, source and private logs
         if: ${{ always() }}

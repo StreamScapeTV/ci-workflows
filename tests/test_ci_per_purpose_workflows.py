@@ -34,8 +34,7 @@ stage = load("ci_stage")
 run_stage = load("ci_run_stage")
 CONTRACT = json.loads((ROOT / "contracts/repository-ci-v1.json").read_text())
 ECOSYSTEMS = ("gradle", "xcode", "python", "node")
-PER_STAGE = ("xcode",)  # gradle, node and python run every stage in one job (ci_run_gradle_job.py, ci_run_job.py)
-ONE_JOB = ("gradle", "node", "python")
+ONE_JOB = ECOSYSTEMS  # every ecosystem runs all its stages in one job (ci_run_gradle_job.py, ci_run_job.py, ci_run_xcode_job.py)
 CACHED = ("gradle", "xcode")  # python has no cache by owner decision
 SHA_PIN = re.compile(r"^[^@\s]+@[0-9a-f]{40}( #.*)?$")
 
@@ -419,11 +418,13 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertNotIn("STREAMSCAPE_", gradle)
         self.assertNotIn("XTREAM_", gradle)
         xcode = self.entry("xcode")
-        for job in ("lint", "test", "build"):
-            passes = "STREAMSCAPE_EMAIL" in xcode["jobs"][job]["secrets"]
-            self.assertEqual(passes, job == "test", job)
-            for secrets in (xcode["jobs"][job]["secrets"],):
-                self.assertNotIn("inherit", str(secrets))
+        self.assertIn("STREAMSCAPE_EMAIL", xcode["jobs"]["xcode"]["secrets"])  # one job: passed once, used only when the test stage runs
+        self.assertNotIn("inherit", str(xcode["jobs"]["xcode"]["secrets"]))
+        stage = yaml.safe_load((ROOT / ".github/workflows/ci-xcode-stage.yml").read_text())["jobs"]["stages"]["steps"]
+        materialize = next(s for s in stage if s.get("name", "").startswith("Materialize integration-test fixtures"))
+        self.assertEqual(materialize["if"], "${{ contains(fromJSON(inputs.stages), 'test') }}")
+        for other in (*stage[:3], next(s for s in stage if s.get("id") == "setup")):
+            self.assertFalse([k for k in (other.get("env") or {}) if "STREAMSCAPE" in k or "XTREAM" in k], other.get("name"))
 
     def test_release_operation_runs_the_chain_and_the_write_credential_is_publish_only(self):
         node = self.entry("node")
@@ -443,35 +444,7 @@ class WorkflowShapeTests(unittest.TestCase):
         for gradle in ("gradle", "xcode", "python"):  # only node publishes today
             self.assertNotIn("release", self.entry(gradle)["jobs"])
 
-    def test_stage_jobs_are_separate_ordered_and_reusable_files_exist(self):
-        for name in PER_STAGE:
-            document = self.entry(name)
-            self.assertEqual(document["jobs"]["test"]["needs"], ["plan", "lint"])
-            self.assertEqual(document["jobs"]["build"]["needs"], ["plan", "test"])
-            # every later stage runs only when the previous stage succeeded (a failed lint stops the chain)
-            self.assertTrue(document["jobs"]["test"]["if"].endswith("&& needs.lint.result == 'success' }}"))
-            self.assertTrue(document["jobs"]["build"]["if"].endswith("&& needs.test.result == 'success' }}"))
-            self.assertNotIn("!=", document["jobs"]["build"]["if"].split("contains")[-1])
-            for job in ("lint", "build", "test"):
-                self.assertEqual(document["jobs"][job]["uses"], f"./.github/workflows/ci-{name}-stage.yml")
-                self.assertEqual(document["jobs"][job]["with"]["stage"], job)
-
-    def test_each_stage_streams_logs_to_s3_around_the_run_and_stops_with_always(self):
-        for name in PER_STAGE:
-            steps = yaml.safe_load((ROOT / f".github/workflows/ci-{name}-stage.yml").read_text())["jobs"]["stage"]["steps"]
-            streams = [(i, s) for i, s in enumerate(steps) if s.get("uses", "") == "./central-ci/actions/s3-log-stream"]
-            self.assertEqual([s["with"]["phase"] for _, s in streams], ["start", "stop"])
-            run = next(i for i, s in enumerate(steps) if s.get("id") == "run")
-            self.assertLess(streams[0][0], run)
-            self.assertGreater(streams[1][0], run)
-            self.assertEqual(streams[1][1]["if"], "${{ always() }}")
-            self.assertNotIn("continue-on-error", streams[1][1], "logs live only in S3: a stream that cannot finish fails the job")
-            self.assertNotIn("env", streams[0][1], "the background uploader process gets no credentials in its environment")
-            self.assertEqual(set(streams[1][1]["with"]), {"phase", "repository", "request_id", "stage"}, "stop needs no credential")
-            self.assertIn("inputs.request_id", streams[0][1]["with"]["request_id"])
-            self.assertIn("S3_GITHUB_TRANSPORT_ACCESS_KEY", streams[0][1]["with"]["s3_access_key"])
-
-    def test_gradle_node_python_run_every_stage_in_one_job_with_a_stream_per_stage_and_static_stage_steps(self):
+    def test_every_ecosystem_runs_all_stages_in_one_job_with_a_stream_per_stage_and_static_stage_steps(self):
         for name in ONE_JOB:
             self.one_job_shape(name)
 
@@ -479,9 +452,9 @@ class WorkflowShapeTests(unittest.TestCase):
         entry = self.entry(name)
         job = entry["jobs"][name]
         self.assertEqual(job["uses"], f"./.github/workflows/ci-{name}-stage.yml")
-        self.assertEqual(job["with"]["stages"], "${{ needs.plan.outputs.stages }}" if name == "gradle" else "${{ needs.plan.outputs.job_stages }}")
+        self.assertEqual(job["with"]["stages"], "${{ needs.plan.outputs.job_stages }}" if name in ("node", "python") else "${{ needs.plan.outputs.stages }}")
         self.assertEqual(job["with"]["top"], "${{ inputs.operation }}")
-        if name != "gradle":  # the release stage is its own job: the one-job stage list never carries it
+        if name in ("node", "python"):  # the release stage is its own job: the one-job stage list never carries it
             self.assertIn('map(select(. != "release"))', (ROOT / f".github/workflows/ci-{name}.yml").read_text())
         self.assertNotIn("needs.lint", str(job), "lint never gates the build or the test")
         document = yaml.safe_load((ROOT / f".github/workflows/ci-{name}-stage.yml").read_text())
@@ -491,7 +464,7 @@ class WorkflowShapeTests(unittest.TestCase):
         for op in ("lint", "test", "build"):  # the broker reads exactly these static names (ci-broker stages_from_steps)
             self.assertIn(f"stage {op} passed", names)
             self.assertIn(f"stage {op} failed", names)
-            self.assertEqual(f"stage {op} skipped" in names, name != "gradle")  # node and python may skip a stage
+            self.assertEqual(f"stage {op} skipped" in names, name != "gradle")  # all but gradle may skip a stage
             passed = steps[names.index(f"stage {op} passed")]
             self.assertIn(f"steps.run.outputs.{op} == 'passed'", passed["if"])
             self.assertIn("always()", passed["if"])
@@ -508,16 +481,16 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertIn("steps.run.outputs.request_ok != 'true'", decide["if"])
         self.assertIn("always()", decide["if"])
         self.assertNotIn("continue-on-error", steps[run])
-        if name == "gradle":
+        if name in CACHED:
             save = next(s for s in steps if s.get("name", "").startswith("Save "))
             self.assertEqual(save["if"], "${{ steps.run.outputs.request_ok == 'true' }}")
             self.assertLess(steps.index(save), names.index("Stop live log stream and write the merged log (lint)"))
         else:
-            self.assertFalse([n for n in names if n.startswith(("Save ", "Restore "))], "node and python have no cache")
+            self.assertFalse([n for n in names if n.startswith(("Save ", "Restore "))], "python and node have no cache")
         self.assertNotIn("inputs.", "\n".join(steps[run]["run"].splitlines()), "no workflow input is interpolated into shell")
 
     def test_xcode_fixture_values_are_in_the_scrub_list_of_the_run_step(self):
-        steps = yaml.safe_load((ROOT / ".github/workflows/ci-xcode-stage.yml").read_text())["jobs"]["stage"]["steps"]
+        steps = yaml.safe_load((ROOT / ".github/workflows/ci-xcode-stage.yml").read_text())["jobs"]["stages"]["steps"]
         env = next(step for step in steps if step.get("id") == "run")["env"]
         for name in ("STREAMSCAPE_API_BASE", "STREAMSCAPE_EMAIL", "STREAMSCAPE_PASSWORD", "STREAMSCAPE_DEMO_EMAIL",
                      "STREAMSCAPE_DEMO_PASSWORD", "XTREAM_URL", "XTREAM_USERNAME", "XTREAM_PASSWORD"):
@@ -616,7 +589,7 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertIn('>> "${LOG_PATH}"', action)
         for name in CACHED:
             text = (ROOT / f".github/workflows/ci-{name}-stage.yml").read_text()
-            self.assertLess(text.index("Prepare the stage log file" if name != "gradle" else "Prepare one log file per stage"), text.index("Restore "))
+            self.assertLess(text.index("Prepare one log file per stage"), text.index("Restore "))
         self.assertNotIn("ci-cache", (ROOT / ".github/workflows/ci-python-stage.yml").read_text())
 
     def test_a_build_request_warms_a_build_cache_only_its_last_stage_saves(self):
@@ -624,18 +597,14 @@ class WorkflowShapeTests(unittest.TestCase):
             entry = (ROOT / f".github/workflows/ci-{name}.yml").read_text()
             self.assertIn("last_stage: ${{ steps.validate.outputs.last_stage }}", entry)
             self.assertIn("jq -r '.stages[-1]'", entry)
-            self.assertEqual(entry.count("last_stage: ${{ needs.plan.outputs.last_stage }}"), 1 if name == "gradle" else 3, name)
+            self.assertEqual(entry.count("last_stage: ${{ needs.plan.outputs.last_stage }}"), 1, name)
             text = (ROOT / f".github/workflows/ci-{name}-stage.yml").read_text()
-            steps = yaml.safe_load(text)["jobs"]["stages" if name == "gradle" else "stage"]["steps"]
+            steps = yaml.safe_load(text)["jobs"]["stages"]["steps"]
             names = [step.get("name", "") for step in steps]
             save = next(step for step in steps if step.get("name", "").startswith("Save "))
-            if name == "gradle":  # one job: the single save is the last stage's, into the last stage's log
-                self.assertEqual(save["with"]["log_path"], "${{ runner.temp }}/ci-work/stage-${{ inputs.last_stage }}.log")
-                first_stop = "Stop live log stream and write the merged log (lint)"
-            else:
-                self.assertIn("inputs.stage == inputs.last_stage", save["if"])
-                self.assertEqual(save["with"]["log_path"], "${{ runner.temp }}/ci-work/stage.log")
-                first_stop = "Stop live log stream and write the merged log"
+            # one job: the single save is the last stage's, into the last stage's log
+            self.assertEqual(save["with"]["log_path"], "${{ runner.temp }}/ci-work/stage-${{ inputs.last_stage }}.log")
+            first_stop = "Stop live log stream and write the merged log (lint)"
             self.assertEqual(save["with"]["slot"], "${{ inputs.last_stage }}")
             restore = next(step for step in steps if step.get("name", "").startswith("Restore "))
             self.assertEqual(restore["with"]["slot"], "${{ inputs.last_stage }}")
@@ -665,7 +634,7 @@ class WorkflowShapeTests(unittest.TestCase):
             if name in CACHED:
                 self.assertIn("phase: restore", text)
                 self.assertIn("phase: save", text)
-            run = text.split("- name: Run stage" if name == "xcode" else "- name: Run the requested stages")[1].split("- name:")[0]
+            run = text.split("- name: Run the requested stages")[1].split("- name:")[0]
             self.assertNotIn("inputs.", run.split("run: |")[1], "no workflow input is interpolated into shell")
         action = (ROOT / "actions/ci-cache/action.yml").read_text()
         self.assertIn("lookup-only: true", action)
