@@ -23,15 +23,11 @@ The normal `validation.repository` route executes a reviewed operation, not an a
 
 See [Repository CI documentation](docs/repository-ci.md) for the exact consumer contract. The workflow YAML and [machine-readable contract](contracts/repository-ci-v1.json) define the current runtime behavior; this README is orientation, not a competing API catalogue.
 
-## Why does the Actions graph look large?
+## How CI runs
 
-[`central-ci-dispatch.yml`](.github/workflows/central-ci-dispatch.yml) is a single admission front door with *conditional routes* for the different supported operations. GitHub's visualization draws potential branches, including jobs that are **skipped** on a particular run. It does not mean all routes execute each time.
+CI runs only when an agent requests it: the agent runner (via ci-broker) dispatches one of the four ecosystem entry workflows, [`ci-gradle`](.github/workflows/ci-gradle.yml), [`ci-xcode`](.github/workflows/ci-xcode.yml), [`ci-node`](.github/workflows/ci-node.yml) or [`ci-python`](.github/workflows/ci-python.yml). Each runs all requested stages in one job (`<ecosystem> / stages`), writes the tool output only to S3 and shows only status lines in the Actions log. Details: [docs/per-purpose-ci-workflows.md](docs/per-purpose-ci-workflows.md).
 
-The default route for ordinary build/test/full/UI work is:
-
-`Agent State request → central-ci-dispatch → repository-plan → repository → product .ci/* → private evidence / cleanup / settlement`
-
-Some separately governed paths remain because they have a genuinely different trust, platform, or release boundary:
+Separately governed paths that remain have a genuinely different trust, platform, or release boundary:
 
 - **Specialized evidence:** Apple screenshot review and other currently authorized native/device-validation exceptions, until live consumers migrate safely. Android screenshots use the product-owned generic repository UI route.
 - **Release/publication:** tag-controlled image, chart, library, and app distribution paths, with publication-specific permissions and readback.

@@ -162,7 +162,7 @@ Every entry workflow (`ci-gradle.yml`, `ci-xcode.yml`, `ci-node.yml`, `ci-python
 inputs: `request_id`, `repository`, `ref`, `is_tag`, `operation` (required: the top requested operation),
 `target` (optional, accepted and ignored) and `options` (JSON, default `{}`). Any other input makes GitHub
 answer 422, so the runner must not send more. `operation` today is `lint`, `test` or `build`; `full`,
-`ui-test` and `release` are rejected by `plan` until their workflows exist (see `docs/ci-parity.yaml`).
+`ui-test` and `release` are rejected by `plan` until their workflows exist.
 
 Hierarchy: operation X runs every stage below it in the same run and the same job
 (`lint` < `test` < `build`): `lint` runs lint; `test` runs lint and test; `build` runs lint, test and build. The

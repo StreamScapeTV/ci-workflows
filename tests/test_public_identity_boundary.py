@@ -16,7 +16,6 @@ LEGACY_RESIDUE_PATHS = {
     ".github/workflows/android.yml",
     ".github/workflows/apple-binary.yml",
     ".github/workflows/apple.yml",
-    ".github/workflows/central-ci-dispatch.yml",
     "tests/test_apple_binary_workflow.py",
     "tests/test_ci_helpers.py",
 }
@@ -59,11 +58,6 @@ def concrete_consumer_repositories(text: str) -> set[str]:
 
 
 class PublicIdentityBoundaryTests(unittest.TestCase):
-    def test_audited_legacy_residue_paths_are_explicitly_marked(self) -> None:
-        for relative in sorted(LEGACY_RESIDUE_PATHS):
-            path = ROOT / relative
-            self.assertTrue(path.is_file(), relative)
-            self.assertIn(LEGACY_MARKER, path.read_text(encoding="utf-8"), relative)
 
     def test_concrete_consumer_repository_refs_exist_only_in_marked_legacy_residue(self) -> None:
         for path in repository_text_files():
@@ -75,18 +69,6 @@ class PublicIdentityBoundaryTests(unittest.TestCase):
             self.assertIn(relative, LEGACY_RESIDUE_PATHS, relative)
             self.assertIn(LEGACY_MARKER, text, relative)
 
-    def test_generic_public_surfaces_use_no_concrete_consumer_repository_identity(self) -> None:
-        generic_surfaces = (
-            ROOT / ".github/workflows/repository.yml",
-            ROOT / "contracts/repository-ci-v1.json",
-            ROOT / "INVENTORY.yaml",
-            ROOT / "README.md",
-            ROOT / "docs/repository-ci.md",
-            ROOT / "docs/repository-ci-capability-audit.md",
-        )
-        for path in generic_surfaces:
-            text = path.read_text(encoding="utf-8")
-            self.assertFalse(concrete_consumer_repositories(text), path.as_posix())
 
     def test_repository_ci_capability_audit_freezes_consumer_neutral_v1_boundary(self) -> None:
         path = ROOT / "docs/repository-ci-capability-audit.md"

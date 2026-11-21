@@ -1,48 +1,44 @@
 version: 1
 repository: StreamScapeTV/ci-workflows
 workflows:
-  apple: .github/workflows/apple.yml
+  ci_gradle: .github/workflows/ci-gradle.yml
+  ci_gradle_stage: .github/workflows/ci-gradle-stage.yml
+  ci_xcode: .github/workflows/ci-xcode.yml
+  ci_xcode_stage: .github/workflows/ci-xcode-stage.yml
+  ci_node: .github/workflows/ci-node.yml
+  ci_node_stage: .github/workflows/ci-node-stage.yml
+  ci_python: .github/workflows/ci-python.yml
+  ci_python_stage: .github/workflows/ci-python-stage.yml
+  ci_oci_release_stage: .github/workflows/ci-oci-release-stage.yml
   apple_credential_preflight: .github/workflows/apple-credential-preflight.yml
-  repository: .github/workflows/repository.yml
-  repository_plan: .github/workflows/repository-plan.yml
-  android: .github/workflows/android.yml
-  cluster_inspector: .github/workflows/cluster-inspector.yml
-  maven: .github/workflows/maven.yml
-  apple_binary: .github/workflows/apple-binary.yml
-  apple_swiftpm: .github/workflows/apple-swiftpm.yml
-  library_package_release: .github/workflows/library-package-release.yml
-  public_native_image_chart: .github/workflows/public-native-image-chart.yml
-  oci_reproducibility: .github/workflows/oci-reproducibility.yml
-  ci_cancel: .github/workflows/ci-cancel.yml
-  branch_delete: .github/workflows/branch-delete.yml
-  central_dispatch: .github/workflows/central-ci-dispatch.yml
-  central_ci_settle: .github/workflows/central-ci-settle.yml
   github_issue_dependency_projection: .github/workflows/github-issue-dependency-projection.yml
   self_check: .github/workflows/self-check.yml
 actions:
-  agent_state: actions/agent-state/action.yml
+  ci_setup: actions/ci-setup/action.yml
+  ci_cache: actions/ci-cache/action.yml
+  ci_release: actions/ci-release/action.yml
   private_git: actions/private-git/action.yml
+  setup_tailscale: actions/setup-tailscale/action.yml
   s3_upload: actions/s3-upload/action.yml
   s3_log_stream: actions/s3-log-stream/action.yml
   dockerhub_read: actions/dockerhub-read/action.yml
 scripts:
   hosted_macos_dns: actions/private-git/macos_dns.py
-  apple_dependency_cache: scripts/ci/apple_dependency_cache.py
-  oci_reproducibility: scripts/ci/oci_reproducibility.py
-  ci_cancel: scripts/ci/ci_cancel.py
+  ci_validate_inputs: scripts/ci/ci_validate_inputs.py
+  ci_stage: scripts/ci/ci_stage.py
+  ci_run_stage: scripts/ci/ci_run_stage.py
+  ci_run_gradle_job: scripts/ci/ci_run_gradle_job.py
+  ci_run_xcode_job: scripts/ci/ci_run_xcode_job.py
+  ci_run_job: scripts/ci/ci_run_job.py
+  ci_cache: scripts/ci/ci_cache.py
+  ci_registry_auth: scripts/ci/ci_registry_auth.py
+  ci_scrub_log: scripts/ci/ci_scrub_log.py
+  ci_release: scripts/ci/ci_release.py
   s3_put: scripts/ci/s3_put.py
   github_issue_dependency_projection: scripts/ci/github_issue_dependency_projection.py
-  repository_log_checkpoint: scripts/ci/repository_log_checkpoint.py
-  repository_log_capture: scripts/ci/repository_log_capture.py
   repository_test_fixtures: scripts/ci/repository_test_fixtures.py
-  repository_log_timeline: scripts/ci/repository_log_timeline.py
-  repository_progress_relay: scripts/ci/repository_progress_relay.py
-  repository_runtime_probe: scripts/ci/repository_runtime_probe.py
-  repository_execution_plan: scripts/ci/repository_execution_plan.py
   repository_apple_physical_device: scripts/ci/repository_apple_physical_device.py
   repository_macos_netrc: scripts/ci/repository_macos_netrc.py
   apple_credential_preflight: scripts/ci/apple_credential_preflight.py
-  protected_deployed_conformance: scripts/ci/protected_deployed_conformance.py
-  swiftpm_binary: scripts/ci/swiftpm_binary.py
 contracts:
   repository_ci_v1: contracts/repository-ci-v1.json

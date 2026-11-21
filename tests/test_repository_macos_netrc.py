@@ -129,33 +129,6 @@ class MacosNetrcTests(unittest.TestCase):
         netrc.cleanup(self.auth)
         self.assertFalse(os.path.lexists(self.destination))
 
-    def test_failed_entrypoint_still_cleans_owned_link_and_credentials(self):
-        netrc.install(self.auth, self.home)
-        workflow = yaml.safe_load((ROOT / ".github/workflows/repository.yml").read_text())
-        steps = {step.get("name"): step for step in workflow["jobs"]["execute"]["steps"]}
-        install = steps["Expose isolated netrc to native macOS package resolution"]
-        self.assertIn("inputs.operation != 'device-test'", install["if"])
-        self.assertIn("host_os == 'macos'", install["if"])
-        cleanup = steps["Cleanup ephemeral registry and repository evidence"]
-        self.assertIn("always()", cleanup["if"])
-        # Run the real cleanup shell after a failed product command with synthetic paths.
-        central = self.root / "central-ci/scripts/ci"
-        central.mkdir(parents=True)
-        (central / "repository_macos_netrc.py").symlink_to(Path(netrc.__file__))
-        self.auth.rename(self.root / "central-registry-auth")
-        # Install again at the actual fixed location expected by the workflow.
-        self.destination.unlink()
-        auth = self.root / "central-registry-auth"
-        (auth / "native-netrc.json").unlink()
-        netrc.install(auth, self.home)
-        self.native.stop()
-        result = subprocess.run(
-            ["bash", "-c", "false\n" + cleanup["run"]], cwd=self.root,
-            env={**os.environ, "RUNNER_TEMP": str(self.root)}, capture_output=True, text=True,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse(os.path.lexists(self.destination))
-        self.assertFalse(auth.exists())
 
 
 if __name__ == "__main__":

@@ -52,15 +52,3 @@ class TailscaleSourceIsolationTests(unittest.TestCase):
                 self.assertTrue(s.exists());self.assertNotIn('Traceback',result.stderr)
                 self.assertNotIn('example.invalid',result.stderr)
                 self.assertEqual(list(r.glob('central-tailscale-build-*')),[])
-    def test_nonempty_fixed_admission_failure_keeps_original_exit(self):
-        workflow=yaml.safe_load((ROOT/'.github/workflows/apple.yml').read_text())
-        steps=next(job['steps'] for job in workflow['jobs'].values() if any(s.get('name')=='Run fixed Apple lane' for s in job.get('steps',[])))
-        code=next(s['run'] for s in steps if s.get('name')=='Run fixed Apple lane')
-        prefix=code.split('run_logged() {',1)[0]
-        with tempfile.TemporaryDirectory() as d:
-            log=Path(d)/'lane.log';log.touch()
-            result=subprocess.run(['bash','-c',prefix+'\nexit 23\n'],env={**os.environ,'CI_LOG':str(log)},capture_output=True,text=True)
-            self.assertEqual(result.returncode,23)
-            self.assertGreater(log.stat().st_size,0)
-            self.assertIn('exit_code=23',log.read_text())
-            self.assertNotIn('git status',log.read_text())

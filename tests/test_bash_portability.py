@@ -68,19 +68,6 @@ class BashPortabilityTests(unittest.TestCase):
             + "\n".join(failures),
         )
 
-    def test_optional_arrays_are_nounset_safe(self) -> None:
-        repository = (ROOT / ".github/workflows/repository.yml").read_text(encoding="utf-8")
-        self.assertIn(
-            '"${runtime_probe_options[@]+"${runtime_probe_options[@]}"}"',
-            repository,
-        )
-        self.assertNotIn('"${runtime_probe_options[@]}" &', repository)
-
-        chart = (ROOT / ".github/workflows/public-native-image-chart.yml").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn('"${repositories[@]+"${repositories[@]}"}"', chart)
-        self.assertNotIn('for repository in "${repositories[@]}"', chart)
 
     def test_standalone_shell_scripts_parse_as_bash(self) -> None:
         scripts = sorted(ROOT.rglob("*.sh"))
@@ -102,12 +89,6 @@ class BashPortabilityTests(unittest.TestCase):
                 f"{path.relative_to(ROOT)} failed bash -n: {result.stderr}",
             )
 
-    def test_maven_modern_bash_requirement_remains_explicit(self) -> None:
-        maven = (ROOT / ".github/workflows/maven.yml").read_text(encoding="utf-8")
-        self.assertIn("Resolve modern Bash for Maven publication", maven)
-        self.assertIn("brew --prefix bash", maven)
-        self.assertIn('test "${bash_major}" -ge 4', maven)
-        self.assertIn('steps.maven_bash.outputs.executable', maven)
 
 
 if __name__ == "__main__":
