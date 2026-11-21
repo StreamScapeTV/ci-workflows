@@ -48,10 +48,10 @@ def request_ok(stages: list, results: dict, top: str) -> bool:
     return all(results.get(stage) == "passed" for stage in stages if stage != "lint" or top == "lint")
 
 
-def root_tasks(stages: list, source: Path) -> list:
+def root_tasks(stages: list, source: Path, options: dict | None = None) -> list:
     """One command for all requested stages (generic: ``check`` already contains ``test``)."""
     if ci_stage.android_project(source):
-        wanted = [t for stage in ORDER if stage in stages for t in ci_stage.gradle_tasks(source, stage)]
+        wanted = [t for stage in ORDER if stage in stages for t in ci_stage.gradle_tasks(source, stage, options)]
         return list(dict.fromkeys(wanted))
     tasks: list = []
     if "build" in stages:
@@ -65,11 +65,11 @@ def root_tasks(stages: list, source: Path) -> list:
     return tasks
 
 
-def closures(stages: list, source: Path, env: dict) -> dict:
+def closures(stages: list, source: Path, env: dict, options: dict | None = None) -> dict:
     """Task paths each stage would run (Gradle --dry-run of the stage's own tasks)."""
     result = {}
     for stage in stages:
-        done = subprocess.run([*COMMON, "--dry-run", *ci_stage.gradle_tasks(source, stage)], cwd=source, env=env, text=True,
+        done = subprocess.run([*COMMON, "--dry-run", *ci_stage.gradle_tasks(source, stage, options)], cwd=source, env=env, text=True,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         result[stage] = {m.group(1) for m in map(DRY_TASK.match, done.stdout.splitlines()) if m}
     return result
@@ -99,10 +99,10 @@ def thread_dump(logs: list, reason: str) -> None:
             add(f"== jstack failed ({type(error).__name__}) ==")
 
 
-def run_combined(stages, source, env, logs, closure, timeout_s=90 * 60, stall_s=20 * 60) -> dict:
+def run_combined(stages, source, env, logs, closure, options=None, timeout_s=90 * 60, stall_s=20 * 60) -> dict:
     """One Gradle run with a watchdog: a thread dump after ``stall_s`` without output, and thread dump plus kill
     of the whole process group after ``timeout_s``, so the stages still end with an exit line and a final log."""
-    process = subprocess.Popen([*COMMON, *root_tasks(stages, source)], cwd=source, env=env, stdout=subprocess.PIPE,
+    process = subprocess.Popen([*COMMON, *root_tasks(stages, source, options)], cwd=source, env=env, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, bufsize=0, start_new_session=True)
     state = {"last": time.monotonic(), "dumped": False, "killed": False}
     everyone = [logs[stage] for stage in stages]
@@ -210,10 +210,10 @@ def main(argv=None) -> int:
         logs[stage].add(f"== stage {stage} ({commands[stage]['mode']}) ==\n".encode())
     if all(command["mode"] == "convention" for command in commands.values()):
         env = env_for(args.top)
-        closure = closures(stages, source, env)
+        closure = closures(stages, source, env, options)
         ci_run_stage.status("gradle closures " + " ".join(f"{s}={len(closure[s])}" for s in stages)
                             + " (one combined invocation)")
-        results = run_combined(stages, source, env, logs, closure, args.timeout_minutes * 60, args.stall_minutes * 60)
+        results = run_combined(stages, source, env, logs, closure, options, args.timeout_minutes * 60, args.stall_minutes * 60)
     else:
         results = run_scripts(stages, source, commands, env_for, logs)
     for stage in stages:

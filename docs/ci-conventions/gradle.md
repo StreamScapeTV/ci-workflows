@@ -12,7 +12,7 @@ A repository chosen for the Gradle workflow needs **no `.ci` directory** if it p
 | Stage (operation) | Command | What the project provides |
 | --- | --- | --- |
 | `lint` | `check -x test` (Android: `lintDebug`) | verification tasks attached to `check` (Android lint, detekt, ktlint, ...) |
-| `build` | `assemble` (Android: `assembleDebug`) | the artifacts to build |
+| `build` | `assemble` (Android: `assembleDebug`, or `assembleRelease` with `build_configuration=release`) | the artifacts to build |
 | `test` | `test` (Android: `testDebugUnitTest`) | JVM unit tests (no emulator; emulator/instrumentation is a separate workflow) |
 
 3. Product specifics in Gradle itself (tasks, `gradle.properties`, build types), never in a CI script.
@@ -20,11 +20,11 @@ A repository chosen for the Gradle workflow needs **no `.ci` directory** if it p
 4. Dependencies: public repositories, or the private Forgejo Maven reached through the properties the
    workflow writes (`centralRegistryUsername`, `centralRegistryReadToken` in the ephemeral
    `GRADLE_USER_HOME/gradle.properties`). Read them with `providers.gradleProperty`.
-An Android project (a `com.android.*` plugin in the root/`app` build file or the version catalog) runs the debug variant only, with `--max-workers=2`: all variants (benchmark, release, R8) in parallel froze a hosted runner for an hour.
+An Android project (a `com.android.*` plugin in the root/`app` build file or the version catalog) runs the debug variant only (deliberate narrowing: release, benchmark and R8 are no longer part of the default check; only `build_configuration=release` adds `assembleRelease` to the build stage; lint and test stay Debug), with `--max-workers=2`: building all variants (benchmark, release, R8) in parallel is the inferred (not proven) cause of a 70-minute stall of a hosted run.
 5. JDK 25 (Temurin) is provided by the workflow.
 
 Request options: `build_configuration` (`debug`/`release`), `test_selectors` (test stage), `product_target`.
-They reach a transition script as `CI_INPUTS_JSON` only; the convention commands ignore them today.
+They reach a transition script as `CI_INPUTS_JSON`. The convention honors only `build_configuration` (Android build stage); the other options are ignored today.
 
 A failed `lint` is a warning (reported, findings in the S3 log) and does not fail a `test` or `build` request; a failed `test` or `build` fails the request; when `lint` itself is the requested operation a failure fails it.
 With transition scripts (`.ci/*.sh`) the stages run one after the other in the same job, build first, and a failed stage never stops the next one; delete the scripts to get the single shared invocation.

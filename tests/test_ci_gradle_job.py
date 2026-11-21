@@ -122,6 +122,17 @@ class GradleOneJobTests(unittest.TestCase):
             self.assertIn("watchdog: killing the Gradle process group", text)
             self.assertIn(f"== stage {stage} exit 1 ==", text)
 
+    def test_android_build_configuration_release_builds_release_while_lint_and_test_stay_debug(self):
+        android = repo({"gradlew": FAKE_GRADLEW, "app/build.gradle.kts": 'plugins { id("com.android.application") }'})
+        release = {"build_configuration": "release"}
+        self.assertEqual(job.root_tasks(["lint", "test", "build"], android, release),
+                         ["assembleRelease", "testDebugUnitTest", "lintDebug"])
+        self.assertEqual(job.root_tasks(["build"], android, {"build_configuration": "debug"}), ["assembleDebug"])
+        self.assertEqual(job.root_tasks(["build"], android, {}), ["assembleDebug"])
+        done, _, calls, _ = run_job(android, ["lint", "test", "build"], "build", extra_env={"CI_OPTIONS_JSON": json.dumps(release)})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("assembleRelease testDebugUnitTest lintDebug", [c for c in calls if "--dry-run" not in c][0])
+
     def test_the_actions_log_carries_status_lines_only(self):
         done, _o, _c, _l = run_job(self.source, ["lint", "build"], "build")
         self.assertNotIn("output of", done.stdout)
