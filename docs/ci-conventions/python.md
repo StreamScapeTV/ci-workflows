@@ -18,3 +18,7 @@ back to `pip install -e .`). Pin versions in the manifest; the workflow keeps **
 Transition: a tracked executable `.ci/lint.sh`, `.ci/build.sh` or `.ci/test.sh` wins over the
 convention until the project follows the standard. Product specifics belong in the project's own
 tooling (pyproject), never in a CI script.
+
+## Where the output goes
+
+The tool output of every stage is written only to the S3 stage log (`logs/<repo>/<request_id>/<stage>/<seq>.log`, `final.log`) and never to the Actions log of this repository. The Actions step shows only status lines: `== stage <name> started s3=<prefix> ==` and `== stage <name> finished result=ok|failed|skipped exit=N s3=<prefix> ==`. Tool `::error::` lines stay inside the S3 log. A log stream that cannot start or finish fails the job (the log would be lost).

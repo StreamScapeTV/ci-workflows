@@ -286,7 +286,11 @@ class SecretAndLogTests(unittest.TestCase):
             self.assertIn("child sees: none", text)
             self.assertIn('inputs={"inputs":{"build_configuration":"debug"},"schemaVersion":1}', text)
             self.assertIn("exit 3", text)
-            self.assertEqual(text, completed.stdout)
+            # The Actions log gets status lines only; every tool line stays in the S3 log file.
+            self.assertNotIn("child sees", completed.stdout)
+            self.assertNotIn("op=build", completed.stdout)
+            self.assertEqual(completed.stdout.splitlines(),
+                             ["== stage build started ==", "== stage build finished result=failed exit=3 =="])
             self.assertEqual(stat.S_IMODE(log.stat().st_mode), 0o600)
 
 
@@ -303,6 +307,45 @@ class SkipStageTests(unittest.TestCase):
                 env=dict(os.environ, CI_OPTIONS_JSON="{}"), capture_output=True, text=True)
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertIn("skipped", log.read_text())
+            self.assertEqual(completed.stdout.splitlines(),
+                             ["== stage lint started ==", "== stage lint finished result=skipped exit=0 =="])
+
+
+class ActionsLogCarriesStatusOnlyTests(unittest.TestCase):
+    def test_tool_output_and_annotations_never_reach_the_step_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            source = git_repo({"README.md": "x"})
+            script = source / ".ci/build.sh"
+            script.parent.mkdir()
+            script.write_text('#!/bin/sh\necho "::error::tool failed"\necho "plain tool line"\n')
+            script.chmod(0o755)
+            subprocess.run(["git", "add", "-f", ".ci/build.sh"], cwd=source, check=True)
+            log = base / "stage.log"
+            done = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/ci/ci_run_stage.py"), "--ecosystem", "gradle", "--stage", "build",
+                 "--source", str(source), "--contract", str(ROOT / "contracts/repository-ci-v1.json"),
+                 "--host-os", "linux", "--work-dir", str(base / "work"), "--log-path", str(log),
+                 "--s3-prefix", "logs/app/req1/build/"],
+                env=dict(os.environ, CI_OPTIONS_JSON="{}"), capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertIn("::error::tool failed", log.read_text())
+            self.assertNotIn("::error", done.stdout)
+            self.assertNotIn("plain tool line", done.stdout)
+            self.assertEqual(done.stdout.splitlines(), [
+                "== stage build started s3=logs/app/req1/build/ ==",
+                "== stage build finished result=ok exit=0 s3=logs/app/req1/build/ =="])
+
+    def test_a_log_that_cannot_reach_s3_fails_the_job_and_stage_workflows_pass_the_prefix(self):
+        for name in (*ECOSYSTEMS, "oci-release"):
+            path = ROOT / f".github/workflows/ci-{name}-stage.yml"
+            if not path.exists():
+                continue
+            text = path.read_text()
+            stop = text.split("- name: Stop live log stream")[1].split("- name:")[0]
+            self.assertNotIn("continue-on-error", stop, name)
+            if name != "oci-release":
+                self.assertIn('--s3-prefix "logs/${REPOSITORY##*/}/${REQUEST_ID}/${STAGE}/"', text, name)
 
 
 class WorkflowShapeTests(unittest.TestCase):
@@ -417,7 +460,7 @@ class WorkflowShapeTests(unittest.TestCase):
             self.assertLess(streams[0][0], run)
             self.assertGreater(streams[1][0], run)
             self.assertEqual(streams[1][1]["if"], "${{ always() }}")
-            self.assertTrue(streams[1][1]["continue-on-error"], "an S3 outage must not red the stage")
+            self.assertNotIn("continue-on-error", streams[1][1], "logs live only in S3: a stream that cannot finish fails the job")
             self.assertNotIn("env", streams[0][1], "the background uploader process gets no credentials in its environment")
             self.assertEqual(set(streams[1][1]["with"]), {"phase", "repository", "request_id", "stage"}, "stop needs no credential")
             self.assertIn("inputs.request_id", streams[0][1]["with"]["request_id"])
