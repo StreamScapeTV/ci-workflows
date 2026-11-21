@@ -90,6 +90,14 @@ class GradleOneJobTests(unittest.TestCase):
             self.assertNotIn("supersecretvalue", (logs / f"stage-{stage}.log").read_text())
             self.assertIn("BUILD SUCCESSFUL", (logs / f"stage-{stage}.log").read_text())  # summary reaches all streams
 
+    def test_dry_run_lines_with_a_task_prefix_or_other_statuses_still_count(self):
+        for line in (":app:lintDebug SKIPPED", "> Task :app:lintDebug SKIPPED", ":app:lintDebug NO-SOURCE"):
+            self.assertEqual(job.DRY_TASK.match(line).group(1), ":app:lintDebug")
+
+    def test_the_closure_sizes_are_a_status_line_of_the_actions_log(self):
+        done, _, _, _ = run_job(self.source, ["lint", "test", "build"], "build")
+        self.assertIn("gradle closures build=2 test=2 lint=2", done.stdout + done.stderr)
+
     def test_the_actions_log_carries_status_lines_only(self):
         done, _o, _c, _l = run_job(self.source, ["lint", "build"], "build")
         self.assertNotIn("output of", done.stdout)
