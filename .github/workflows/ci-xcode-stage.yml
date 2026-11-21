@@ -187,6 +187,8 @@ jobs:
           CI_SECRET_FIXTURE_XTREAM_USERNAME: ${{ secrets.XTREAM_USERNAME }}
           CI_SECRET_FIXTURE_XTREAM_PASSWORD: ${{ secrets.XTREAM_PASSWORD }}
           STAGE: ${{ inputs.stage }}
+          REPOSITORY: ${{ inputs.repository }}
+          REQUEST_ID: ${{ inputs.request_id }}
           AUTH_HOME: ${{ steps.setup.outputs.auth_home }}
           GIT_CONFIG_PATH: ${{ steps.setup.outputs.git_config }}
         run: |
@@ -194,6 +196,7 @@ jobs:
           python3 central-ci/scripts/ci/ci_run_stage.py \
             --ecosystem xcode \
             --stage "${STAGE}" \
+            --s3-prefix "logs/${REPOSITORY##*/}/${REQUEST_ID}/${STAGE}/" \
             --source source \
             --contract central-ci/contracts/repository-ci-v1.json \
             --host-os macos \
@@ -219,7 +222,6 @@ jobs:
 
       - name: Stop live log stream and write the merged log
         if: ${{ always() }}
-        continue-on-error: true
         uses: ./central-ci/actions/s3-log-stream
         with:
           phase: stop

@@ -4,8 +4,9 @@
 * The command comes from ``ci_stage.resolve`` (convention, or a transition ``.ci`` script).
 * The product process never receives ``CI_SECRET_*`` values; it only sees credential *files* under
   the ephemeral home. Those values are used here to redact its output.
-* Output is scrubbed line by line, appended to ``--log-path`` (flushed per line) and echoed to the
-  GitHub step log. The shared ``actions/s3-log-stream`` action (started before this step, stopped
+* Output is scrubbed line by line and appended to ``--log-path`` (flushed per line). It is NEVER echoed
+  to the GitHub step log: the Actions UI shows only the status lines ``status()`` prints (stage started,
+  stage finished with its result and the S3 prefix). The shared ``actions/s3-log-stream`` action (started before this step, stopped
   with ``if: always()`` after it) uploads that growing file as numbered chunks
   ``logs/<project>/<request_id>/<stage>/<seq>.log`` plus a merged ``final.log``.
 """
@@ -32,12 +33,15 @@ class LogFile:
 
     def add(self, line: bytes):
         data, _ = ci_scrub_log.scrub(line, self.secrets)
-        sys.stdout.buffer.write(data)
-        sys.stdout.buffer.flush()
         self.handle.write(data)
 
     def close(self):
         self.handle.close()
+
+
+def status(text: str) -> None:
+    """The only thing a stage prints to the Actions log: one plain status line (no tool output)."""
+    print(f"== {text} ==", flush=True)
 
 
 def secrets_from_environment() -> list:
@@ -84,6 +88,7 @@ def main(argv=None) -> int:
     parser.add_argument("--home", default="")
     parser.add_argument("--gradle-user-home", default="")
     parser.add_argument("--git-config", default="")
+    parser.add_argument("--s3-prefix", default="", help="S3 prefix of this stage's log, shown in the status line")
     args = parser.parse_args(argv)
 
     contract = json.loads(Path(args.contract).read_text(encoding="utf-8"))
@@ -95,19 +100,24 @@ def main(argv=None) -> int:
     env = child_environment(args, stage_inputs)
 
     stream = LogFile(Path(args.log_path), secrets_from_environment())
+    where = f" s3={args.s3_prefix}" if args.s3_prefix else ""
+    status(f"stage {args.stage} started{where}")
     if command["mode"] == "skip":
         stream.add(f"== stage {args.stage} skipped: {command['reason']} ==\n".encode())
         stream.close()
+        status(f"stage {args.stage} finished result=skipped exit=0{where}")
         return 0
     stream.add(f"== stage {args.stage} ({command['mode']}) ==\n".encode())
     process = subprocess.Popen(command["argv"], cwd=source, env=env, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, bufsize=0)
     for line in iter(process.stdout.readline, b""):
         stream.add(line)
-    status = process.wait()
-    stream.add(f"== stage {args.stage} exit {status} ==\n".encode())
+    code = process.wait()
+    stream.add(f"== stage {args.stage} exit {code} ==\n".encode())
     stream.close()
-    return status
+    outcome = "ok" if code == 0 else "failed"
+    status(f"stage {args.stage} finished result={outcome} exit={code}{where}")
+    return code
 
 
 if __name__ == "__main__":

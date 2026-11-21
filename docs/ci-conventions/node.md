@@ -54,3 +54,7 @@ Charts with Helm dependencies (`Chart.lock`) are not supported yet and fail clos
 Secrets of the release stage (names): `FORGEJO_REGISTRY_USERNAME`, `FORGEJO_REGISTRY_TOKEN` (registry
 write, publish step only), optional `DOCKERHUB_USERNAME` / `DOCKERHUB_READ_TOKEN` (authenticated base
 image pulls), plus the common `SOURCE_APP_*`, `TS_OAUTH_*` and `S3_*` secrets.
+
+## Where the output goes
+
+The tool output of every stage is written only to the S3 stage log (`logs/<repo>/<request_id>/<stage>/<seq>.log`, `final.log`) and never to the Actions log of this repository. The Actions step shows only status lines: `== stage <name> started s3=<prefix> ==` and `== stage <name> finished result=ok|failed|skipped exit=N s3=<prefix> ==`. Tool `::error::` lines stay inside the S3 log. A log stream that cannot start or finish fails the job (the log would be lost).

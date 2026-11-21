@@ -162,7 +162,6 @@ jobs:
 
       - name: Stop live log stream and write the merged log
         if: ${{ always() }}
-        continue-on-error: true
         uses: ./central-ci/actions/s3-log-stream
         with:
           phase: stop
