@@ -58,17 +58,19 @@ def android_project(source: Path) -> bool:
     return False
 
 
-def gradle_tasks(source: Path, stage: str) -> list:
+def gradle_tasks(source: Path, stage: str, options: dict | None = None) -> list:
     """Android: the debug variant only (all variants, benchmark and release included, is too slow and memory hungry)."""
     if android_project(source):
-        return {"lint": ["lintDebug"], "build": ["assembleDebug"], "test": ["testDebugUnitTest"]}[stage]
+        release = (options or {}).get("build_configuration") == "release"  # only the build stage follows it
+        return {"lint": ["lintDebug"], "build": ["assembleRelease" if release else "assembleDebug"],
+                "test": ["testDebugUnitTest"]}[stage]
     return {"lint": ["check", "-x", "test"], "build": ["assemble"], "test": ["test"]}[stage]
 
 
 def gradle(source: Path, stage: str, options: dict):
     if _tracked(source, "gradlew") != "100755" or (source / "gradlew").is_symlink():
         _fail("Gradle convention: commit an executable gradlew (mode 100755) and gradle/wrapper/gradle-wrapper.properties")
-    return {"mode": "convention", "argv": ["./gradlew", "--no-daemon", *gradle_tasks(source, stage)]}
+    return {"mode": "convention", "argv": ["./gradlew", "--no-daemon", *gradle_tasks(source, stage, options)]}
 
 
 def xcode(source: Path, stage: str, options: dict, derived_data: str = "DerivedData"):

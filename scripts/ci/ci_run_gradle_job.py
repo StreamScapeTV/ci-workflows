@@ -45,10 +45,10 @@ def request_ok(stages: list, results: dict, top: str) -> bool:
     return all(results.get(stage) == "passed" for stage in stages if stage != "lint" or top == "lint")
 
 
-def root_tasks(stages: list, source: Path) -> list:
+def root_tasks(stages: list, source: Path, options: dict | None = None) -> list:
     """One command for all requested stages (generic: ``check`` already contains ``test``)."""
     if ci_stage.android_project(source):
-        wanted = [t for stage in ORDER if stage in stages for t in ci_stage.gradle_tasks(source, stage)]
+        wanted = [t for stage in ORDER if stage in stages for t in ci_stage.gradle_tasks(source, stage, options)]
         return list(dict.fromkeys(wanted))
     tasks: list = []
     if "build" in stages:
@@ -62,18 +62,18 @@ def root_tasks(stages: list, source: Path) -> list:
     return tasks
 
 
-def closures(stages: list, source: Path, env: dict) -> dict:
+def closures(stages: list, source: Path, env: dict, options: dict | None = None) -> dict:
     """Task paths each stage would run (Gradle --dry-run of the stage's own tasks)."""
     result = {}
     for stage in stages:
-        done = subprocess.run([*COMMON, "--dry-run", *ci_stage.gradle_tasks(source, stage)], cwd=source, env=env, text=True,
+        done = subprocess.run([*COMMON, "--dry-run", *ci_stage.gradle_tasks(source, stage, options)], cwd=source, env=env, text=True,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         result[stage] = {m.group(1) for m in map(DRY_TASK.match, done.stdout.splitlines()) if m}
     return result
 
 
-def run_combined(stages, source, env, logs, closure) -> dict:
-    process = subprocess.Popen([*COMMON, *root_tasks(stages, source)], cwd=source, env=env, stdout=subprocess.PIPE,
+def run_combined(stages, source, env, logs, closure, options=None) -> dict:
+    process = subprocess.Popen([*COMMON, *root_tasks(stages, source, options)], cwd=source, env=env, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, bufsize=0)
     current: set | None = None
     failed_tasks: list = []
@@ -153,10 +153,10 @@ def main(argv=None) -> int:
         logs[stage].add(f"== stage {stage} ({commands[stage]['mode']}) ==\n".encode())
     if all(command["mode"] == "convention" for command in commands.values()):
         env = env_for(args.top)
-        closure = closures(stages, source, env)
+        closure = closures(stages, source, env, options)
         ci_run_stage.status("gradle closures " + " ".join(f"{s}={len(closure[s])}" for s in stages)
                             + " (one combined invocation)")
-        results = run_combined(stages, source, env, logs, closure)
+        results = run_combined(stages, source, env, logs, closure, options)
     else:
         results = run_scripts(stages, source, commands, env_for, logs)
     for stage in stages:
