@@ -88,8 +88,8 @@ def xcode(source: Path, stage: str, options: dict, derived_data: str = "DerivedD
     return {"mode": "convention", "argv": argv}
 
 
-def python(source: Path, stage: str, options: dict):
-    """Python convention: an isolated venv, dependencies from the tracked manifest, standard tools."""
+def python_parts(source: Path, stage: str):
+    """Pieces of the Python convention: ('skip', reason) or ('ok', {venv, deps, tools, run})."""
     names = _tracked_names(source)
     top = {n for n in names if "/" not in n}
     text = ""
@@ -107,22 +107,29 @@ def python(source: Path, stage: str, options: dict):
         deps = "(python -m pip install --quiet -e '.[dev]' || python -m pip install --quiet -e .)"
     if stage == "lint":
         if "[tool.ruff" not in text and "ruff.toml" not in top and ".ruff.toml" not in top:
-            return _skip("no lint convention: configure ruff ([tool.ruff] or ruff.toml) to enable it")
-        body = "python -m pip install --quiet ruff && ruff check ."
-    elif stage == "build":
+            return "skip", "no lint convention: configure ruff ([tool.ruff] or ruff.toml) to enable it"
+        return "ok", {"venv": venv, "deps": "", "tools": "python -m pip install --quiet ruff", "run": "ruff check ."}
+    if stage == "build":
         if "pyproject.toml" not in top:
-            return _skip("no build convention: add pyproject.toml to build a distribution")
-        body = "python -m pip install --quiet build && python -m build"
-    else:
-        if not any(n.startswith("tests/") for n in names):
-            return _skip("no test convention: add a tests/ directory")
-        body = "python -m pytest -q" if "pytest" in text else "python -m unittest discover -s tests"
-        body = f"{deps} && {body}"
-    return {"mode": "convention", "argv": ["bash", "-ec", f"{venv} && {body}"]}
+            return "skip", "no build convention: add pyproject.toml to build a distribution"
+        return "ok", {"venv": venv, "deps": "", "tools": "python -m pip install --quiet build", "run": "python -m build"}
+    if not any(n.startswith("tests/") for n in names):
+        return "skip", "no test convention: add a tests/ directory"
+    run = "python -m pytest -q" if "pytest" in text else "python -m unittest discover -s tests"
+    return "ok", {"venv": venv, "deps": deps, "tools": "", "run": run}
 
 
-def node(source: Path, stage: str, options: dict):
-    """Node convention: npm ci from the lockfile, then the package.json script of the stage."""
+def python(source: Path, stage: str, options: dict):
+    """Python convention: an isolated venv, dependencies from the tracked manifest, standard tools."""
+    kind, value = python_parts(source, stage)
+    if kind == "skip":
+        return _skip(value)
+    body = " && ".join(part for part in (value["deps"], value["tools"], value["run"]) if part)
+    return {"mode": "convention", "argv": ["bash", "-ec", f"{value['venv']} && {body}"]}
+
+
+def node_parts(source: Path, stage: str):
+    """Pieces of the Node convention: ('skip', reason) or ('ok', {prep, run})."""
     names = _tracked_names(source)
     if "package.json" not in names or "package-lock.json" not in names:
         _fail("Node convention: commit package.json and package-lock.json at the repository root")
@@ -135,9 +142,16 @@ def node(source: Path, stage: str, options: dict):
     wanted = {"lint": ("lint", "typecheck"), "test": ("test",), "build": ("build",)}[stage]
     script = next((name for name in wanted if name in scripts), None)
     if script is None:
-        return _skip(f"no {stage} convention: add a package.json script named {' or '.join(wanted)}")
-    run = "npm test" if script == "test" else f"npm run {script}"
-    return {"mode": "convention", "argv": ["bash", "-ec", f"npm ci --no-audit --no-fund && {run}"]}
+        return "skip", f"no {stage} convention: add a package.json script named {' or '.join(wanted)}"
+    return "ok", {"prep": "npm ci --no-audit --no-fund", "run": "npm test" if script == "test" else f"npm run {script}"}
+
+
+def node(source: Path, stage: str, options: dict):
+    """Node convention: npm ci from the lockfile, then the package.json script of the stage."""
+    kind, value = node_parts(source, stage)
+    if kind == "skip":
+        return _skip(value)
+    return {"mode": "convention", "argv": ["bash", "-ec", f"{value['prep']} && {value['run']}"]}
 
 
 def resolve(ecosystem: str, stage: str, source: Path, options: dict, derived_data: str = "DerivedData"):
