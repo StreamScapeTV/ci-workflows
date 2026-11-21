@@ -483,9 +483,11 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertNotIn("continue-on-error", steps[run])
         if name in CACHED:
             save = next(s for s in steps if s.get("name", "").startswith("Save "))
-            # Xcode saves after any finished run (a cold source build must warm the cache even if a stage failed).
-            expected = "steps.run.outcome == 'success'" if name == "xcode" else "steps.run.outputs.request_ok == 'true'"
-            self.assertEqual(save["if"], "${{ " + expected + " }}")
+            # the save runs after failure, cancellation and timeout; only a fully ok request uses the exact key
+            self.assertEqual(save["if"], "${{ always() && steps.setup.outcome == 'success' && steps.run.outcome != 'skipped' }}")
+            self.assertEqual(save["with"]["complete"], "${{ steps.run.outcome == 'success' && steps.run.outputs.request_ok == 'true' }}")
+            restore_step = next(step for step in steps if step.get("name", "").startswith("Restore "))
+            self.assertNotIn("complete", restore_step["with"])
             self.assertLess(steps.index(save), names.index("Stop live log stream and write the merged log (lint)"))
         else:
             self.assertFalse([n for n in names if n.startswith(("Save ", "Restore "))], "python and node have no cache")
@@ -641,6 +643,11 @@ class WorkflowShapeTests(unittest.TestCase):
         action = (ROOT / "actions/ci-cache/action.yml").read_text()
         self.assertIn("lookup-only: true", action)
         self.assertIn("save_allowed == 'true'", action)
+        # always() so a failed, cancelled or timed-out job still saves; a partial result never takes the exact key
+        for step in yaml.safe_load(action)["runs"]["steps"]:
+            if step.get("name", "").startswith(("Check whether this exact key", "Check cache is safe", "Save cache")):
+                self.assertTrue(step["if"].startswith("${{ always() &&"), step["name"])
+        self.assertEqual(action.count("format('{0}-partial', steps.identity.outputs.key)"), 2)
 
 
 if __name__ == "__main__":
