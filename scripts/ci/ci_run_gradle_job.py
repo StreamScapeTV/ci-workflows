@@ -36,7 +36,7 @@ TASKS = {"lint": ["check", "-x", "test"], "build": ["assemble"], "test": ["test"
 COMMON = ["./gradlew", "--no-daemon", "--console=plain", "--continue", "--parallel"]
 HEADER = re.compile(r"^> Task (:\S*)")
 FAILED_TASK = re.compile(r"^> Task (:\S*) FAILED$")
-DRY_TASK = re.compile(r"^(:\S+) (?:SKIPPED|UP-TO-DATE)$")
+DRY_TASK = re.compile(r"^(?:> Task )?(:\S+) (?:SKIPPED|UP-TO-DATE|NO-SOURCE|FROM-CACHE)$")
 END_OF_TASKS = re.compile(r"^(FAILURE:|BUILD (?:SUCCESSFUL|FAILED)|\* What went wrong)")
 
 
@@ -151,6 +151,8 @@ def main(argv=None) -> int:
     if all(command["mode"] == "convention" for command in commands.values()):
         env = env_for(args.top)
         closure = closures(stages, source, env)
+        ci_run_stage.status("gradle closures " + " ".join(f"{s}={len(closure[s])}" for s in stages)
+                            + " (one combined invocation)")
         results = run_combined(stages, source, env, logs, closure)
     else:
         results = run_scripts(stages, source, commands, env_for, logs)
