@@ -46,3 +46,7 @@ needs a small product change (see `per-purpose-ci-workflows.md`).
 ## Where the output goes
 
 The tool output of every stage is written only to the S3 stage log (`logs/<repo>/<request_id>/<stage>/<seq>.log`, `final.log`) and never to the Actions log of this repository. The Actions step shows only status lines: `== stage <name> started s3=<prefix> ==` and `== stage <name> finished result=ok|failed|skipped exit=N s3=<prefix> ==`. Tool `::error::` lines stay inside the S3 log. A log stream that cannot start or finish fails the job (the log would be lost).
+
+## One job, one runner
+
+All requested stages run in ONE job (`xcode / stages`) on one macOS runner: nothing compiles twice. On an Xcode project the `build` stage is `xcodebuild ... build-for-testing` and the `test` stage is `xcodebuild ... test-without-building` on the same `-derivedDataPath` (a request with only `build` or only `test` runs a plain `build` / `test`); a Swift package builds once in `.build` and `swift test` reuses it. `lint` (SwiftLint) runs as a parallel process next to that chain, never in front of it. A failed build makes the test that needs it `failed` (noted in its log). `lint` is a warning: a failed lint never fails a `build` or `test` request, only a request whose top operation is `lint`. A stage without a convention is `skipped`. With transition scripts (`.ci/*.sh`) the stages run one after the other, build first, and a failed stage never stops the next. Only the `test` stage sees `CI_TEST_FIXTURE_FILE`.

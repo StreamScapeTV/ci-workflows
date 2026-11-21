@@ -88,6 +88,27 @@ def xcode(source: Path, stage: str, options: dict, derived_data: str = "DerivedD
     return {"mode": "convention", "argv": argv}
 
 
+def xcode_chain(source: Path, stages: list, options: dict, derived_data: str):
+    """Plan of the Xcode convention for several stages sharing ONE DerivedData.
+
+    Returns {"lint": command, "chain": [(stage, command), ...]}. The chain is the build and test stages in
+    order: when both run on an Xcode project the build becomes ``build-for-testing`` and the test
+    ``test-without-building`` (nothing compiles twice); a Swift package builds once in ``.build`` and tests
+    on top of it. A stage the convention does not cover is a ``skip`` command.
+    """
+    commands = {stage: xcode(source, stage, options, derived_data) for stage in stages}
+    if ("build" in commands and "test" in commands and commands["build"]["mode"] == "convention"
+            and commands["test"]["mode"] == "convention" and commands["build"]["argv"][0] == "xcodebuild"
+            and commands["test"]["argv"][0] == "xcodebuild"):
+        for stage, before, after in (("build", "build", "build-for-testing"), ("test", "test", "test-without-building")):
+            argv = list(commands[stage]["argv"])
+            action = argv.index("CODE_SIGNING_ALLOWED=NO") - 1  # the action word, never a scheme or path of the same name
+            assert argv[action] == before
+            argv[action] = after
+            commands[stage] = {**commands[stage], "argv": argv}
+    return {"lint": commands.get("lint"), "chain": [(s, commands[s]) for s in ("build", "test") if s in commands]}
+
+
 def python_parts(source: Path, stage: str):
     """Pieces of the Python convention: ('skip', reason) or ('ok', {venv, deps, tools, run})."""
     names = _tracked_names(source)
