@@ -73,10 +73,16 @@ def run_convention(ecosystem, stages, parts, source, env_for, logs) -> dict:
         return {**results, **{s: "failed" for s in active}}
     codes: dict = {}
 
-    def one(stage):
-        codes[stage] = run_logged(["bash", "-ec", wrapper[stage]], source, env_for(stage), [logs[stage]])
+    def one(*sequence):
+        for stage in sequence:  # a sequence runs one stage after the other (the earlier one never gates the later)
+            codes[stage] = run_logged(["bash", "-ec", wrapper[stage]], source, env_for(stage), [logs[stage]])
 
-    threads = [threading.Thread(target=one, args=(s,)) for s in active]
+    # Node: `next build` rewrites .next/types and the tsbuildinfo that the typecheck (lint) reads, so lint starts
+    # after the build; the test stage stays parallel with both. Python has no such shared output.
+    groups = [[s] for s in active]
+    if ecosystem == "node" and "build" in active and "lint" in active:
+        groups = [["build", "lint"]] + [[s] for s in active if s not in ("build", "lint")]
+    threads = [threading.Thread(target=one, args=tuple(group)) for group in groups]
     for thread in threads:
         thread.start()
     for thread in threads:
