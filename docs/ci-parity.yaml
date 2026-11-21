@@ -42,10 +42,10 @@ capabilities:
   "ephemeral private HTTPS registry authentication": actions/ci-setup (ci_registry_auth.py --registry-netrc)
   "ephemeral Gradle private-Maven read authentication": ci-gradle-stage (ci_registry_auth.py --gradle-maven)
   "authorized OCI image and Helm registry publication": ci-oci-release-stage + actions/ci-release (ci-node release operation)
-  "product and toolchain build/test/package commands": convention in scripts/ci/ci_stage.py or tracked .ci/<stage>.sh
+  "product and toolchain build/test/package commands": convention in scripts/ci/ci_stage.py (run by ci_run_gradle_job.py, ci_run_xcode_job.py, ci_run_job.py) or tracked .ci/<stage>.sh
   "product target, selector, UI-mode and release semantics": options in contracts/repository-ci-v1.json
   "toolchain bootstrap and hosted emulator/simulator setup for ordinary validation": ci-gradle-stage and ci-xcode-stage
-  "product integration-test fixture/service credentials": ci-xcode (test job only)
+  "product integration-test fixture/service credentials": ci-xcode (materialized only when the test stage runs; visible to the test stage only)
   "Apple signing and App Store Connect distribution credentials": ci-xcode release operation (planned)
   "Android signing and store distribution credentials": ci-gradle release operation (planned)
   "physical-device execution and device-provider orchestration": ci-xcode device-test (planned)
