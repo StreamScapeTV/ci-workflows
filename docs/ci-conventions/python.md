@@ -26,3 +26,5 @@ The tool output of every stage is written only to the S3 stage log (`logs/<repo>
 ## One job, parallel stages
 
 All requested stages run in ONE job (`python / stages`) and do not wait for each other. Python: one venv with the dependencies and the lint/build tools is created once, then `ruff` and the tests/build run as parallel processes of the same job (each with its own S3 log stream). A stage without a convention is `skipped`. A failed install fails every stage that needed it. A failed `lint` is a warning (reported, findings in the S3 log) and never fails a `test` or `build` request; `test` or `build` failing fails the request; when `lint` itself is the requested operation a failure fails it. With transition scripts (`.ci/*.sh`) the stages run one after the other, build first, and a failed stage never stops the next.
+
+Release: `ci-python.yml` also accepts operation `release` (lint, test, build, then the same release stage as `ci-node.yml`, which needs build and test to pass and ignores lint). The project declares what to publish in `.ci/release.json` and the tag must equal the root `VERSION`; see `docs/ci-conventions/node.md`.

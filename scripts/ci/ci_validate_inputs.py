@@ -25,7 +25,7 @@ MAX_OPTIONS_BYTES = 4096
 HIERARCHY = ("lint", "test", "build")
 OPERATIONS = {name: HIERARCHY[: index + 1] for index, name in enumerate(HIERARCHY)}
 # Ecosystems whose workflow also publishes (operation release runs lint, test, build, release).
-RELEASE_ECOSYSTEMS = ("node",)
+RELEASE_ECOSYSTEMS = ("node", "python")
 RELEASE_OPERATIONS = {**OPERATIONS, "release": (*HIERARCHY, "release")}
 EXTRA_FIELDS = {
     "node": {},
