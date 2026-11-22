@@ -12,3 +12,6 @@ dist/
 *.log
 *.tgz
 *.zip
+
+# Files an agent keeps but does not commit (never makes a worktree dirty)
+.scratch/
