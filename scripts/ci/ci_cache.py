@@ -32,6 +32,7 @@ import subprocess
 import sys
 
 INTEGRATION_BRANCHES = ("develop", "main")
+COMPILATION_CACHE_RELATIVE = "Library/Caches/streamscape-ci-compilation-cache"
 MAX_CACHE_BYTES = 4 * 1024 * 1024 * 1024
 MAX_CACHE_FILES = 200_000
 MAX_SCAN_FILE_BYTES = 8 * 1024 * 1024
@@ -143,7 +144,8 @@ def identity(kind: str, root: Path, repository: str, ref: str, is_tag: str, runn
         fingerprint = full[:32]
         prefix = f"ci-swiftpm-v1-{osname}-{arch}-{repo}-"
         base = home / "Library/Caches/org.swift.swiftpm"
-        paths = [base / "artifacts", base / "repositories"]
+        # The Swift compilation cache (content addressed) rides with the package cache: same key, same trust rules.
+        paths = [base / "artifacts", base / "repositories", home / COMPILATION_CACHE_RELATIVE]
     else:
         raise SystemExit("unsupported cache kind")
     trust = trust_of(ref, is_tag, integration_branch)
