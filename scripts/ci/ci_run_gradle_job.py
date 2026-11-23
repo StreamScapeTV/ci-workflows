@@ -35,8 +35,9 @@ import ci_stage  # noqa: E402
 import ci_validate_inputs  # noqa: E402
 
 ORDER = ("build", "test", "lint")  # execution and reporting priority: the build starts first
-# Two workers: a hosted runner has 4 cores and ~16 GB; lint, R8 and Robolectric in parallel froze it for an hour.
-COMMON = ["./gradlew", "--no-daemon", "--console=plain", "--continue", "--parallel", "--max-workers=2"]
+# Three workers: a hosted runner has 4 cores and ~16 GB. Two were set after lint, R8 and Robolectric of ALL variants in
+# parallel froze a run for an hour (inferred cause); only the debug variant runs now, so three are used (AS ci-workflows, AS#1218).
+COMMON = ["./gradlew", "--no-daemon", "--console=plain", "--continue", "--parallel", "--max-workers=3"]
 HEADER = re.compile(r"^> Task (:\S*)")
 FAILED_TASK = re.compile(r"^> Task (:\S*) FAILED$")
 DRY_TASK = re.compile(r"^(?:> Task )?(:\S+) (?:SKIPPED|UP-TO-DATE|NO-SOURCE|FROM-CACHE)$")
