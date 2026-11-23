@@ -82,7 +82,7 @@ class GradleOneJobTests(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(outputs, {"build": "passed", "test": "passed", "lint": "passed", "request_ok": "true"})
         real = [c for c in calls if "--dry-run" not in c]
-        self.assertEqual(real, ["--no-daemon --console=plain --continue --parallel --max-workers=2 assemble check"])  # check holds test
+        self.assertEqual(real, ["--no-daemon --console=plain --continue --parallel --max-workers=3 assemble check"])  # check holds test
         self.assertEqual(len([c for c in calls if "--dry-run" in c]), 3)
         self.assertIn("output of :compile", (logs / "stage-lint.log").read_text())
         self.assertIn("output of :assembleDebug", (logs / "stage-build.log").read_text())
@@ -106,7 +106,7 @@ class GradleOneJobTests(unittest.TestCase):
         done, outputs, calls, _ = run_job(android, ["lint", "test", "build"], "build")
         self.assertEqual(done.returncode, 0, done.stderr)
         real = [c for c in calls if "--dry-run" not in c]
-        self.assertEqual(real, ["--no-daemon --console=plain --continue --parallel --max-workers=2 assembleDebug testDebugUnitTest lintDebug"])
+        self.assertEqual(real, ["--no-daemon --console=plain --continue --parallel --max-workers=3 assembleDebug testDebugUnitTest lintDebug"])
         catalog = repo({"gradlew": FAKE_GRADLEW, "gradle/libs.versions.toml": 'agp = { id = "com.android.application" }'})
         self.assertTrue(ci_stage.android_project(catalog))
         self.assertFalse(ci_stage.android_project(self.source))

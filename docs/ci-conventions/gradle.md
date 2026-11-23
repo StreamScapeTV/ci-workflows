@@ -20,7 +20,7 @@ A repository chosen for the Gradle workflow needs **no `.ci` directory** if it p
 4. Dependencies: public repositories, or the private Forgejo Maven reached through the properties the
    workflow writes (`centralRegistryUsername`, `centralRegistryReadToken` in the ephemeral
    `GRADLE_USER_HOME/gradle.properties`). Read them with `providers.gradleProperty`.
-An Android project (a `com.android.*` plugin in the root/`app` build file or the version catalog) runs the debug variant only (deliberate narrowing: release, benchmark and R8 are no longer part of the default check; only `build_configuration=release` adds `assembleRelease` to the build stage; lint and test stay Debug), with `--max-workers=2`: building all variants (benchmark, release, R8) in parallel is the inferred (not proven) cause of a 70-minute stall of a hosted run.
+An Android project (a `com.android.*` plugin in the root/`app` build file or the version catalog) runs the debug variant only (deliberate narrowing: release, benchmark and R8 are no longer part of the default check; only `build_configuration=release` adds `assembleRelease` to the build stage; lint and test stay Debug), with `--max-workers=3`: building all variants (benchmark, release, R8) in parallel is the inferred (not proven) cause of a 70-minute stall of a hosted run.
 5. JDK 25 (Temurin) is provided by the workflow.
 
 Request options: `build_configuration` (`debug`/`release`), `test_selectors` (test stage), `product_target`.
