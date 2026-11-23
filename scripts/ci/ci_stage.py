@@ -73,7 +73,14 @@ def gradle(source: Path, stage: str, options: dict):
     return {"mode": "convention", "argv": ["./gradlew", "--no-daemon", *gradle_tasks(source, stage, options)]}
 
 
-def xcode(source: Path, stage: str, options: dict, derived_data: str = "DerivedData"):
+def compilation_cache_settings(cache_dir: str) -> list:
+    """Xcode 26 Swift compilation caching: content addressed, so a fresh checkout still hits the cache."""
+    if not cache_dir:
+        return []
+    return ["COMPILATION_CACHE_ENABLE_CACHING=YES", f"COMPILATION_CACHE_CAS_PATH={cache_dir}"]
+
+
+def xcode(source: Path, stage: str, options: dict, derived_data: str = "DerivedData", cache_dir: str = ""):
     names = _tracked_names(source)
     if stage == "lint":
         if ".swiftlint.yml" in names:
@@ -104,11 +111,11 @@ def xcode(source: Path, stage: str, options: dict, derived_data: str = "DerivedD
     argv = ["xcodebuild", flag, container[0], "-scheme", scheme, "-configuration", configuration,
             "-destination", destinations[platform], "-derivedDataPath", derived_data,
             "build" if stage == "build" else "test",
-            "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO"]
+            "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO", *compilation_cache_settings(cache_dir)]
     return {"mode": "convention", "argv": argv}
 
 
-def xcode_chain(source: Path, stages: list, options: dict, derived_data: str):
+def xcode_chain(source: Path, stages: list, options: dict, derived_data: str, cache_dir: str = ""):
     """Plan of the Xcode convention for several stages sharing ONE DerivedData.
 
     Returns {"lint": command, "chain": [(stage, command), ...]}. The chain is the build and test stages in
@@ -116,7 +123,7 @@ def xcode_chain(source: Path, stages: list, options: dict, derived_data: str):
     ``test-without-building`` (nothing compiles twice); a Swift package builds once in ``.build`` and tests
     on top of it. A stage the convention does not cover is a ``skip`` command.
     """
-    commands = {stage: xcode(source, stage, options, derived_data) for stage in stages}
+    commands = {stage: xcode(source, stage, options, derived_data, cache_dir) for stage in stages}
     if ("build" in commands and "test" in commands and commands["build"]["mode"] == "convention"
             and commands["test"]["mode"] == "convention" and commands["build"]["argv"][0] == "xcodebuild"
             and commands["test"]["argv"][0] == "xcodebuild"):
@@ -197,7 +204,8 @@ def node(source: Path, stage: str, options: dict):
     return {"mode": "convention", "argv": ["bash", "-ec", f"{value['prep']} && {value['run']}"]}
 
 
-def resolve(ecosystem: str, stage: str, source: Path, options: dict, derived_data: str = "DerivedData"):
+def resolve(ecosystem: str, stage: str, source: Path, options: dict, derived_data: str = "DerivedData",
+            cache_dir: str = ""):
     if stage not in SCRIPT:
         _fail("unsupported stage")
     scripted = _script(source, stage)
@@ -206,7 +214,7 @@ def resolve(ecosystem: str, stage: str, source: Path, options: dict, derived_dat
     if ecosystem == "gradle":
         return gradle(source, stage, options)
     if ecosystem == "xcode":
-        return xcode(source, stage, options, derived_data)
+        return xcode(source, stage, options, derived_data, cache_dir)
     if ecosystem == "node":
         return node(source, stage, options)
     if ecosystem == "python":

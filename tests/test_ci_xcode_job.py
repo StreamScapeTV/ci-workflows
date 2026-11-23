@@ -141,6 +141,18 @@ class XcodeOneJobTests(unittest.TestCase):
         self.assertEqual(alone["chain"][0][1]["argv"][-3], "test")  # test alone stays a normal `test`
         self.assertIsNone(alone["lint"])
 
+    def test_the_compilation_cache_settings_are_added_to_every_xcodebuild_when_a_directory_is_given(self):
+        source = repo({"App.xcodeproj/project.pbxproj": "x"})
+        options = {"scheme": "App", "product_target": "macos"}
+        plan = ci_stage.xcode_chain(source, ["build", "test"], options, "dd", "/cache/cas")
+        for _stage, command in plan["chain"]:
+            argv = command["argv"]
+            self.assertIn("COMPILATION_CACHE_ENABLE_CACHING=YES", argv)
+            self.assertIn("COMPILATION_CACHE_CAS_PATH=/cache/cas", argv)
+            self.assertEqual(argv[argv.index("CODE_SIGNING_ALLOWED=NO") - 1] in ("build-for-testing", "test-without-building"), True)
+        plain = ci_stage.xcode_chain(source, ["build"], options, "dd")
+        self.assertFalse(any(word.startswith("COMPILATION_CACHE") for word in plain["chain"][0][1]["argv"]))
+
     def test_bad_inputs_write_no_verdict(self):
         bin_dir, _calls = fakes()
         done, outputs, _l = run_job(repo(PROJECT), ["release"], "build", bin_dir)

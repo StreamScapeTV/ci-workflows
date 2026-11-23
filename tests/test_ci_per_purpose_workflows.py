@@ -228,7 +228,8 @@ class CacheIdentityTests(unittest.TestCase):
         second = cache.identity("swiftpm", root, "o/r", "develop", "false", "macOS", "ARM64", Path("/Users/r"), self.today)
         self.assertNotEqual(first["key"], second["key"])
         self.assertEqual(first["paths"].split("\n"), [
-            "/Users/r/Library/Caches/org.swift.swiftpm/artifacts", "/Users/r/Library/Caches/org.swift.swiftpm/repositories"])
+            "/Users/r/Library/Caches/org.swift.swiftpm/artifacts", "/Users/r/Library/Caches/org.swift.swiftpm/repositories",
+            "/Users/r/Library/Caches/streamscape-ci-compilation-cache"])
 
     def test_guard_rejects_symlinks_credentials_and_empty_caches(self):
         with tempfile.TemporaryDirectory() as directory:

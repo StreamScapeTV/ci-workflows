@@ -20,10 +20,12 @@ import argparse
 import json
 import os
 from pathlib import Path
+import pwd
 import sys
 import threading
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import ci_cache  # noqa: E402
 import ci_run_job  # noqa: E402
 import ci_run_stage  # noqa: E402
 import ci_stage  # noqa: E402
@@ -68,12 +70,17 @@ def main(argv=None) -> int:
     options = json.loads(os.environ.get("CI_OPTIONS_JSON", "{}"))
     source = Path(args.source).resolve()
     shared = str(Path(args.work_dir) / "derived-shared")
-    commands = {stage: ci_stage.resolve("xcode", stage, source, options, derived_data=shared) for stage in stages}
+    # The compilation cache directory is the one the cache action saves and restores (native user home).
+    cache_dir = str(Path(pwd.getpwuid(os.getuid()).pw_dir) / ci_cache.COMPILATION_CACHE_RELATIVE)
+    Path(cache_dir).mkdir(parents=True, exist_ok=True)
+    commands = {stage: ci_stage.resolve("xcode", stage, source, options, derived_data=shared, cache_dir=cache_dir)
+                for stage in stages}
     namespace = dict(home=args.home, gradle_user_home="", git_config=args.git_config, host_os="macos", work_dir=args.work_dir)
 
     def env_for(stage: str) -> dict:
         env = ci_run_stage.child_environment(argparse.Namespace(**namespace, stage=stage),
                                              ci_validate_inputs.stage_inputs(contract, stage, options))
+        env["CI_COMPILATION_CACHE_DIR"] = cache_dir  # for repository scripts (.ci) that run xcodebuild themselves
         if stage != "test":
             env.pop("CI_TEST_FIXTURE_FILE", None)  # the integration fixtures belong to the test stage only
         return env
@@ -91,7 +98,7 @@ def main(argv=None) -> int:
     if any(command["mode"] == "script" for command in commands.values()):
         results = ci_run_job.run_scripts(stages, commands, source, env_for, logs)
     else:
-        plan = ci_stage.xcode_chain(source, stages, options, shared)
+        plan = ci_stage.xcode_chain(source, stages, options, shared, cache_dir)
         chain = threading.Thread(target=run_chain, args=(plan["chain"], source, env_for, logs, results))
         chain.start()
         lint = plan["lint"]
