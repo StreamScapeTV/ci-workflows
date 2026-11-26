@@ -43,6 +43,14 @@ Only the last stage of a request saves, under a key that ends with that stage (`
 `== <kind>-cache: exact_hit=... ==`, then `== <kind>-cache-restore: seconds=N ==`; the saving stage
 ends with `== <kind>-cache-save: seconds=N saved=<true|false> ==` (kind `gradle` or `swiftpm`).
 
+**Release** (operation `release`, from a tag only): after lint, test and build, a separate `release` job runs the
+tracked executable `.ci/release.sh` (no convention) on Linux with JDK 25 and `CI_INPUTS_JSON` = `release_kind`
+(profile option) and `build_identity` = the build number of a `<marketing-version>_<build>` tag (any other tag as
+it is). That job alone gets the Google Play credentials: `CI_ANDROID_PLAY_SERVICE_ACCOUNT_PATH` and
+`CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PATH` (private 0600 files), `CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD`,
+`CI_ANDROID_PLAY_UPLOAD_KEY_ALIAS`, `CI_ANDROID_PLAY_UPLOAD_KEY_PASSWORD`. Track and status (internal, draft) are the
+repository's. See `per-purpose-ci-workflows.md`, section Native release.
+
 ## Where the output goes
 
 The tool output of every stage is written only to the S3 stage log (`logs/<repo>/<request_id>/<stage>/<seq>.log`, `final.log`) and never to the Actions log of this repository. The Actions step shows only status lines: `== stage <name> started s3=<prefix> ==` and `== stage <name> finished result=ok|failed|skipped exit=N s3=<prefix> ==`. Tool `::error::` lines stay inside the S3 log. A log stream that cannot start or finish fails the job (the log would be lost).

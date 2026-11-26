@@ -28,7 +28,13 @@ A stage the convention does not cover is skipped the same way: `test` for `produ
 Dependencies come from SwiftPM (`Package.resolved` is the cache fingerprint). Private packages are
 reached with the ephemeral netrc/Git credential the workflow sets up (github.com and the Forgejo
 registry over Tailscale); the project never reads credentials. No signing, provisioning,
-TestFlight or App Store step exists in this workflow (those are release workflows).
+TestFlight or App Store step exists in the lint/test/build stages.
+
+**Release** (operation `release`, from a tag only): after lint, test and build, a separate `release` job runs the
+tracked executable `.ci/release.sh` (no convention) on macOS with `CI_INPUTS_JSON` = `release_kind` (profile
+option) and `build_identity` = the tag. That job alone gets the App Store Connect credentials as
+`CI_APPLE_TEAM_ID`, `CI_APP_STORE_CONNECT_KEY_ID`, `CI_APP_STORE_CONNECT_ISSUER_ID` and
+`CI_APP_STORE_CONNECT_API_KEY_P8_BASE64`. See `per-purpose-ci-workflows.md`, section Native release.
 
 Test fixtures: the `test` stage (only) gets the shared integration fixtures as a JSON file named by
 `CI_TEST_FIXTURE_FILE`.

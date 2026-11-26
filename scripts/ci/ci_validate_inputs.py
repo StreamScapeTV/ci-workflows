@@ -8,7 +8,9 @@ The agent runner dispatches an ecosystem workflow with ``request_id``, ``reposit
 plus a few ecosystem specific fields. Arbitrary commands, environment maps, runner labels and
 secret names are not representable.
 
-Prints one JSON object: ``{"stages": [...], "options": {...}}``.
+Prints one JSON object: ``{"stages": [...], "options": {...}}``. A native (Xcode, Gradle) release adds
+``release_options``: the options of the release stage, with ``build_identity`` derived from the tag
+(``native_release_options``); the repository's ``.ci/release.sh`` receives them as ``CI_INPUTS_JSON``.
 """
 from __future__ import annotations
 
@@ -25,8 +27,13 @@ MAX_OPTIONS_BYTES = 4096
 HIERARCHY = ("lint", "test", "build")
 OPERATIONS = {name: HIERARCHY[: index + 1] for index, name in enumerate(HIERARCHY)}
 # Ecosystems whose workflow also publishes (operation release runs lint, test, build, release).
-RELEASE_ECOSYSTEMS = ("node", "python")
+RELEASE_ECOSYSTEMS = ("node", "python", "xcode", "gradle")
 RELEASE_OPERATIONS = {**OPERATIONS, "release": (*HIERARCHY, "release")}
+# Native releases run the repository's .ci/release.sh (App Store Connect, Play internal draft, prepare only) from a tag.
+NATIVE_RELEASE_ECOSYSTEMS = ("xcode", "gradle")
+# Mobile release tag <marketing-version>_<build> (the Apple and Android app tag form, as before OP 7160). Gradle (Android)
+# takes the build number as its identity (the versionCode); Xcode receives the whole tag and its .ci/release.sh splits it.
+MOBILE_TAG = re.compile(r"(?P<version>[0-9]+(?:\.[0-9]+){1,3})_(?P<build>[1-9][0-9]{0,9})")
 EXTRA_FIELDS = {
     "node": {},
     "xcode": {"scheme": {"type": "string", "maxLength": 64, "pattern": r"[A-Za-z0-9._-]{1,64}"}},
@@ -115,7 +122,33 @@ def validate(*, contract: dict, ecosystem: str, request_id: str, repository: str
         _fail("options contain a field this operation does not accept")
     for name, value in options.items():
         _validate_field(fields[name], name, value)
-    return {"stages": stages, "options": options}
+    result = {"stages": stages, "options": options}
+    if operation == "release" and ecosystem in NATIVE_RELEASE_ECOSYSTEMS:
+        result["release_options"] = native_release_options(fields, ecosystem, ref, is_tag, options)
+    return result
+
+
+def native_release_options(fields: dict, ecosystem: str, ref: str, is_tag: str, options: dict) -> dict:
+    """Options of a native release stage: the request's release_kind (and product_target) plus build_identity.
+
+    The release identity comes only from the immutable tag (as the pre-OP 7160 tag route did), never from
+    the caller: an Xcode release passes the tag itself, a Gradle release the build number of a
+    ``<marketing-version>_<build>`` tag and any other tag (for example a plain VERSION) itself.
+    release_kind comes from the project's CI profile; the repository script decides what it accepts.
+    """
+    if is_tag != "true":
+        _fail("a native release runs only from an immutable tag (is_tag true)")
+    if "build_identity" in options:
+        _fail("build_identity is derived from the tag; the request must not supply it")
+    if "release_kind" not in options:
+        _fail("a native release needs options.release_kind (prepare or publish) from the project's CI profile")
+    identity = ref
+    if ecosystem == "gradle":
+        match = MOBILE_TAG.fullmatch(ref)
+        if match is not None:
+            identity = match.group("build")
+    _validate_field(fields["build_identity"], "build_identity (from the tag)", identity)
+    return {**options, "build_identity": identity}
 
 
 def stage_inputs(contract: dict, stage: str, options: dict) -> dict:

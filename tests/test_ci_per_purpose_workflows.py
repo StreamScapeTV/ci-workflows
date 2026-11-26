@@ -36,6 +36,7 @@ CONTRACT = json.loads((ROOT / "contracts/repository-ci-v1.json").read_text())
 ECOSYSTEMS = ("gradle", "xcode", "python", "node")
 ONE_JOB = ECOSYSTEMS  # every ecosystem runs all its stages in one job (ci_run_gradle_job.py, ci_run_job.py, ci_run_xcode_job.py)
 CACHED = ("gradle", "xcode")  # python has no cache by owner decision
+NATIVE_RELEASE = ("gradle", "xcode")  # their release stage runs the repository's .ci/release.sh (AS ci-workflows#1220)
 SHA_PIN = re.compile(r"^[^@\s]+@[0-9a-f]{40}( #.*)?$")
 
 
@@ -120,17 +121,54 @@ class StageResolutionTests(unittest.TestCase):
         scripted = git_repo({"package.json": pkg, "package-lock.json": "{}", ".ci/test.sh": "#!/bin/sh\n"}, executable=(".ci/test.sh",))
         self.assertEqual(stage.resolve("node", "test", scripted, {})["mode"], "script")
 
-    def test_release_is_an_operation_of_the_node_and_python_ecosystems_only(self):
+    def release(self, ecosystem, ref="1.2.3", is_tag="true", options_raw="{}"):
+        return validate.validate(contract=CONTRACT, ecosystem=ecosystem, request_id="req-0123456789",
+                                 repository="StreamScapeTV/example-app", ref=ref, is_tag=is_tag,
+                                 operation="release", options_raw=options_raw)
+
+    def test_release_is_an_operation_of_every_ecosystem(self):
         for ecosystem in ("node", "python"):
-            ok = validate.validate(contract=CONTRACT, ecosystem=ecosystem, request_id="req-0123456789",
-                                   repository="StreamScapeTV/example-app", ref="1.2.3", is_tag="true",
-                                   operation="release", options_raw="{}")
+            ok = self.release(ecosystem)
             self.assertEqual(ok["stages"], ["lint", "test", "build", "release"])
-        for ecosystem in ("gradle", "xcode"):
-            with self.assertRaises(SystemExit):
-                validate.validate(contract=CONTRACT, ecosystem=ecosystem, request_id="req-0123456789",
-                                  repository="StreamScapeTV/example-app", ref="1.2.3", is_tag="true",
-                                  operation="release", options_raw="{}")
+            self.assertNotIn("release_options", ok)
+        for ecosystem in NATIVE_RELEASE:
+            ok = self.release(ecosystem, options_raw='{"release_kind":"prepare"}')
+            self.assertEqual(ok["stages"], ["lint", "test", "build", "release"])
+            self.assertEqual(ok["release_options"], {"release_kind": "prepare", "build_identity": "1.2.3"})
+
+    def test_a_native_release_takes_its_identity_from_the_tag_only(self):
+        # Apple: the whole <marketing-version>_<build> tag (its .ci/release.sh splits it)
+        self.assertEqual(self.release("xcode", ref="1.0.0_281", options_raw='{"release_kind":"publish"}')["release_options"],
+                         {"release_kind": "publish", "build_identity": "1.0.0_281"})
+        # Android: the build number (versionCode) of the same tag form; any other tag (a VERSION) as it is
+        self.assertEqual(self.release("gradle", ref="1.0.0_281", options_raw='{"release_kind":"prepare"}')["release_options"],
+                         {"release_kind": "prepare", "build_identity": "281"})
+        self.assertEqual(self.release("gradle", ref="2.2.7", options_raw='{"release_kind":"prepare"}')["release_options"]["build_identity"], "2.2.7")
+        # the release stage projection is exactly what .ci/release.sh reads as CI_INPUTS_JSON
+        options = self.release("xcode", ref="2.2.7", options_raw='{"release_kind":"prepare"}')["release_options"]
+        self.assertEqual(validate.stage_inputs(CONTRACT, "release", options),
+                         {"schemaVersion": 1, "inputs": {"release_kind": "prepare", "build_identity": "2.2.7"}})
+        self.assertEqual(validate.stage_inputs(CONTRACT, "build", options), {"schemaVersion": 1, "inputs": {}})
+        bad = [
+            dict(options_raw="{}"),  # release_kind comes from the CI profile and is required
+            dict(is_tag="false", ref="develop", options_raw='{"release_kind":"prepare"}'),  # never from a branch
+            dict(options_raw='{"release_kind":"prepare","build_identity":"9"}'),  # never chosen by the caller
+            dict(options_raw='{"release_kind":"ship"}'),
+            dict(ref="-1.0", options_raw='{"release_kind":"prepare"}'),  # outside the build_identity grammar
+        ]
+        for ecosystem in NATIVE_RELEASE:
+            for overrides in bad:
+                with self.subTest(ecosystem=ecosystem, overrides=overrides), self.assertRaises(SystemExit):
+                    self.release(ecosystem, **overrides)
+
+    def test_the_native_release_stage_runs_only_the_repository_release_script(self):
+        scripted = git_repo({"gradlew": "x", ".ci/release.sh": "#!/bin/sh\n"}, executable=(".ci/release.sh",))
+        for ecosystem in NATIVE_RELEASE:
+            self.assertEqual(stage.resolve(ecosystem, "release", scripted, {}), {"mode": "script", "argv": ["./.ci/release.sh"]})
+            with self.assertRaises(SystemExit):  # no convention for a release
+                stage.resolve(ecosystem, "release", git_repo({"gradlew": "x", "Package.swift": "x"}), {})
+            with self.assertRaises(SystemExit):  # tracked but not executable
+                stage.resolve(ecosystem, "release", git_repo({".ci/release.sh": "x"}), {})
 
     def test_python_conventions(self):
         lib = git_repo({"pyproject.toml": "[tool.ruff]\n[project.optional-dependencies]\ndev=['pytest']\n", "tests/test_a.py": "x"})
@@ -301,6 +339,30 @@ class SecretAndLogTests(unittest.TestCase):
                              ["== stage build started ==", "== stage build finished result=failed exit=3 =="])
             self.assertEqual(stat.S_IMODE(log.stat().st_mode), 0o600)
 
+    def test_release_credentials_reach_only_the_release_process_by_name_and_never_the_log(self):
+        script = ('#!/bin/sh\necho "op=$CI_OPERATION host=$CI_HOST_OS inputs=$CI_INPUTS_JSON"\n'
+                  'test -n "${CI_APPLE_TEAM_ID:-}" && echo "team set" || echo "team unset"\n'
+                  'echo "value=${CI_APPLE_TEAM_ID:-}"\necho "prefixed=${CI_RELEASE_SECRET_CI_APPLE_TEAM_ID:-none}"\n')
+        source = git_repo({".ci/release.sh": script, ".ci/build.sh": script}, executable=(".ci/release.sh", ".ci/build.sh"))
+        options = '{"release_kind":"publish","build_identity":"1.0.0_281"}'
+        for name, expected in (("release", "team set"), ("build", "team unset")):
+            with self.subTest(stage=name), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                environ = dict(os.environ, CI_RELEASE_SECRET_CI_APPLE_TEAM_ID="TEAMSECRET42", CI_OPTIONS_JSON=options)
+                log = base / "stage.log"
+                completed = subprocess.run(
+                    [sys.executable, str(ROOT / "scripts/ci/ci_run_stage.py"), "--ecosystem", "xcode", "--stage", name,
+                     "--source", str(source), "--contract", str(ROOT / "contracts/repository-ci-v1.json"),
+                     "--host-os", "macos", "--work-dir", str(base / "work"), "--log-path", str(log)],
+                    env=environ, capture_output=True, text=True)
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                text = log.read_text()
+                self.assertIn(expected, text)
+                self.assertNotIn("TEAMSECRET42", text + completed.stdout)
+                self.assertIn("prefixed=none", text)
+                if name == "release":
+                    self.assertIn('op=release host=macos inputs={"inputs":{"build_identity":"1.0.0_281","release_kind":"publish"},"schemaVersion":1}', text)
+
 
 class SkipStageTests(unittest.TestCase):
     def test_a_stage_without_a_convention_succeeds_and_says_why(self):
@@ -345,7 +407,7 @@ class ActionsLogCarriesStatusOnlyTests(unittest.TestCase):
                 "== stage build finished result=ok exit=0 s3=logs/app/req1/build/ =="])
 
     def test_a_log_that_cannot_reach_s3_fails_the_job_and_stage_workflows_pass_the_prefix(self):
-        for name in (*ECOSYSTEMS, "oci-release"):
+        for name in (*ECOSYSTEMS, "oci-release", *(f"{n}-release" for n in NATIVE_RELEASE)):
             path = ROOT / f".github/workflows/ci-{name}-stage.yml"
             if not path.exists():
                 continue
@@ -354,6 +416,8 @@ class ActionsLogCarriesStatusOnlyTests(unittest.TestCase):
                 self.assertNotIn("continue-on-error", part.split("- name:")[0], name)
             if name in ONE_JOB:
                 self.assertIn('--s3-base "logs/${REPOSITORY##*/}/${REQUEST_ID}/"', text)
+            elif name.endswith("-release") and name != "oci-release":
+                self.assertIn('--s3-prefix "logs/${REPOSITORY##*/}/${REQUEST_ID}/release/"', text, name)
             elif name != "oci-release":
                 self.assertIn('--s3-prefix "logs/${REPOSITORY##*/}/${REQUEST_ID}/${STAGE}/"', text, name)
 
@@ -364,6 +428,7 @@ class WorkflowShapeTests(unittest.TestCase):
 
     def all_paths(self):
         return [*[ROOT / f".github/workflows/ci-{n}{s}.yml" for n in ECOSYSTEMS for s in ("", "-stage")],
+                *[ROOT / f".github/workflows/ci-{n}-release-stage.yml" for n in NATIVE_RELEASE],
                 *(ROOT / "actions").glob("ci-*/action.yml"), ROOT / "actions/setup-tailscale/action.yml"]
 
     def test_entry_workflows_take_runner_inputs_and_name_the_request_in_run_name(self):
@@ -377,7 +442,7 @@ class WorkflowShapeTests(unittest.TestCase):
             self.assertEqual(document["permissions"], {"contents": "read"})
             # safety net only: one pipeline per repository + ref, never cancels another request
             self.assertEqual(document["concurrency"], {"group": "ci-${{ inputs.repository }}-${{ inputs.ref }}", "cancel-in-progress": False})
-            expected = ["plan", name] + (["release"] if name in ("node", "python") else []) if name in ONE_JOB else ["plan", "lint", "test", "build"]
+            expected = ["plan", name, "release"]
             self.assertEqual(list(document["jobs"]), expected)
 
     def test_no_automatic_triggers(self):
@@ -416,7 +481,7 @@ class WorkflowShapeTests(unittest.TestCase):
         for name in ECOSYSTEMS:
             for suffix in ("", "-stage"):
                 text = (ROOT / f".github/workflows/ci-{name}{suffix}.yml").read_text()
-                if name in ("node", "python") and suffix == "":  # the release job (and only it) carries the publication secrets
+                if suffix == "":  # the release job (and only it) carries the publication secrets
                     text = text.split("\n  release:\n")[0]
                 used = set(re.findall(r"secrets\.([A-Z0-9_]+)", text))
                 for token in forbidden:
@@ -450,8 +515,46 @@ class WorkflowShapeTests(unittest.TestCase):
         for text in ((ROOT / ".github/workflows/ci-node-stage.yml").read_text(),):
             self.assertNotIn("FORGEJO_REGISTRY_TOKEN", text)
         self.assertIn("always()", next(s for s in steps if s["name"].startswith("Stop live log"))["if"])
-        for gradle in ("gradle", "xcode"):  # only node and python publish today
-            self.assertNotIn("release", self.entry(gradle)["jobs"])
+
+    def test_native_release_runs_after_the_chain_with_the_store_credentials_in_its_own_job_only(self):
+        credentials = {
+            "xcode": {"APPLE_TEAM_ID", "APP_STORE_CONNECT_KEY_ID", "APP_STORE_CONNECT_ISSUER_ID", "APP_STORE_CONNECT_API_KEY_P8_BASE64"},
+            "gradle": {"GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64", "ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64",
+                       "ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD", "ANDROID_PLAY_UPLOAD_KEY_ALIAS", "ANDROID_PLAY_UPLOAD_KEY_PASSWORD"},
+        }
+        common = {"SOURCE_APP_ID", "SOURCE_APP_PRIVATE_KEY", "TS_OAUTH_CLIENT_ID", "TS_OAUTH_SECRET", "FORGEJO_REGISTRY_USERNAME",
+                  "CIW_MAVEN_PACKAGE_READ_TOKEN", "S3_GITHUB_TRANSPORT_ACCESS_KEY", "S3_GITHUB_TRANSPORT_SECRET_KEY",
+                  "S3_ENDPOINT", "S3_BUCKET"}
+        for ecosystem in NATIVE_RELEASE:
+            entry = self.entry(ecosystem)
+            release = entry["jobs"]["release"]
+            self.assertEqual(release["needs"], ["plan", ecosystem])
+            self.assertTrue(release["if"].endswith(f"&& needs.{ecosystem}.result == 'success' }}}}"))
+            self.assertIn("contains(fromJSON(needs.plan.outputs.stages), 'release')", release["if"])
+            self.assertEqual(release["uses"], f"./.github/workflows/ci-{ecosystem}-release-stage.yml")
+            self.assertEqual(release["with"]["options"], "${{ needs.plan.outputs.release_options }}")
+            self.assertEqual(set(release["secrets"]), common | credentials[ecosystem])
+            for other in credentials.values():  # the stage job never gets a store credential
+                self.assertFalse(other & set(entry["jobs"][ecosystem]["secrets"]))
+            stage_text = (ROOT / f".github/workflows/ci-{ecosystem}-stage.yml").read_text()
+            for name in credentials[ecosystem]:
+                self.assertNotIn(name, stage_text)
+            document = yaml.safe_load((ROOT / f".github/workflows/ci-{ecosystem}-release-stage.yml").read_text())
+            self.assertEqual(set((document.get("on") or document[True])), {"workflow_call"})
+            steps = document["jobs"]["release"]["steps"]
+            holders = {s["name"] for s in steps for name in credentials[ecosystem]
+                       if f"secrets.{name} " in str(s.get("env") or {})}
+            self.assertTrue(holders <= {"Run the repository release entrypoint", "Write the Google Play credential files (private, this job only)"}, holders)
+            run = next(s for s in steps if s.get("id") == "run")
+            self.assertIn("--stage release", run["run"])
+            self.assertNotIn("inputs.", run["run"], "no workflow input is interpolated into shell")
+            for key in run["env"]:
+                if key.startswith("CI_RELEASE_SECRET_"):
+                    self.assertTrue(key[len("CI_RELEASE_SECRET_"):].startswith(("CI_APPLE_", "CI_APP_STORE_CONNECT_", "CI_ANDROID_PLAY_")), key)
+            streams = [s for s in steps if s.get("uses", "") == "./central-ci/actions/s3-log-stream"]
+            self.assertEqual([(s["with"]["phase"], s["with"]["stage"]) for s in streams], [("start", "release"), ("stop", "release")])
+            self.assertIn("always()", streams[1]["if"])
+            self.assertFalse([s for s in steps if s.get("with", {}).get("phase") == "save"], "a release never saves a cache")
 
     def test_every_ecosystem_runs_all_stages_in_one_job_with_a_stream_per_stage_and_static_stage_steps(self):
         for name in ONE_JOB:
@@ -461,10 +564,10 @@ class WorkflowShapeTests(unittest.TestCase):
         entry = self.entry(name)
         job = entry["jobs"][name]
         self.assertEqual(job["uses"], f"./.github/workflows/ci-{name}-stage.yml")
-        self.assertEqual(job["with"]["stages"], "${{ needs.plan.outputs.job_stages }}" if name in ("node", "python") else "${{ needs.plan.outputs.stages }}")
+        self.assertEqual(job["with"]["stages"], "${{ needs.plan.outputs.job_stages }}")
         self.assertEqual(job["with"]["top"], "${{ inputs.operation }}")
-        if name in ("node", "python"):  # the release stage is its own job: the one-job stage list never carries it
-            self.assertIn('map(select(. != "release"))', (ROOT / f".github/workflows/ci-{name}.yml").read_text())
+        # the release stage is its own job: the one-job stage list never carries it
+        self.assertIn('map(select(. != "release"))', (ROOT / f".github/workflows/ci-{name}.yml").read_text())
         self.assertNotIn("needs.lint", str(job), "lint never gates the build or the test")
         document = yaml.safe_load((ROOT / f".github/workflows/ci-{name}-stage.yml").read_text())
         steps = document["jobs"]["stages"]["steps"]
@@ -575,8 +678,8 @@ class WorkflowShapeTests(unittest.TestCase):
 
     def test_stage_cleanup_keeps_the_local_actions_the_post_steps_reload(self):
         # Deleting central-ci before the post-job phase made the runner lose ci-setup's action.yml (run 44815453792).
-        for name in ECOSYSTEMS + ("oci-release",):
-            path = ROOT / ".github/workflows" / (f"ci-{name}-stage.yml" if name != "oci-release" else "ci-oci-release-stage.yml")
+        for name in ECOSYSTEMS + ("oci-release",) + tuple(f"{n}-release" for n in NATIVE_RELEASE):
+            path = ROOT / ".github/workflows" / f"ci-{name}-stage.yml"
             self.assertNotIn("/central-ci\"", path.read_text(), path.name)
 
     def test_entry_input_contract_with_the_runner(self):
@@ -609,7 +712,7 @@ class WorkflowShapeTests(unittest.TestCase):
         for name in CACHED:
             entry = (ROOT / f".github/workflows/ci-{name}.yml").read_text()
             self.assertIn("last_stage: ${{ steps.validate.outputs.last_stage }}", entry)
-            self.assertIn("jq -r '.stages[-1]'", entry)
+            self.assertIn("""jq -r '.stages | map(select(. != "release")) | .[-1]'""", entry)
             self.assertEqual(entry.count("last_stage: ${{ needs.plan.outputs.last_stage }}"), 1, name)
             text = (ROOT / f".github/workflows/ci-{name}-stage.yml").read_text()
             steps = yaml.safe_load(text)["jobs"]["stages"]["steps"]

@@ -3,8 +3,10 @@ repository: StreamScapeTV/ci-workflows
 workflows:
   ci_gradle: .github/workflows/ci-gradle.yml
   ci_gradle_stage: .github/workflows/ci-gradle-stage.yml
+  ci_gradle_release_stage: .github/workflows/ci-gradle-release-stage.yml
   ci_xcode: .github/workflows/ci-xcode.yml
   ci_xcode_stage: .github/workflows/ci-xcode-stage.yml
+  ci_xcode_release_stage: .github/workflows/ci-xcode-release-stage.yml
   ci_node: .github/workflows/ci-node.yml
   ci_node_stage: .github/workflows/ci-node-stage.yml
   ci_python: .github/workflows/ci-python.yml

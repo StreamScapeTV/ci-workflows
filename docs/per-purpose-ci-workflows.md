@@ -15,11 +15,12 @@ input is rejected by GitHub):
 | `request_id` | UUID/id chosen by the runner; appears in `run-name` (`CI gradle <request_id>`) so the run can be found |
 | `repository` | `StreamScapeTV/<name>` (anything else fails in the `plan` job before a credential is used) |
 | `ref`, `is_tag` | branch or tag name, `true`/`false` |
-| `operation` | the TOP operation: `lint`, `test` or `build`. Operations form a hierarchy lint < test < build (< full/ui-test < release in later workflows); the workflow runs every operation below the requested one too, as stages of the same run and the same job, so a build or release never depends on another run |
+| `operation` | the TOP operation: `lint`, `test`, `build` or `release`. Operations form a hierarchy lint < test < build < release (full/ui-test in later workflows); the workflow runs every operation below the requested one too, as stages of the same run and the same job, so a build or release never depends on another run |
 | `options` | JSON object of reviewed semantic options (default `{}`) |
 
 Options are validated against the semantic fields of `contracts/repository-ci-v1.json`
-(`product_target`, `build_configuration`, `test_selectors`, `ui_mode`, ...) plus `scheme` for Xcode.
+(`product_target`, `build_configuration`, `test_selectors`, `ui_mode`, `release_kind`, ...) plus `scheme` for Xcode.
+`build_identity` is never an option: a Gradle or Xcode release derives it from the tag (section Native release).
 No commands, environment maps, runner labels or secret names are representable.
 Status, logs and cancel are plain GitHub run operations done by the runner backend.
 
@@ -35,9 +36,10 @@ Status, logs and cancel are plain GitHub run operations done by the runner backe
    lines, child environment); `ci_cache.py`, `ci_registry_auth.py`, `ci_scrub_log.py`.
 2. **Reusable stage workflows**: `ci-gradle-stage.yml`, `ci-xcode-stage.yml`, `ci-node-stage.yml`,
    `ci-python-stage.yml` (`workflow_call`, explicit secrets only, never `secrets: inherit`); each holds ONE
-   job named `stages`.
+   job named `stages`. Release stages: `ci-oci-release-stage.yml` (Node, Python), `ci-xcode-release-stage.yml`
+   and `ci-gradle-release-stage.yml` (one job named `release` each).
 3. **Entry workflows**: `ci-gradle.yml`, `ci-xcode.yml`, `ci-node.yml`, `ci-python.yml` (`workflow_dispatch`): job `plan`
-   (validate), then ONE job named after the ecosystem (`gradle`, `xcode`, `node`, `python`; GitHub shows `<ecosystem> / stages`) that runs every requested stage; Node and Python add a `release` job after it. There is no `lint -> test -> build` job chain; the stage states are static steps of that job (below). Small tests are expected locally by default; the remote workflows are mainly for build/full/ui-test/release.
+   (validate), then ONE job named after the ecosystem (`gradle`, `xcode`, `node`, `python`; GitHub shows `<ecosystem> / stages`) that runs every requested stage; every ecosystem adds a `release` job after it (operation `release` only). There is no `lint -> test -> build` job chain; the stage states are static steps of that job (below). Small tests are expected locally by default; the remote workflows are mainly for build/full/ui-test/release.
    Concurrency: a safety-net group per repository + ref with `cancel-in-progress: false` (one pipeline per project and branch; the agent runner enforces this and cancels by request id, workflows never cancel another request). All ecosystems: all requested stages run in ONE job (`<ecosystem> / stages`): Gradle in one Gradle invocation (compilation, daemon and build cache shared), Xcode with `build-for-testing` once, `test-without-building` and SwiftLint alongside on one macOS runner, Node and Python with one install and then parallel processes (Node starts lint after the build when both are requested); each stage has its own S3 log stream and the job carries the stage states as static steps (`stage <op> requested`, `stage <op> passed|failed`, plus `skipped` for Xcode, Node and Python) that ci-broker reads. A failed lint is a warning and never fails a build/test request; it fails the request only when lint is the requested top operation.
    There is **no global macOS or device cap**.
 
@@ -73,6 +75,8 @@ Each workflow hard-wires the credentials its purpose needs; nothing is resolved 
 | --- | --- | --- | --- |
 | `ci-gradle`, `ci-node`, `ci-python` (all stages) | `SOURCE_APP_ID`, `SOURCE_APP_PRIVATE_KEY`, `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`, `FORGEJO_REGISTRY_USERNAME`, `CIW_MAVEN_PACKAGE_READ_TOKEN`, `S3_GITHUB_TRANSPORT_ACCESS_KEY`, `S3_GITHUB_TRANSPORT_SECRET_KEY` | yes (checkout of private deps, Forgejo Maven, S3) | github.com Git credential, Docker Hub, fixtures, signing, registry write, backup S3, protected conformance |
 | `ci-xcode` (all stages) | same names as Gradle plus `STREAMSCAPE_*` / `XTREAM_*` fixtures, materialized **only when the test stage runs** and visible to the test stage only (`CI_TEST_FIXTURE_FILE`) | yes (Forgejo SwiftPM, S3) | Apple signing/App Store Connect, Docker Hub, registry write |
+| `ci-xcode` `release` job only | the Gradle names plus `APPLE_TEAM_ID`, `APP_STORE_CONNECT_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`, `APP_STORE_CONNECT_API_KEY_P8_BASE64` (to `.ci/release.sh` as `CI_APPLE_TEAM_ID`, `CI_APP_STORE_CONNECT_*`) | yes | fixtures, Play, Docker Hub, registry write |
+| `ci-gradle` `release` job only | the Gradle names plus `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64`, `ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64` (written as 0600 files, paths in `CI_ANDROID_PLAY_SERVICE_ACCOUNT_PATH` / `CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PATH`), `ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD`, `ANDROID_PLAY_UPLOAD_KEY_ALIAS`, `ANDROID_PLAY_UPLOAD_KEY_PASSWORD` (as `CI_ANDROID_PLAY_*`) | yes | fixtures, Apple, Docker Hub, registry write |
 
 Git/netrc access to github.com is enabled for Xcode (SwiftPM private packages) and not for Gradle;
 Gradle gets the private-Maven properties. Assumptions to confirm: Android needs no github.com Git
@@ -161,8 +165,8 @@ No new secret is invented by these workflows; they use names that already exist 
 Every entry workflow (`ci-gradle.yml`, `ci-xcode.yml`, `ci-node.yml`, `ci-python.yml`) is dispatched with exactly these
 inputs: `request_id`, `repository`, `ref`, `is_tag`, `operation` (required: the top requested operation),
 `target` (optional, accepted and ignored) and `options` (JSON, default `{}`). Any other input makes GitHub
-answer 422, so the runner must not send more. `operation` today is `lint`, `test` or `build`; `full`,
-`ui-test` and `release` are rejected by `plan` until their workflows exist.
+answer 422, so the runner must not send more. `operation` today is `lint`, `test`, `build` or `release`; `full`
+and `ui-test` are rejected by `plan` until their workflows exist.
 
 Hierarchy: operation X runs every stage below it in the same run and the same job
 (`lint` < `test` < `build`): `lint` runs lint; `test` runs lint and test; `build` runs lint, test and build. The
@@ -181,5 +185,25 @@ per stage (`lint / lint`) are still read by the broker.
 ## Release (images and charts)
 
 `ci-node.yml` and `ci-python.yml` accept operation `release` (lint, test, build, then release; lint never gates it). The release stage is the reusable
-`ci-oci-release-stage.yml` with the building block `actions/ci-release` (`scripts/ci/ci_release.py`); Gradle and Xcode can call it later. See `docs/ci-conventions/node.md` for the `.ci/release.json` declaration, the
+`ci-oci-release-stage.yml` with the building block `actions/ci-release` (`scripts/ci/ci_release.py`). See `docs/ci-conventions/node.md` for the `.ci/release.json` declaration, the
 version authority (tag equal to the root `VERSION`, or `main`), the immutable publication and read-back.
+
+## Native release (Xcode and Gradle, AS ci-workflows#1220)
+
+`ci-xcode.yml` and `ci-gradle.yml` accept operation `release` as well: lint, test and build run in the
+`<ecosystem> / stages` job as for `build`, then (only when that job succeeded; a failed lint never gates it) the
+`release` job (`release / release`, stage `release`) runs the repository's tracked executable `.ci/release.sh`
+(there is no release convention) through `ci_run_stage.py`, with its own S3 log stream
+`logs/<project>/<request_id>/release/`. A tag (`is_tag=true`) is required; a branch is refused in `plan`.
+
+- `CI_OPERATION=release`, `CI_HOST_OS` `macos` (Xcode, `macos-latest`) or `linux` (Gradle, `ubuntu-latest`, JDK 25),
+  `CI_HOST_CLASS`, `CI_LOG_DIR`, `CI_ARTIFACT_DIR`, `CI_PROGRESS_FILE` as for every stage.
+- `CI_INPUTS_JSON` = `{"schemaVersion":1,"inputs":{"release_kind":...,"build_identity":...}}` (plus `product_target`
+  when the request carries one). `release_kind` (`prepare` or `publish`) comes from the request options, i.e. the
+  project's CI profile, and is required. `build_identity` comes from the tag only (a request that supplies it is
+  refused): Xcode passes the tag itself (an app's `<marketing-version>_<build>`, a library's `VERSION`);
+  Gradle passes the build number of a `<marketing-version>_<build>` tag (the Android versionCode) and any other tag itself.
+- The store credentials (table above) exist only in this job and reach only the release process; their values are
+  redacted from the stage log. The lint/test/build job never receives them. Cache: restore only (a tag never saves).
+- A tag request from ci-broker (`requested_by` `tag push`) carries the profile's `release` options, so the profile's
+  `remote.operations.release.options` must hold `release_kind`.
