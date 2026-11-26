@@ -4,7 +4,9 @@
 # script's). The Play credentials exist only in this job (never in the lint/test/build
 # job): Central writes the service-account JSON and the upload keystore as private 0600 files and the
 # release process gets their paths plus the keystore password, key alias and key password as the
-# CI_ANDROID_PLAY_* variables its scripts read; the values are redacted from the stage log.
+# CI_ANDROID_PLAY_* variables its scripts read; the values are redacted from the stage log. A release runs only
+# from a <marketing-version>_<build> tag: CI_ANDROID_PLAY_SOURCE_IS_TAG=true and CI_ANDROID_PLAY_RELEASE_VERSION
+# (the marketing version) make the Play script check the tag against the committed versionName.
 # CI_INPUTS_JSON carries release_kind and the tag-derived build_identity.
 name: Central CI Gradle release stage
 
@@ -25,6 +27,10 @@ name: Central CI Gradle release stage
         required: true
       options:
         description: Release stage options from the plan job (release_kind, build_identity derived from the tag)
+        type: string
+        required: true
+      release_version:
+        description: Marketing version of the <marketing-version>_<build> tag (checked against versionName)
         type: string
         required: true
     secrets:
@@ -177,11 +183,12 @@ jobs:
           CI_SECRET_TAILSCALE_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
           CI_SECRET_REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
           CI_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
-          CI_SECRET_PLAY_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}
-          CI_SECRET_PLAY_UPLOAD_KEYSTORE: ${{ secrets.ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64 }}
           CI_RELEASE_SECRET_CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD }}
           CI_RELEASE_SECRET_CI_ANDROID_PLAY_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_PLAY_UPLOAD_KEY_ALIAS }}
           CI_RELEASE_SECRET_CI_ANDROID_PLAY_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_PLAY_UPLOAD_KEY_PASSWORD }}
+          # A release runs only from a tag: the Play script checks the tag's version against versionName.
+          CI_ANDROID_PLAY_SOURCE_IS_TAG: "true"
+          CI_ANDROID_PLAY_RELEASE_VERSION: ${{ inputs.release_version }}
           CI_ANDROID_PLAY_SERVICE_ACCOUNT_PATH: ${{ steps.play.outputs.root }}/service-account.json
           CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PATH: ${{ steps.play.outputs.root }}/upload-key.jks
           REPOSITORY: ${{ inputs.repository }}

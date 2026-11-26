@@ -202,7 +202,9 @@ version authority (tag equal to the root `VERSION`, or `main`), the immutable pu
   when the request carries one). `release_kind` (`prepare` or `publish`) comes from the request options, i.e. the
   project's CI profile, and is required. `build_identity` comes from the tag only (a request that supplies it is
   refused): Xcode passes the tag itself (an app's `<marketing-version>_<build>`, a library's `VERSION`);
-  Gradle passes the build number of a `<marketing-version>_<build>` tag (the Android versionCode) and any other tag itself.
+  Gradle passes the build number of its `<marketing-version>_<build>` tag (the Android versionCode); any other Gradle
+  tag is refused in `plan`. The Gradle release also gets `CI_ANDROID_PLAY_SOURCE_IS_TAG=true` and
+  `CI_ANDROID_PLAY_RELEASE_VERSION=<marketing-version>`, so the Play script checks the tag against `versionName`.
 - The store credentials (table above) exist only in this job and reach only the release process; their values are
   redacted from the stage log. The lint/test/build job never receives them. Cache: restore only (a tag never saves).
 - A tag request from ci-broker (`requested_by` `tag push`) carries the profile's `release` options, so the profile's

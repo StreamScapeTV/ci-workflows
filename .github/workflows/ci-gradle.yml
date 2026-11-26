@@ -63,6 +63,7 @@ jobs:
       last_stage: ${{ steps.validate.outputs.last_stage }}
       job_stages: ${{ steps.validate.outputs.job_stages }}
       release_options: ${{ steps.validate.outputs.release_options }}
+      release_version: ${{ steps.validate.outputs.release_version }}
     steps:
       - name: Check out Central CI contract and helpers
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -94,6 +95,7 @@ jobs:
             printf 'options=%s\n' "$(jq -c '.options' <<<"${result}")"
             printf 'job_stages=%s\n' "$(jq -c '.stages | map(select(. != "release"))' <<<"${result}")"
             printf 'release_options=%s\n' "$(jq -c '.release_options // {}' <<<"${result}")"
+            printf 'release_version=%s\n' "$(jq -r '.release_version // ""' <<<"${result}")"
             # the last stage of the one stage job (release runs in its own job and never saves a cache)
             printf 'last_stage=%s\n' "$(jq -r '.stages | map(select(. != "release")) | .[-1]' <<<"${result}")"
           } >> "${GITHUB_OUTPUT}"
@@ -135,6 +137,7 @@ jobs:
       ref: ${{ inputs.ref }}
       is_tag: ${{ inputs.is_tag }}
       options: ${{ needs.plan.outputs.release_options }}
+      release_version: ${{ needs.plan.outputs.release_version }}
     secrets:
       SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
       SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}

@@ -131,10 +131,10 @@ class StageResolutionTests(unittest.TestCase):
             ok = self.release(ecosystem)
             self.assertEqual(ok["stages"], ["lint", "test", "build", "release"])
             self.assertNotIn("release_options", ok)
-        for ecosystem in NATIVE_RELEASE:
-            ok = self.release(ecosystem, options_raw='{"release_kind":"prepare"}')
+        for ecosystem, identity in (("xcode", "1.2.3_45"), ("gradle", "45")):
+            ok = self.release(ecosystem, ref="1.2.3_45", options_raw='{"release_kind":"prepare"}')
             self.assertEqual(ok["stages"], ["lint", "test", "build", "release"])
-            self.assertEqual(ok["release_options"], {"release_kind": "prepare", "build_identity": "1.2.3"})
+            self.assertEqual(ok["release_options"], {"release_kind": "prepare", "build_identity": identity})
 
     def test_a_native_release_takes_its_identity_from_the_tag_only(self):
         # Apple: the whole <marketing-version>_<build> tag (its .ci/release.sh splits it)
@@ -143,7 +143,8 @@ class StageResolutionTests(unittest.TestCase):
         # Android: the build number (versionCode) of the same tag form; any other tag (a VERSION) as it is
         self.assertEqual(self.release("gradle", ref="1.0.0_281", options_raw='{"release_kind":"prepare"}')["release_options"],
                          {"release_kind": "prepare", "build_identity": "281"})
-        self.assertEqual(self.release("gradle", ref="2.2.7", options_raw='{"release_kind":"prepare"}')["release_options"]["build_identity"], "2.2.7")
+        self.assertEqual(self.release("gradle", ref="1.0.0_281", options_raw='{"release_kind":"prepare"}')["release_version"], "1.0.0")
+        self.assertNotIn("release_version", self.release("xcode", ref="1.0.0_281", options_raw='{"release_kind":"publish"}'))
         # the release stage projection is exactly what .ci/release.sh reads as CI_INPUTS_JSON
         options = self.release("xcode", ref="2.2.7", options_raw='{"release_kind":"prepare"}')["release_options"]
         self.assertEqual(validate.stage_inputs(CONTRACT, "release", options),
@@ -160,6 +161,14 @@ class StageResolutionTests(unittest.TestCase):
             for overrides in bad:
                 with self.subTest(ecosystem=ecosystem, overrides=overrides), self.assertRaises(SystemExit):
                     self.release(ecosystem, **overrides)
+
+    def test_a_gradle_release_tag_that_is_not_version_underscore_build_is_refused_in_the_plan(self):
+        for ref in ("1.2.3", "v1.2.3_45", "1.2.3_0", "1_45", "1.2.3_45-rc"):
+            with self.subTest(ref=ref), self.assertRaises(SystemExit) as raised:
+                self.release("gradle", ref=ref, options_raw='{"release_kind":"prepare"}')
+            self.assertIn("<marketing-version>_<build>", str(raised.exception))
+        # Xcode keeps the tag as it is (a library VERSION tag stays valid there)
+        self.assertEqual(self.release("xcode", ref="2.2.7", options_raw='{"release_kind":"prepare"}')["release_options"]["build_identity"], "2.2.7")
 
     def test_the_native_release_stage_runs_only_the_repository_release_script(self):
         scripted = git_repo({"gradlew": "x", ".ci/release.sh": "#!/bin/sh\n"}, executable=(".ci/release.sh",))
@@ -533,6 +542,8 @@ class WorkflowShapeTests(unittest.TestCase):
             self.assertIn("contains(fromJSON(needs.plan.outputs.stages), 'release')", release["if"])
             self.assertEqual(release["uses"], f"./.github/workflows/ci-{ecosystem}-release-stage.yml")
             self.assertEqual(release["with"]["options"], "${{ needs.plan.outputs.release_options }}")
+            if ecosystem == "gradle":  # a tag release checks the tag's version against versionName
+                self.assertEqual(release["with"]["release_version"], "${{ needs.plan.outputs.release_version }}")
             self.assertEqual(set(release["secrets"]), common | credentials[ecosystem])
             for other in credentials.values():  # the stage job never gets a store credential
                 self.assertFalse(other & set(entry["jobs"][ecosystem]["secrets"]))
@@ -547,6 +558,10 @@ class WorkflowShapeTests(unittest.TestCase):
             self.assertTrue(holders <= {"Run the repository release entrypoint", "Write the Google Play credential files (private, this job only)"}, holders)
             run = next(s for s in steps if s.get("id") == "run")
             self.assertIn("--stage release", run["run"])
+            if ecosystem == "gradle":
+                self.assertEqual(run["env"]["CI_ANDROID_PLAY_SOURCE_IS_TAG"], "true")
+                self.assertEqual(run["env"]["CI_ANDROID_PLAY_RELEASE_VERSION"], "${{ inputs.release_version }}")
+                self.assertFalse([k for k in run["env"] if k.startswith("CI_SECRET_PLAY_")], "no unused credential copies")
             self.assertNotIn("inputs.", run["run"], "no workflow input is interpolated into shell")
             for key in run["env"]:
                 if key.startswith("CI_RELEASE_SECRET_"):

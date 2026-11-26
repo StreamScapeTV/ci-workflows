@@ -45,8 +45,9 @@ ends with `== <kind>-cache-save: seconds=N saved=<true|false> ==` (kind `gradle`
 
 **Release** (operation `release`, from a tag only): after lint, test and build, a separate `release` job runs the
 tracked executable `.ci/release.sh` (no convention) on Linux with JDK 25 and `CI_INPUTS_JSON` = `release_kind`
-(profile option) and `build_identity` = the build number of a `<marketing-version>_<build>` tag (any other tag as
-it is). That job alone gets the Google Play credentials: `CI_ANDROID_PLAY_SERVICE_ACCOUNT_PATH` and
+(profile option) and `build_identity` = the build number of the `<marketing-version>_<build>` tag (any other tag is
+refused before the build); `CI_ANDROID_PLAY_SOURCE_IS_TAG=true` and `CI_ANDROID_PLAY_RELEASE_VERSION` (the
+marketing version) let the Play script check the tag against `versionName`. That job alone gets the Google Play credentials: `CI_ANDROID_PLAY_SERVICE_ACCOUNT_PATH` and
 `CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PATH` (private 0600 files), `CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD`,
 `CI_ANDROID_PLAY_UPLOAD_KEY_ALIAS`, `CI_ANDROID_PLAY_UPLOAD_KEY_PASSWORD`. Track and status (internal, draft) are the
 repository's. See `per-purpose-ci-workflows.md`, section Native release.

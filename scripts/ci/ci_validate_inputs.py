@@ -11,6 +11,7 @@ secret names are not representable.
 Prints one JSON object: ``{"stages": [...], "options": {...}}``. A native (Xcode, Gradle) release adds
 ``release_options``: the options of the release stage, with ``build_identity`` derived from the tag
 (``native_release_options``); the repository's ``.ci/release.sh`` receives them as ``CI_INPUTS_JSON``.
+A Gradle release also adds ``release_version``, the marketing-version part of its tag (``release_version``).
 """
 from __future__ import annotations
 
@@ -125,6 +126,8 @@ def validate(*, contract: dict, ecosystem: str, request_id: str, repository: str
     result = {"stages": stages, "options": options}
     if operation == "release" and ecosystem in NATIVE_RELEASE_ECOSYSTEMS:
         result["release_options"] = native_release_options(fields, ecosystem, ref, is_tag, options)
+        if ecosystem == "gradle":
+            result["release_version"] = release_version(ref)
     return result
 
 
@@ -132,8 +135,8 @@ def native_release_options(fields: dict, ecosystem: str, ref: str, is_tag: str, 
     """Options of a native release stage: the request's release_kind (and product_target) plus build_identity.
 
     The release identity comes only from the immutable tag (as the pre-OP 7160 tag route did), never from
-    the caller: an Xcode release passes the tag itself, a Gradle release the build number of a
-    ``<marketing-version>_<build>`` tag and any other tag (for example a plain VERSION) itself.
+    the caller: an Xcode release passes the tag itself, a Gradle release the build number of its
+    ``<marketing-version>_<build>`` tag (any other Gradle tag is refused here, before a build runs).
     release_kind comes from the project's CI profile; the repository script decides what it accepts.
     """
     if is_tag != "true":
@@ -144,11 +147,21 @@ def native_release_options(fields: dict, ecosystem: str, ref: str, is_tag: str, 
         _fail("a native release needs options.release_kind (prepare or publish) from the project's CI profile")
     identity = ref
     if ecosystem == "gradle":
-        match = MOBILE_TAG.fullmatch(ref)
-        if match is not None:
-            identity = match.group("build")
+        identity = _mobile_tag(ref).group("build")
     _validate_field(fields["build_identity"], "build_identity (from the tag)", identity)
     return {**options, "build_identity": identity}
+
+
+def _mobile_tag(ref: str):
+    match = MOBILE_TAG.fullmatch(ref)
+    if match is None:
+        _fail(f"a Gradle release tag must be <marketing-version>_<build> (for example 1.2.3_45), got {ref!r}")
+    return match
+
+
+def release_version(ref: str) -> str:
+    """Marketing version of a Gradle release tag (1.2.3 of 1.2.3_45); the release checks it against versionName."""
+    return _mobile_tag(ref).group("version")
 
 
 def stage_inputs(contract: dict, stage: str, options: dict) -> dict:
