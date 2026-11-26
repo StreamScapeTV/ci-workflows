@@ -8,6 +8,20 @@ import sys
 import tempfile
 
 
+def remove_stale_link(destination: Path) -> None:
+    """Drop a dangling native netrc link a killed job left on a persistent runner.
+
+    Only a symlink whose target is gone and is one of our own private copies
+    (``<RUNNER_TEMP>/central-registry-auth/native-netrc-*``) counts; a live link of a
+    concurrent job, a regular file or any other link stays and install refuses it.
+    """
+    if not destination.is_symlink() or os.path.exists(destination):
+        return
+    target = Path(os.readlink(destination))
+    if target.is_absolute() and target.parent.name == "central-registry-auth" and target.name.startswith("native-netrc-"):
+        destination.unlink()
+
+
 def install(auth_root: Path, runner_home: Path) -> None:
     native_home = subprocess.run(
         ["swift", "-e", "import Foundation; print(NSHomeDirectory())"],
@@ -19,6 +33,7 @@ def install(auth_root: Path, runner_home: Path) -> None:
     if source.is_symlink() or not source.is_file() or source.stat().st_mode & 0o077:
         raise ValueError("isolated netrc must be a private regular file")
     destination = runner_home / ".netrc"
+    remove_stale_link(destination)
     if os.path.lexists(destination):
         raise FileExistsError("native netrc already exists")
     # A unique private target proves ownership even if installation is interrupted.

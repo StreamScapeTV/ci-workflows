@@ -26,6 +26,12 @@ name: Central CI Xcode release stage
         description: Release stage options from the plan job (release_kind, build_identity derived from the tag)
         type: string
         required: true
+      execution_class:
+        description: >-
+          Central execution class from the plan job of ci-xcode.yml (scripts/ci/ci_execution_class.py), resolved from the
+          repository being built; a stage job re-checks it against the Central allow-list. Never a runner label.
+        type: string
+        required: true
     secrets:
       SOURCE_APP_ID:
         required: true
@@ -62,9 +68,22 @@ permissions:
 jobs:
   release:
     name: release
-    runs-on: macos-latest
+    # The class maps to fixed labels here and nowhere else in this workflow; any other value runs hosted and the
+    # first steps fail. macos-high-capacity is the owner's persistent self-hosted Mac (ci_execution_class.RUNS_ON).
+    runs-on: ${{ fromJSON(inputs.execution_class == 'macos-high-capacity' && '["self-hosted","macOS","ARM64","macos-latest-xl"]' || '["macos-latest"]') }}
     timeout-minutes: 300
     steps:
+      # A persistent self-hosted Mac keeps the job workspace between runs: start from an empty one.
+      - name: Start from a clean workspace
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          find "${GITHUB_WORKSPACE}" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+          test -z "$(find "${GITHUB_WORKSPACE}" -mindepth 1 -maxdepth 1 -print -quit)" || {
+            echo "persistent workspace cleanup failed" >&2
+            exit 1
+          }
+
       - name: Check out Central CI contract and helpers
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -76,6 +95,42 @@ jobs:
             actions
             scripts/ci
             contracts
+
+      - name: Assert Central execution class
+        shell: bash
+        env:
+          EXECUTION_CLASS: ${{ inputs.execution_class }}
+          REPOSITORY: ${{ inputs.repository }}
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          RUNNER_OS: ${{ runner.os }}
+        run: |
+          set -Eeuo pipefail
+          python3 central-ci/scripts/ci/ci_execution_class.py check \
+            --repository "${REPOSITORY}" --execution-class "${EXECUTION_CLASS}"
+          if test "${EXECUTION_CLASS}" = macos-high-capacity; then
+            test "${GITHUB_REPOSITORY}" = StreamScapeTV/ci-workflows || {
+              echo "macos-high-capacity is only reachable through the Central entry workflow" >&2
+              exit 1
+            }
+            test "${RUNNER_ENVIRONMENT}" = self-hosted || {
+              echo "macos-high-capacity must execute on a self-hosted runner" >&2
+              exit 1
+            }
+            test "${RUNNER_OS}" = macOS || {
+              echo "macos-high-capacity must execute on macOS" >&2
+              exit 1
+            }
+          fi
+
+      # Per-run temporary directory (the runner deletes RUNNER_TEMP after the job) and the user keychain context
+      # as found, restored in the cleanup step: a persistent Mac must not keep a run's temp files or keychains.
+      - name: Isolate per-run temporary files and record the keychain context
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          install -d -m 700 "${RUNNER_TEMP}/tmp"
+          printf 'TMPDIR=%s\n' "${RUNNER_TEMP}/tmp" >> "${GITHUB_ENV}"
+          python3 central-ci/scripts/ci/macos_keychain_guard.py snapshot
 
       - name: Set up source, private network and registry authentication
         id: setup
@@ -156,6 +211,7 @@ jobs:
           CI_RELEASE_SECRET_CI_APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
           REPOSITORY: ${{ inputs.repository }}
           REQUEST_ID: ${{ inputs.request_id }}
+          CENTRAL_EXECUTION_CLASS: ${{ inputs.execution_class }}
           AUTH_HOME: ${{ steps.setup.outputs.auth_home }}
           GIT_CONFIG_PATH: ${{ steps.setup.outputs.git_config }}
         run: |
@@ -186,9 +242,12 @@ jobs:
         shell: bash
         run: |
           cleanup_status=0
+          if test -f "${RUNNER_TEMP}/central-keychain-state.json"; then
+            python3 central-ci/scripts/ci/macos_keychain_guard.py restore || cleanup_status=$?
+          fi
           if test -f "${RUNNER_TEMP}/central-registry-auth/native-netrc.json"; then
             python3 central-ci/scripts/ci/repository_macos_netrc.py cleanup || cleanup_status=$?
           fi
-          rm -rf -- "${RUNNER_TEMP}/central-registry-auth" "${RUNNER_TEMP}/ci-work" \
+          rm -rf -- "${RUNNER_TEMP}/central-registry-auth" "${RUNNER_TEMP}/ci-work" "${RUNNER_TEMP}/tmp" \
             "${GITHUB_WORKSPACE}/source"
           exit "${cleanup_status}"

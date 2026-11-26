@@ -43,6 +43,35 @@ Status, logs and cancel are plain GitHub run operations done by the runner backe
    Concurrency: a safety-net group per repository + ref with `cancel-in-progress: false` (one pipeline per project and branch; the agent runner enforces this and cancels by request id, workflows never cancel another request). All ecosystems: all requested stages run in ONE job (`<ecosystem> / stages`): Gradle in one Gradle invocation (compilation, daemon and build cache shared), Xcode with `build-for-testing` once, `test-without-building` and SwiftLint alongside on one macOS runner, Node and Python with one install and then parallel processes (Node starts lint after the build when both are requested); each stage has its own S3 log stream and the job carries the stage states as static steps (`stage <op> requested`, `stage <op> passed|failed`, plus `skipped` for Xcode, Node and Python) that ci-broker reads. A failed lint is a warning and never fails a build/test request; it fails the request only when lint is the requested top operation.
    There is **no global macOS or device cap**.
 
+## Execution class (macOS runner), Central only
+
+The Xcode `plan` job resolves the **Central execution class** from the repository being built
+(`scripts/ci/ci_execution_class.py`, a reviewed allow-list) and passes it as `execution_class` to
+`ci-xcode-stage.yml` and `ci-xcode-release-stage.yml`, which map it to fixed `runs-on` labels:
+
+| Repository | Class | `runs-on` |
+|---|---|---|
+| `StreamScapeTV/streamscape-media` | `macos-high-capacity` (the owner's persistent high-performance self-hosted Mac) | `[self-hosted, macOS, ARM64, macos-latest-xl]` |
+| every other repository | `macos-hosted` | `macos-latest` (GitHub-hosted) |
+
+The complete Streamscape Media library workload (lint, test, build, release preparation and
+publication, Apple and Android) runs on `macos-high-capacity` (owner rule, codex-skills
+`cards/media/product.md`). No workflow input (options, target, ref) can choose a class or a label;
+raw labels exist only in the stage workflows' `runs-on` expression and in `RUNS_ON` of that script
+(a test keeps them equal). Each stage job re-checks the class against the allow-list, requires a
+`macos-high-capacity` job to be called from this repository and to run self-hosted on macOS, and
+exposes the class to the stage process as `CI_HOST_CLASS`. When the Mac is offline the job queues; it
+never falls back to a hosted runner. Gradle, Node and Python keep their hosted runners.
+
+Persistent-host hygiene in both Xcode stage jobs (harmless on a hosted runner): the job starts from an
+empty `GITHUB_WORKSPACE`; `TMPDIR` is a private per-run directory under `RUNNER_TEMP`; the user keychain
+search list and default keychain are recorded before the source setup and restored in the `always()`
+cleanup (`scripts/ci/macos_keychain_guard.py`: a keychain the run added under `RUNNER_TEMP` or the
+workspace is deleted, one added elsewhere is taken off the list and reported); a dangling native
+`~/.netrc` link a killed job left behind is replaced (`repository_macos_netrc.py`), a live one is
+refused. Persistent toolchain caches in the native home (SwiftPM, the compilation cache) stay, as the
+owner rule requires; DerivedData stays under the per-run `RUNNER_TEMP/ci-work`.
+
 Nothing calls Agent State, a mirror, Cloudflare Access or Google Drive. **No workflow has a push, tag, pull_request or schedule trigger** (owner decision, 20 Nov 2026): CI runs only when an agent requests it through the runner (`workflow_dispatch`); the stage workflows are `workflow_call` only. Cache writes therefore happen only in explicitly requested runs on the integration branch (non-tag), and the cache-warm entry per toolchain is likewise an explicit request.
 
 ## Convention over per-project scripts
@@ -196,7 +225,8 @@ version authority (tag equal to the root `VERSION`, or `main`), the immutable pu
 (there is no release convention) through `ci_run_stage.py`, with its own S3 log stream
 `logs/<project>/<request_id>/release/`. A tag (`is_tag=true`) is required; a branch is refused in `plan`.
 
-- `CI_OPERATION=release`, `CI_HOST_OS` `macos` (Xcode, `macos-latest`) or `linux` (Gradle, `ubuntu-latest`, JDK 25),
+- `CI_OPERATION=release`, `CI_HOST_OS` `macos` (Xcode, the Central execution class: `macos-latest`, or the
+  self-hosted `macos-high-capacity` Mac for streamscape-media) or `linux` (Gradle, `ubuntu-latest`, JDK 25),
   `CI_HOST_CLASS`, `CI_LOG_DIR`, `CI_ARTIFACT_DIR`, `CI_PROGRESS_FILE` as for every stage.
 - `CI_INPUTS_JSON` = `{"schemaVersion":1,"inputs":{"release_kind":...,"build_identity":...}}` (plus `product_target`
   when the request carries one). `release_kind` (`prepare` or `publish`) comes from the request options, i.e. the
