@@ -9,8 +9,10 @@ plus a few ecosystem specific fields. Arbitrary commands, environment maps, runn
 secret names are not representable.
 
 Prints one JSON object: ``{"stages": [...], "options": {...}}``. A native (Xcode, Gradle) release adds
-``release_options``: the options of the release stage, with ``build_identity`` derived from the tag
-(``native_release_options``); the repository's ``.ci/release.sh`` receives them as ``CI_INPUTS_JSON``.
+``release_options``: the options of the release stage, exactly ``release_kind`` and ``build_identity`` derived from
+the tag (``native_release_options``); the repository's ``.ci/release.sh`` receives them as ``CI_INPUTS_JSON``. The
+other options of a release request (``product_target``, ``build_configuration``, ``scheme`` ...) select the lower
+stages (lint, test, build) only, which receive ``options`` projected per stage (``stage_inputs``).
 A Gradle release also adds ``release_version``, the marketing-version part of its tag (``release_version``).
 """
 from __future__ import annotations
@@ -132,7 +134,10 @@ def validate(*, contract: dict, ecosystem: str, request_id: str, repository: str
 
 
 def native_release_options(fields: dict, ecosystem: str, ref: str, is_tag: str, options: dict) -> dict:
-    """Options of a native release stage: the request's release_kind (and product_target) plus build_identity.
+    """Options of a native release stage: exactly the request's release_kind plus build_identity.
+
+    Every other option of the release request is for the lower stages only (iptv-apple's test and build need
+    product_target, its .ci/release.sh accepts exactly release_kind and build_identity; run 45896599760).
 
     The release identity comes only from the immutable tag (as the pre-OP 7160 tag route did), never from
     the caller: an Xcode release passes the tag itself, a Gradle release the build number of its
@@ -149,7 +154,7 @@ def native_release_options(fields: dict, ecosystem: str, ref: str, is_tag: str, 
     if ecosystem == "gradle":
         identity = _mobile_tag(ref).group("build")
     _validate_field(fields["build_identity"], "build_identity (from the tag)", identity)
-    return {**options, "build_identity": identity}
+    return {"release_kind": options["release_kind"], "build_identity": identity}
 
 
 def _mobile_tag(ref: str):

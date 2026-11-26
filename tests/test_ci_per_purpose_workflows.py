@@ -162,6 +162,33 @@ class StageResolutionTests(unittest.TestCase):
                 with self.subTest(ecosystem=ecosystem, overrides=overrides), self.assertRaises(SystemExit):
                     self.release(ecosystem, **overrides)
 
+    def test_release_options_split_lower_stage_inputs_from_the_release_inputs(self):
+        # Run 45896599760 (iptv-apple 1.0.0_281): test/build need product_target, .ci/release.sh accepts exactly
+        # release_kind and build_identity. The lower stages get the request options per stage; the release only two.
+        cases = (
+            ("xcode", "1.0.0_281", {"release_kind": "publish", "product_target": "ios", "build_configuration": "release",
+                                    "scheme": "App"}, "1.0.0_281"),
+            ("gradle", "1.0.0_281", {"release_kind": "prepare", "product_target": "app", "build_configuration": "release"}, "281"),
+        )
+        for ecosystem, ref, options, identity in cases:
+            with self.subTest(ecosystem=ecosystem):
+                result = self.release(ecosystem, ref=ref, options_raw=json.dumps(options))
+                self.assertEqual(result["release_options"], {"release_kind": options["release_kind"], "build_identity": identity})
+                self.assertEqual(validate.stage_inputs(CONTRACT, "release", result["release_options"]),
+                                 {"schemaVersion": 1, "inputs": {"release_kind": options["release_kind"], "build_identity": identity}})
+                self.assertEqual(result["options"], options)
+                lower = {stage: validate.stage_inputs(CONTRACT, stage, result["options"])["inputs"] for stage in ("lint", "test", "build")}
+                self.assertEqual(lower["lint"], {"product_target": options["product_target"]})
+                self.assertEqual(lower["test"], {"product_target": options["product_target"], "build_configuration": "release"})
+                self.assertEqual(lower["build"], {"product_target": options["product_target"], "build_configuration": "release"})
+                for inputs in lower.values():
+                    self.assertNotIn("release_kind", inputs)
+                    self.assertNotIn("build_identity", inputs)
+        # a profile without lower-stage options (streamscape-media: test/build default to all, release to distribution)
+        media = self.release("xcode", ref="2.2.7", options_raw='{"release_kind":"prepare"}')
+        self.assertEqual(media["release_options"], {"release_kind": "prepare", "build_identity": "2.2.7"})
+        self.assertEqual(validate.stage_inputs(CONTRACT, "build", media["options"]), {"schemaVersion": 1, "inputs": {}})
+
     def test_a_gradle_release_tag_that_is_not_version_underscore_build_is_refused_in_the_plan(self):
         for ref in ("1.2.3", "v1.2.3_45", "1.2.3_0", "1_45", "1.2.3_45-rc"):
             with self.subTest(ref=ref), self.assertRaises(SystemExit) as raised:

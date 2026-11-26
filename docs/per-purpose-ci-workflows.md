@@ -228,8 +228,11 @@ version authority (tag equal to the root `VERSION`, or `main`), the immutable pu
 - `CI_OPERATION=release`, `CI_HOST_OS` `macos` (Xcode, the Central execution class: `macos-latest`, or the
   self-hosted `macos-high-capacity` Mac for streamscape-media) or `linux` (Gradle, `ubuntu-latest`, JDK 25),
   `CI_HOST_CLASS`, `CI_LOG_DIR`, `CI_ARTIFACT_DIR`, `CI_PROGRESS_FILE` as for every stage.
-- `CI_INPUTS_JSON` = `{"schemaVersion":1,"inputs":{"release_kind":...,"build_identity":...}}` (plus `product_target`
-  when the request carries one). `release_kind` (`prepare` or `publish`) comes from the request options, i.e. the
+- `CI_INPUTS_JSON` = `{"schemaVersion":1,"inputs":{"release_kind":...,"build_identity":...}}`, exactly these two.
+  Every other option of the release request (`product_target`, `build_configuration`, `scheme`) selects the lower
+  stages only: lint, test and build get the request options projected per stage, as for a `build` request. A
+  project whose `.ci/test.sh` / `.ci/build.sh` need `product_target` therefore puts it in its release profile next to
+  `release_kind` (iptv-apple: `{"release_kind":"publish","product_target":"ios"}`). `release_kind` (`prepare` or `publish`) comes from the request options, i.e. the
   project's CI profile, and is required. `build_identity` comes from the tag only (a request that supplies it is
   refused): Xcode passes the tag itself (an app's `<marketing-version>_<build>`, a library's `VERSION`);
   Gradle passes the build number of its `<marketing-version>_<build>` tag (the Android versionCode); any other Gradle
