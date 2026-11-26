@@ -35,7 +35,7 @@ jobs:
             https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
           printf '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  %s\n' "${RUNNER_TEMP}/actionlint.tar.gz" | sha256sum --check --strict -
           tar -xzf "${RUNNER_TEMP}/actionlint.tar.gz" -C "${RUNNER_TEMP}" actionlint
-          "${RUNNER_TEMP}/actionlint" -shellcheck='' .github/workflows/ci-gradle.yml .github/workflows/ci-xcode.yml .github/workflows/ci-node.yml .github/workflows/ci-python.yml .github/workflows/ci-gradle-stage.yml .github/workflows/ci-xcode-stage.yml .github/workflows/ci-node-stage.yml .github/workflows/ci-python-stage.yml
+          "${RUNNER_TEMP}/actionlint" -shellcheck='' .github/workflows/ci-gradle.yml .github/workflows/ci-xcode.yml .github/workflows/ci-node.yml .github/workflows/ci-python.yml .github/workflows/ci-gradle-stage.yml .github/workflows/ci-xcode-stage.yml .github/workflows/ci-node-stage.yml .github/workflows/ci-python-stage.yml .github/workflows/ci-xcode-release-stage.yml .github/workflows/ci-gradle-release-stage.yml
 
       - name: Run focused helper tests
         run: >-

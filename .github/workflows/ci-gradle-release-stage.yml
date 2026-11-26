@@ -1,0 +1,227 @@
+# The release stage of the Gradle ecosystem (AS ci-workflows#1220): runs the repository's own fixed
+# .ci/release.sh from an immutable tag, after lint, test and build passed in the 'gradle / stages' job
+# of the same run (for example a Google Play internal-track draft; track and status are the repository
+# script's). The Play credentials exist only in this job (never in the lint/test/build
+# job): Central writes the service-account JSON and the upload keystore as private 0600 files and the
+# release process gets their paths plus the keystore password, key alias and key password as the
+# CI_ANDROID_PLAY_* variables its scripts read; the values are redacted from the stage log. A release runs only
+# from a <marketing-version>_<build> tag: CI_ANDROID_PLAY_SOURCE_IS_TAG=true and CI_ANDROID_PLAY_RELEASE_VERSION
+# (the marketing version) make the Play script check the tag against the committed versionName.
+# CI_INPUTS_JSON carries release_kind and the tag-derived build_identity.
+name: Central CI Gradle release stage
+
+"on":
+  workflow_call:
+    inputs:
+      request_id:
+        type: string
+        required: true
+      repository:
+        type: string
+        required: true
+      ref:
+        type: string
+        required: true
+      is_tag:
+        type: string
+        required: true
+      options:
+        description: Release stage options from the plan job (release_kind, build_identity derived from the tag)
+        type: string
+        required: true
+      release_version:
+        description: Marketing version of the <marketing-version>_<build> tag (checked against versionName)
+        type: string
+        required: true
+    secrets:
+      SOURCE_APP_ID:
+        required: true
+      SOURCE_APP_PRIVATE_KEY:
+        required: true
+      TS_OAUTH_CLIENT_ID:
+        required: true
+      TS_OAUTH_SECRET:
+        required: true
+      FORGEJO_REGISTRY_USERNAME:
+        required: true
+      CIW_MAVEN_PACKAGE_READ_TOKEN:
+        required: true
+      S3_GITHUB_TRANSPORT_ACCESS_KEY:
+        required: true
+      S3_GITHUB_TRANSPORT_SECRET_KEY:
+        required: true
+      S3_ENDPOINT:
+        required: false
+      S3_BUCKET:
+        required: false
+      GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64:
+        required: false
+      ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64:
+        required: false
+      ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD:
+        required: false
+      ANDROID_PLAY_UPLOAD_KEY_ALIAS:
+        required: false
+      ANDROID_PLAY_UPLOAD_KEY_PASSWORD:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out Central CI contract and helpers
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          path: central-ci
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            actions
+            scripts/ci
+            contracts
+
+      - name: Set up source, private network and registry authentication
+        id: setup
+        uses: ./central-ci/actions/ci-setup
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          REGISTRY_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          is_tag: ${{ inputs.is_tag }}
+          app_id: ${{ secrets.SOURCE_APP_ID }}
+          private_key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          registry_netrc: "true"
+          gradle_maven: "true"
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Prepare the stage log file
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "${RUNNER_TEMP}/ci-work"
+          : > "${RUNNER_TEMP}/ci-work/stage-release.log"
+          chmod 600 "${RUNNER_TEMP}/ci-work/stage-release.log"
+
+      - name: Restore Gradle caches (restore only; a tag never saves)
+        uses: ./central-ci/actions/ci-cache
+        with:
+          phase: restore
+          log_path: ${{ runner.temp }}/ci-work/stage-release.log
+          kind: gradle
+          slot: build
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          is_tag: ${{ inputs.is_tag }}
+          home: ${{ steps.setup.outputs.auth_home }}/.gradle
+          token: ${{ steps.setup.outputs.token }}
+
+      - name: Start live log stream to S3 (release)
+        uses: ./central-ci/actions/s3-log-stream
+        with:
+          phase: start
+          repository: ${{ inputs.repository }}
+          request_id: ${{ inputs.request_id }}
+          stage: release
+          log_path: ${{ runner.temp }}/ci-work/stage-release.log
+          s3_access_key: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          s3_secret_key: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          s3_endpoint: ${{ secrets.S3_ENDPOINT }}
+          s3_bucket: ${{ secrets.S3_BUCKET }}
+          ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
+
+      - name: Write the Google Play credential files (private, this job only)
+        id: play
+        shell: bash
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}
+          ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64 }}
+        run: |
+          set -Eeuo pipefail
+          release_root="${RUNNER_TEMP}/central-android-play"
+          rm -rf -- "${release_root}"
+          mkdir -p "${release_root}"
+          chmod 700 "${release_root}"
+          # A missing credential leaves its file unwritten; the repository's release script then names what is missing.
+          if test -n "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64}"; then
+            printf '%s' "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64}" | base64 --decode > "${release_root}/service-account.json"
+            chmod 600 "${release_root}/service-account.json"
+          else
+            echo "::warning::GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 is not set" >&2
+          fi
+          if test -n "${ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64}"; then
+            printf '%s' "${ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64}" | base64 --decode > "${release_root}/upload-key.jks"
+            chmod 600 "${release_root}/upload-key.jks"
+          else
+            echo "::warning::ANDROID_PLAY_UPLOAD_KEYSTORE_BASE64 is not set" >&2
+          fi
+          printf 'root=%s\n' "${release_root}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run the repository release entrypoint
+        id: run
+        shell: bash
+        env:
+          CI_OPTIONS_JSON: ${{ inputs.options }}
+          CI_SECRET_SOURCE_TOKEN: ${{ steps.setup.outputs.token }}
+          CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          CI_SECRET_TAILSCALE_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          CI_SECRET_TAILSCALE_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          CI_SECRET_REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          CI_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+          CI_RELEASE_SECRET_CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_PLAY_UPLOAD_KEYSTORE_PASSWORD }}
+          CI_RELEASE_SECRET_CI_ANDROID_PLAY_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_PLAY_UPLOAD_KEY_ALIAS }}
+          CI_RELEASE_SECRET_CI_ANDROID_PLAY_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_PLAY_UPLOAD_KEY_PASSWORD }}
+          # A release runs only from a tag: the Play script checks the tag's version against versionName.
+          CI_ANDROID_PLAY_SOURCE_IS_TAG: "true"
+          CI_ANDROID_PLAY_RELEASE_VERSION: ${{ inputs.release_version }}
+          CI_ANDROID_PLAY_SERVICE_ACCOUNT_PATH: ${{ steps.play.outputs.root }}/service-account.json
+          CI_ANDROID_PLAY_UPLOAD_KEYSTORE_PATH: ${{ steps.play.outputs.root }}/upload-key.jks
+          REPOSITORY: ${{ inputs.repository }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          AUTH_HOME: ${{ steps.setup.outputs.auth_home }}
+          GIT_CONFIG_PATH: ${{ steps.setup.outputs.git_config }}
+        run: |
+          set -Eeuo pipefail
+          python3 central-ci/scripts/ci/ci_run_stage.py \
+            --ecosystem gradle \
+            --stage release \
+            --source source \
+            --contract central-ci/contracts/repository-ci-v1.json \
+            --host-os linux \
+            --work-dir "${RUNNER_TEMP}/ci-work" \
+            --log-path "${RUNNER_TEMP}/ci-work/stage-release.log" \
+            --home "${AUTH_HOME}" \
+            --gradle-user-home "${AUTH_HOME}/.gradle" \
+            --git-config "${GIT_CONFIG_PATH}" \
+            --s3-prefix "logs/${REPOSITORY##*/}/${REQUEST_ID}/release/"
+
+      - name: Stop live log stream and write the merged log (release)
+        if: ${{ always() }}
+        uses: ./central-ci/actions/s3-log-stream
+        with:
+          phase: stop
+          repository: ${{ inputs.repository }}
+          request_id: ${{ inputs.request_id }}
+          stage: release
+
+      - name: Remove the Play credential files, credentials, source and private logs
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          rm -rf -- "${RUNNER_TEMP}/central-android-play" "${RUNNER_TEMP}/central-registry-auth" \
+            "${RUNNER_TEMP}/ci-work" "${GITHUB_WORKSPACE}/source"

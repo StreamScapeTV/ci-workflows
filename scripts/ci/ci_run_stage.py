@@ -4,6 +4,8 @@
 * The command comes from ``ci_stage.resolve`` (convention, or a transition ``.ci`` script).
 * The product process never receives ``CI_SECRET_*`` values; it only sees credential *files* under
   the ephemeral home. Those values are used here to redact its output.
+* Stage ``release`` (Xcode, Gradle) runs the tracked ``.ci/release.sh``; only that stage's process gets each
+  ``CI_RELEASE_SECRET_<NAME>`` as ``<NAME>`` (the store credentials its script reads), redacted like the rest.
 * Output is scrubbed line by line and appended to ``--log-path`` (flushed per line). It is NEVER echoed
   to the GitHub step log: the Actions UI shows only the status lines ``status()`` prints (stage started,
   stage finished with its result and the S3 prefix). The shared ``actions/s3-log-stream`` action (started before this step, stopped
@@ -44,16 +46,25 @@ def status(text: str) -> None:
     print(f"== {text} ==", flush=True)
 
 
+# A release credential the repository's .ci/release.sh needs by name: CI_RELEASE_SECRET_<NAME> reaches the release
+# stage's process as <NAME> (and no other stage's), and its value is redacted from the log like every CI_SECRET_*.
+RELEASE_SECRET_PREFIX = "CI_RELEASE_SECRET_"
+
+
 def secrets_from_environment() -> list:
     secrets = set()
     for name, value in os.environ.items():
-        if name.startswith("CI_SECRET_") and value:
+        if name.startswith(("CI_SECRET_", RELEASE_SECRET_PREFIX)) and value:
             secrets |= ci_scrub_log.variants(value)
     return sorted(secrets, key=len, reverse=True)
 
 
 def child_environment(args, stage_inputs: dict) -> dict:
-    env = {k: v for k, v in os.environ.items() if not k.startswith(("CI_SECRET_", "INPUT_", "ACTIONS_RUNTIME", "ACTIONS_ID_TOKEN"))}
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith(("CI_SECRET_", RELEASE_SECRET_PREFIX, "INPUT_", "ACTIONS_RUNTIME", "ACTIONS_ID_TOKEN"))}
+    if args.stage == "release":
+        env.update({k[len(RELEASE_SECRET_PREFIX):]: v for k, v in os.environ.items()
+                    if k.startswith(RELEASE_SECRET_PREFIX) and k != RELEASE_SECRET_PREFIX})
     if args.home:
         env["HOME"] = args.home
     if args.gradle_user_home:

@@ -14,6 +14,8 @@ import subprocess
 import sys
 
 SCRIPT = {"lint": ".ci/lint.sh", "build": ".ci/build.sh", "test": ".ci/test.sh"}
+# The native release stage has no convention: it always runs the repository's own fixed entrypoint.
+RELEASE_SCRIPT = ".ci/release.sh"
 
 
 def _tracked(source: Path, relative: str):
@@ -36,7 +38,7 @@ def _skip(reason: str):
 
 
 def _script(source: Path, stage: str):
-    relative = SCRIPT[stage]
+    relative = RELEASE_SCRIPT if stage == "release" else SCRIPT[stage]
     mode = _tracked(source, relative)
     if mode is None:
         return None
@@ -206,6 +208,11 @@ def node(source: Path, stage: str, options: dict):
 
 def resolve(ecosystem: str, stage: str, source: Path, options: dict, derived_data: str = "DerivedData",
             cache_dir: str = ""):
+    if stage == "release" and ecosystem in ("xcode", "gradle"):
+        scripted = _script(source, stage)
+        if scripted is None:
+            _fail(f"release: commit a tracked executable {RELEASE_SCRIPT} (mode 100755); a release has no convention")
+        return scripted
     if stage not in SCRIPT:
         _fail("unsupported stage")
     scripted = _script(source, stage)

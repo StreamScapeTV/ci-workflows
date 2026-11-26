@@ -1,0 +1,194 @@
+# The release stage of the Xcode ecosystem (AS ci-workflows#1220): runs the repository's own fixed
+# .ci/release.sh from an immutable tag on a macOS runner, after lint, test and build passed in the
+# 'xcode / stages' job of the same run (for example an App Store Connect upload, or a release bundle that is
+# prepared and not published; the repository script decides). The App Store Connect credentials
+# exist only in this job (never in the lint/test/build job) and reach the release process as the
+# CI_APPLE_TEAM_ID / CI_APP_STORE_CONNECT_* variables its .ci/release.sh reads; their values are
+# redacted from the stage log. CI_INPUTS_JSON carries release_kind and the tag-derived build_identity.
+name: Central CI Xcode release stage
+
+"on":
+  workflow_call:
+    inputs:
+      request_id:
+        type: string
+        required: true
+      repository:
+        type: string
+        required: true
+      ref:
+        type: string
+        required: true
+      is_tag:
+        type: string
+        required: true
+      options:
+        description: Release stage options from the plan job (release_kind, build_identity derived from the tag)
+        type: string
+        required: true
+    secrets:
+      SOURCE_APP_ID:
+        required: true
+      SOURCE_APP_PRIVATE_KEY:
+        required: true
+      TS_OAUTH_CLIENT_ID:
+        required: true
+      TS_OAUTH_SECRET:
+        required: true
+      FORGEJO_REGISTRY_USERNAME:
+        required: true
+      CIW_MAVEN_PACKAGE_READ_TOKEN:
+        required: true
+      S3_GITHUB_TRANSPORT_ACCESS_KEY:
+        required: true
+      S3_GITHUB_TRANSPORT_SECRET_KEY:
+        required: true
+      S3_ENDPOINT:
+        required: false
+      S3_BUCKET:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
+      APP_STORE_CONNECT_KEY_ID:
+        required: false
+      APP_STORE_CONNECT_ISSUER_ID:
+        required: false
+      APP_STORE_CONNECT_API_KEY_P8_BASE64:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: release
+    runs-on: macos-latest
+    timeout-minutes: 300
+    steps:
+      - name: Check out Central CI contract and helpers
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          path: central-ci
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            actions
+            scripts/ci
+            contracts
+
+      - name: Set up source, private network and registry authentication
+        id: setup
+        uses: ./central-ci/actions/ci-setup
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          REGISTRY_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          is_tag: ${{ inputs.is_tag }}
+          app_id: ${{ secrets.SOURCE_APP_ID }}
+          private_key: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          github_git: "true"
+          registry_netrc: "true"
+
+      - name: Expose isolated netrc to native SwiftPM resolution
+        shell: bash
+        run: python3 central-ci/scripts/ci/repository_macos_netrc.py install
+
+      - name: Resolve native user home
+        id: native
+        shell: bash
+        run: printf 'home=%s\n' "$(python3 -c 'import os, pwd; print(pwd.getpwuid(os.getuid()).pw_dir)')" >> "${GITHUB_OUTPUT}"
+
+      - name: Prepare the stage log file
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "${RUNNER_TEMP}/ci-work"
+          : > "${RUNNER_TEMP}/ci-work/stage-release.log"
+          chmod 600 "${RUNNER_TEMP}/ci-work/stage-release.log"
+
+      - name: Restore SwiftPM caches (restore only; a tag never saves)
+        uses: ./central-ci/actions/ci-cache
+        with:
+          phase: restore
+          log_path: ${{ runner.temp }}/ci-work/stage-release.log
+          kind: swiftpm
+          slot: build
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          is_tag: ${{ inputs.is_tag }}
+          home: ${{ steps.native.outputs.home }}
+          token: ${{ steps.setup.outputs.token }}
+
+      - name: Start live log stream to S3 (release)
+        uses: ./central-ci/actions/s3-log-stream
+        with:
+          phase: start
+          repository: ${{ inputs.repository }}
+          request_id: ${{ inputs.request_id }}
+          stage: release
+          log_path: ${{ runner.temp }}/ci-work/stage-release.log
+          s3_access_key: ${{ secrets.S3_GITHUB_TRANSPORT_ACCESS_KEY }}
+          s3_secret_key: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
+          s3_endpoint: ${{ secrets.S3_ENDPOINT }}
+          s3_bucket: ${{ secrets.S3_BUCKET }}
+          ts_oauth_client_id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          ts_oauth_secret: ${{ secrets.TS_OAUTH_SECRET }}
+
+      - name: Run the repository release entrypoint
+        id: run
+        shell: bash
+        env:
+          CI_OPTIONS_JSON: ${{ inputs.options }}
+          CI_SECRET_SOURCE_TOKEN: ${{ steps.setup.outputs.token }}
+          CI_SECRET_SOURCE_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
+          CI_SECRET_TAILSCALE_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          CI_SECRET_TAILSCALE_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          CI_SECRET_REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
+          CI_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
+          CI_RELEASE_SECRET_CI_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CI_RELEASE_SECRET_CI_APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          CI_RELEASE_SECRET_CI_APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          CI_RELEASE_SECRET_CI_APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
+          REPOSITORY: ${{ inputs.repository }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          AUTH_HOME: ${{ steps.setup.outputs.auth_home }}
+          GIT_CONFIG_PATH: ${{ steps.setup.outputs.git_config }}
+        run: |
+          set -Eeuo pipefail
+          python3 central-ci/scripts/ci/ci_run_stage.py \
+            --ecosystem xcode \
+            --stage release \
+            --source source \
+            --contract central-ci/contracts/repository-ci-v1.json \
+            --host-os macos \
+            --work-dir "${RUNNER_TEMP}/ci-work" \
+            --log-path "${RUNNER_TEMP}/ci-work/stage-release.log" \
+            --home "${AUTH_HOME}" \
+            --git-config "${GIT_CONFIG_PATH}" \
+            --s3-prefix "logs/${REPOSITORY##*/}/${REQUEST_ID}/release/"
+
+      - name: Stop live log stream and write the merged log (release)
+        if: ${{ always() }}
+        uses: ./central-ci/actions/s3-log-stream
+        with:
+          phase: stop
+          repository: ${{ inputs.repository }}
+          request_id: ${{ inputs.request_id }}
+          stage: release
+
+      - name: Remove native netrc, credentials, source and private logs
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          cleanup_status=0
+          if test -f "${RUNNER_TEMP}/central-registry-auth/native-netrc.json"; then
+            python3 central-ci/scripts/ci/repository_macos_netrc.py cleanup || cleanup_status=$?
+          fi
+          rm -rf -- "${RUNNER_TEMP}/central-registry-auth" "${RUNNER_TEMP}/ci-work" \
+            "${GITHUB_WORKSPACE}/source"
+          exit "${cleanup_status}"

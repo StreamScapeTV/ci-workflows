@@ -210,7 +210,7 @@ def main(argv=None) -> int:
         ci_run_stage.status(f"stage {stage} started{where(stage)}")
         logs[stage].add(f"== stage {stage} ({commands[stage]['mode']}) ==\n".encode())
     if all(command["mode"] == "convention" for command in commands.values()):
-        env = env_for(args.top)
+        env = env_for(args.top if args.top in stages else stages[0])  # top release: its own job runs release
         closure = closures(stages, source, env, options)
         ci_run_stage.status("gradle closures " + " ".join(f"{s}={len(closure[s])}" for s in stages)
                             + " (one combined invocation)")
