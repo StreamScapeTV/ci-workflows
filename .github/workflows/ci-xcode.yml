@@ -2,7 +2,8 @@
 # the run by the request id in run-name. No Agent State, no broker. A project that follows the
 # Xcode/Swift standard (docs/ci-conventions/xcode.md) needs no .ci directory; a tracked
 # .ci/<stage>.sh is still honoured during the transition. All requested stages run in ONE job
-# ('xcode / stages') on one macOS runner: build-for-testing once, test-without-building, lint alongside;
+# ('xcode / stages') on one macOS runner of the Central execution class the plan job resolves from the repository
+# (scripts/ci/ci_execution_class.py; streamscape-media runs on the owner's macos-high-capacity Mac): build-for-testing once, test-without-building, lint alongside;
 # lint never fails a build/test/release request. Operation release adds a 'release' job after it that runs the
 # repository's .ci/release.sh from a tag (ci-xcode-release-stage.yml; App Store Connect credentials there only).
 name: Central CI Xcode
@@ -63,6 +64,7 @@ jobs:
       last_stage: ${{ steps.validate.outputs.last_stage }}
       job_stages: ${{ steps.validate.outputs.job_stages }}
       release_options: ${{ steps.validate.outputs.release_options }}
+      execution_class: ${{ steps.execution.outputs.execution_class }}
     steps:
       - name: Check out Central CI contract and helpers
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -98,6 +100,16 @@ jobs:
             printf 'last_stage=%s\n' "$(jq -r '.stages | map(select(. != "release")) | .[-1]' <<<"${result}")"
           } >> "${GITHUB_OUTPUT}"
 
+      # Central semantic execution class from the repository being built (reviewed allow-list in
+      # scripts/ci/ci_execution_class.py): the streamscape-media repository -> macos-high-capacity (the owner's
+      # persistent high-performance Mac), every other repository -> macos-hosted (macos-latest). No input selects it.
+      - name: Resolve Central execution class
+        id: execution
+        shell: bash
+        env:
+          REPOSITORY: ${{ inputs.repository }}
+        run: python3 central-ci/scripts/ci/ci_execution_class.py plan --repository "${REPOSITORY}"
+
   xcode:
     needs: plan
     if: ${{ needs.plan.result == 'success' && needs.plan.outputs.job_stages != '[]' }}
@@ -111,6 +123,7 @@ jobs:
       top: ${{ inputs.operation }}
       options: ${{ needs.plan.outputs.options }}
       last_stage: ${{ needs.plan.outputs.last_stage }}
+      execution_class: ${{ needs.plan.outputs.execution_class }}
     secrets:
       SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
       SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
@@ -133,6 +146,7 @@ jobs:
 
   # Release (lint, test, build, then release; lint never gates it): the repository's .ci/release.sh from a tag,
   # in its own job, the only one that receives the App Store Connect credentials.
+  # The store credentials go only to the hosted class: never to the persistent macos-high-capacity Mac.
   release:
     needs: [plan, xcode]
     if: ${{ !cancelled() && needs.plan.result == 'success' && contains(fromJSON(needs.plan.outputs.stages), 'release') && needs.xcode.result == 'success' }}
@@ -143,6 +157,7 @@ jobs:
       ref: ${{ inputs.ref }}
       is_tag: ${{ inputs.is_tag }}
       options: ${{ needs.plan.outputs.release_options }}
+      execution_class: ${{ needs.plan.outputs.execution_class }}
     secrets:
       SOURCE_APP_ID: ${{ secrets.SOURCE_APP_ID }}
       SOURCE_APP_PRIVATE_KEY: ${{ secrets.SOURCE_APP_PRIVATE_KEY }}
@@ -154,7 +169,7 @@ jobs:
       S3_GITHUB_TRANSPORT_SECRET_KEY: ${{ secrets.S3_GITHUB_TRANSPORT_SECRET_KEY }}
       S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
       S3_BUCKET: ${{ secrets.S3_BUCKET }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-      APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
+      APPLE_TEAM_ID: ${{ needs.plan.outputs.execution_class == 'macos-hosted' && secrets.APPLE_TEAM_ID || '' }}
+      APP_STORE_CONNECT_KEY_ID: ${{ needs.plan.outputs.execution_class == 'macos-hosted' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
+      APP_STORE_CONNECT_ISSUER_ID: ${{ needs.plan.outputs.execution_class == 'macos-hosted' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
+      APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ needs.plan.outputs.execution_class == 'macos-hosted' && secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 || '' }}

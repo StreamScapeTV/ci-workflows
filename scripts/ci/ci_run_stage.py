@@ -22,9 +22,12 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import ci_execution_class  # noqa: E402
 import ci_scrub_log  # noqa: E402
 import ci_stage  # noqa: E402
 import ci_validate_inputs  # noqa: E402
+
+MACOS_CLASSES = tuple(ci_execution_class.RUNS_ON)
 
 
 class LogFile:
@@ -74,7 +77,10 @@ def child_environment(args, stage_inputs: dict) -> dict:
         env["GIT_TERMINAL_PROMPT"] = "0"
     env.update({
         "CI_HOST_OS": args.host_os,
-        "CI_HOST_CLASS": f"{args.host_os}-hosted",
+        # The Central execution class the stage workflow ran on (ci_execution_class.py); hosted otherwise.
+        "CI_HOST_CLASS": (os.environ.get("CENTRAL_EXECUTION_CLASS", "")
+                          if args.host_os == "macos" and os.environ.get("CENTRAL_EXECUTION_CLASS") in MACOS_CLASSES
+                          else f"{args.host_os}-hosted"),
         "CI_OPERATION": args.stage,
         "CI_INPUTS_JSON": json.dumps(stage_inputs, sort_keys=True, separators=(",", ":")),
         "CI_LOG_DIR": args.work_dir + "/logs",

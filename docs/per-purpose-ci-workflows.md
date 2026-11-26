@@ -43,6 +43,46 @@ Status, logs and cancel are plain GitHub run operations done by the runner backe
    Concurrency: a safety-net group per repository + ref with `cancel-in-progress: false` (one pipeline per project and branch; the agent runner enforces this and cancels by request id, workflows never cancel another request). All ecosystems: all requested stages run in ONE job (`<ecosystem> / stages`): Gradle in one Gradle invocation (compilation, daemon and build cache shared), Xcode with `build-for-testing` once, `test-without-building` and SwiftLint alongside on one macOS runner, Node and Python with one install and then parallel processes (Node starts lint after the build when both are requested); each stage has its own S3 log stream and the job carries the stage states as static steps (`stage <op> requested`, `stage <op> passed|failed`, plus `skipped` for Xcode, Node and Python) that ci-broker reads. A failed lint is a warning and never fails a build/test request; it fails the request only when lint is the requested top operation.
    There is **no global macOS or device cap**.
 
+## Execution class (macOS runner), Central only
+
+The Xcode `plan` job resolves the **Central execution class** from the repository being built
+(`scripts/ci/ci_execution_class.py`, a reviewed allow-list) and passes it as `execution_class` to
+`ci-xcode-stage.yml` and `ci-xcode-release-stage.yml`, which map it to fixed `runs-on` labels:
+
+| Repository | Class | `runs-on` |
+|---|---|---|
+| `streamscape-media` (organization repository) | `macos-high-capacity` (the owner's persistent high-performance self-hosted Mac) | `[self-hosted, macOS, ARM64, macos-latest-xl]` |
+| every other repository | `macos-hosted` | `macos-latest` (GitHub-hosted) |
+
+The complete Streamscape Media library workload (lint, test, build, release preparation and
+publication, Apple and Android) runs on `macos-high-capacity` (owner rule, codex-skills
+`cards/media/product.md`). No workflow input (options, target, ref) can choose a class or a label;
+raw labels exist only in the stage workflows' `runs-on` expression and in `RUNS_ON` of that script
+(a test keeps them equal). Each stage job re-checks the class against the allow-list, requires a
+`macos-high-capacity` job to be called from this repository and to run self-hosted on macOS, and
+exposes the class to the stage process as `CI_HOST_CLASS`. When the Mac is offline the job queues; it
+never falls back to a hosted runner. Gradle, Node and Python keep their hosted runners.
+
+Persistent-host hygiene in both Xcode stage jobs (harmless on a hosted runner): the job starts from an
+empty `GITHUB_WORKSPACE`; `TMPDIR` is a private per-run directory under `RUNNER_TEMP`; the user keychain
+search list and default keychain are recorded before the source setup in a per-runner state file in the
+native home (`~/Library/Application Support/central-ci/keychain-state-<runner>.json`, it must outlive
+`RUNNER_TEMP`) and restored in the `always()` cleanup (`scripts/ci/macos_keychain_guard.py`): every keychain
+the job added to the search list or made the default is deleted, wherever it lives; a keychain that was there
+before the job never is. If a job is killed before its cleanup, the next job's snapshot on the same runner
+finds the state file, restores that saved context and deletes the killed job's keychains first. A dangling
+native `~/.netrc` link a killed job left behind is replaced (`repository_macos_netrc.py`), a live one is
+refused. The private network adds no state on a self-hosted runner: `actions/setup-tailscale` (via
+`actions/private-git`) and the S3 actions connect Tailscale only on GitHub-hosted runners; on the persistent
+Mac they only probe reachability, so there is no login, route, DNS change or daemon to tear down. Persistent
+toolchain caches in the native home (SwiftPM, the compilation cache) stay, as the owner rule requires;
+DerivedData stays under the per-run `RUNNER_TEMP/ci-work`.
+
+The App Store Connect credentials (`APPLE_TEAM_ID`, `APP_STORE_CONNECT_*`) reach the Xcode release job only
+for `macos-hosted`: `ci-xcode.yml` passes them only when the plan resolved `macos-hosted`, and the release
+stage hands them to `.ci/release.sh` only on that class. A `macos-high-capacity` release (streamscape-media,
+prepare-only) never receives them, so no store key reaches the persistent host whose caches test code can write.
+
 Nothing calls Agent State, a mirror, Cloudflare Access or Google Drive. **No workflow has a push, tag, pull_request or schedule trigger** (owner decision, 20 Nov 2026): CI runs only when an agent requests it through the runner (`workflow_dispatch`); the stage workflows are `workflow_call` only. Cache writes therefore happen only in explicitly requested runs on the integration branch (non-tag), and the cache-warm entry per toolchain is likewise an explicit request.
 
 ## Convention over per-project scripts
@@ -196,10 +236,14 @@ version authority (tag equal to the root `VERSION`, or `main`), the immutable pu
 (there is no release convention) through `ci_run_stage.py`, with its own S3 log stream
 `logs/<project>/<request_id>/release/`. A tag (`is_tag=true`) is required; a branch is refused in `plan`.
 
-- `CI_OPERATION=release`, `CI_HOST_OS` `macos` (Xcode, `macos-latest`) or `linux` (Gradle, `ubuntu-latest`, JDK 25),
+- `CI_OPERATION=release`, `CI_HOST_OS` `macos` (Xcode, the Central execution class: `macos-latest`, or the
+  self-hosted `macos-high-capacity` Mac for streamscape-media) or `linux` (Gradle, `ubuntu-latest`, JDK 25),
   `CI_HOST_CLASS`, `CI_LOG_DIR`, `CI_ARTIFACT_DIR`, `CI_PROGRESS_FILE` as for every stage.
-- `CI_INPUTS_JSON` = `{"schemaVersion":1,"inputs":{"release_kind":...,"build_identity":...}}` (plus `product_target`
-  when the request carries one). `release_kind` (`prepare` or `publish`) comes from the request options, i.e. the
+- `CI_INPUTS_JSON` = `{"schemaVersion":1,"inputs":{"release_kind":...,"build_identity":...}}`, exactly these two.
+  Every other option of the release request (`product_target`, `build_configuration`, `scheme`) selects the lower
+  stages only: lint, test and build get the request options projected per stage, as for a `build` request. A
+  project whose `.ci/test.sh` / `.ci/build.sh` need `product_target` therefore puts it in its release profile next to
+  `release_kind` (iptv-apple: `{"release_kind":"publish","product_target":"ios"}`). `release_kind` (`prepare` or `publish`) comes from the request options, i.e. the
   project's CI profile, and is required. `build_identity` comes from the tag only (a request that supplies it is
   refused): Xcode passes the tag itself (an app's `<marketing-version>_<build>`, a library's `VERSION`);
   Gradle passes the build number of its `<marketing-version>_<build>` tag (the Android versionCode); any other Gradle

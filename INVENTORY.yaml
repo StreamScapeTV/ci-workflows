@@ -33,6 +33,8 @@ scripts:
   ci_run_xcode_job: scripts/ci/ci_run_xcode_job.py
   ci_run_job: scripts/ci/ci_run_job.py
   ci_cache: scripts/ci/ci_cache.py
+  ci_execution_class: scripts/ci/ci_execution_class.py
+  macos_keychain_guard: scripts/ci/macos_keychain_guard.py
   ci_registry_auth: scripts/ci/ci_registry_auth.py
   ci_scrub_log: scripts/ci/ci_scrub_log.py
   ci_release: scripts/ci/ci_release.py

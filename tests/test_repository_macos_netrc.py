@@ -69,6 +69,26 @@ class MacosNetrcTests(unittest.TestCase):
                 else:
                     self.destination.unlink()
 
+    def test_stale_link_of_a_killed_job_is_replaced_on_a_persistent_runner(self):
+        stale = self.root / "old-run-temp/central-registry-auth/native-netrc-abc123"
+        self.destination.symlink_to(stale)
+        netrc.install(self.auth, self.home)
+        self.assertTrue(self.destination.is_symlink())
+        self.assertNotEqual(os.readlink(self.destination), str(stale))
+        self.assertEqual(self.destination.read_text(), self.source.read_text())
+        netrc.cleanup(self.auth)
+        self.assertFalse(os.path.lexists(self.destination))
+
+    def test_live_link_of_a_concurrent_job_is_never_removed(self):
+        other = self.root / "other-run-temp/central-registry-auth"
+        other.mkdir(parents=True)
+        live = other / "native-netrc-live"
+        live.write_text("machine example.invalid\n")
+        self.destination.symlink_to(live)
+        with self.assertRaises(FileExistsError):
+            netrc.install(self.auth, self.home)
+        self.assertEqual(os.readlink(self.destination), str(live))
+
     def test_native_home_directory_alias_is_accepted(self):
         alias = self.root / "native-alias"
         alias.symlink_to(self.home, target_is_directory=True)
