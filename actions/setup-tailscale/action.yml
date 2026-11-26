@@ -4,7 +4,8 @@ description: >-
   git.faruqi.dev). Thin wrapper over actions/private-git so call sites do not change when the
   mechanism does. Requires Central checked out at ./central-ci and TS_OAUTH_CLIENT_ID and
   TS_OAUTH_SECRET in the env of the step that uses this action. Self-hosted runners that already
-  have persistent access only verify reachability.
+  have persistent access only verify reachability: no Tailscale login, node, route, DNS change or
+  daemon is created there, so nothing needs tearing down (the hosted connection ends with the VM).
 
 runs:
   using: composite

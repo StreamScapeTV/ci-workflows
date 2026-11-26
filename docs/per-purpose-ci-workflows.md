@@ -51,7 +51,7 @@ The Xcode `plan` job resolves the **Central execution class** from the repositor
 
 | Repository | Class | `runs-on` |
 |---|---|---|
-| `StreamScapeTV/streamscape-media` | `macos-high-capacity` (the owner's persistent high-performance self-hosted Mac) | `[self-hosted, macOS, ARM64, macos-latest-xl]` |
+| `streamscape-media` (organization repository) | `macos-high-capacity` (the owner's persistent high-performance self-hosted Mac) | `[self-hosted, macOS, ARM64, macos-latest-xl]` |
 | every other repository | `macos-hosted` | `macos-latest` (GitHub-hosted) |
 
 The complete Streamscape Media library workload (lint, test, build, release preparation and
@@ -65,12 +65,23 @@ never falls back to a hosted runner. Gradle, Node and Python keep their hosted r
 
 Persistent-host hygiene in both Xcode stage jobs (harmless on a hosted runner): the job starts from an
 empty `GITHUB_WORKSPACE`; `TMPDIR` is a private per-run directory under `RUNNER_TEMP`; the user keychain
-search list and default keychain are recorded before the source setup and restored in the `always()`
-cleanup (`scripts/ci/macos_keychain_guard.py`: a keychain the run added under `RUNNER_TEMP` or the
-workspace is deleted, one added elsewhere is taken off the list and reported); a dangling native
-`~/.netrc` link a killed job left behind is replaced (`repository_macos_netrc.py`), a live one is
-refused. Persistent toolchain caches in the native home (SwiftPM, the compilation cache) stay, as the
-owner rule requires; DerivedData stays under the per-run `RUNNER_TEMP/ci-work`.
+search list and default keychain are recorded before the source setup in a per-runner state file in the
+native home (`~/Library/Application Support/central-ci/keychain-state-<runner>.json`, it must outlive
+`RUNNER_TEMP`) and restored in the `always()` cleanup (`scripts/ci/macos_keychain_guard.py`): every keychain
+the job added to the search list or made the default is deleted, wherever it lives; a keychain that was there
+before the job never is. If a job is killed before its cleanup, the next job's snapshot on the same runner
+finds the state file, restores that saved context and deletes the killed job's keychains first. A dangling
+native `~/.netrc` link a killed job left behind is replaced (`repository_macos_netrc.py`), a live one is
+refused. The private network adds no state on a self-hosted runner: `actions/setup-tailscale` (via
+`actions/private-git`) and the S3 actions connect Tailscale only on GitHub-hosted runners; on the persistent
+Mac they only probe reachability, so there is no login, route, DNS change or daemon to tear down. Persistent
+toolchain caches in the native home (SwiftPM, the compilation cache) stay, as the owner rule requires;
+DerivedData stays under the per-run `RUNNER_TEMP/ci-work`.
+
+The App Store Connect credentials (`APPLE_TEAM_ID`, `APP_STORE_CONNECT_*`) reach the Xcode release job only
+for `macos-hosted`: `ci-xcode.yml` passes them only when the plan resolved `macos-hosted`, and the release
+stage hands them to `.ci/release.sh` only on that class. A `macos-high-capacity` release (streamscape-media,
+prepare-only) never receives them, so no store key reaches the persistent host whose caches test code can write.
 
 Nothing calls Agent State, a mirror, Cloudflare Access or Google Drive. **No workflow has a push, tag, pull_request or schedule trigger** (owner decision, 20 Nov 2026): CI runs only when an agent requests it through the runner (`workflow_dispatch`); the stage workflows are `workflow_call` only. Cache writes therefore happen only in explicitly requested runs on the integration branch (non-tag), and the cache-warm entry per toolchain is likewise an explicit request.
 

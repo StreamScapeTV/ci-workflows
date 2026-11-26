@@ -158,6 +158,7 @@ jobs:
 
       # Per-run temporary directory (the runner deletes RUNNER_TEMP after the job) and the user keychain context
       # as found, restored in the cleanup step: a persistent Mac must not keep a run's temp files or keychains.
+      # The snapshot first recovers a killed previous job on this runner (macos_keychain_guard.py).
       - name: Isolate per-run temporary files and record the keychain context
         shell: bash
         run: |
@@ -415,7 +416,8 @@ jobs:
         shell: bash
         run: |
           cleanup_status=0
-          if test -f "${RUNNER_TEMP}/central-keychain-state.json"; then
+          # Restores the recorded keychain context and deletes every keychain the job added (no-op without a record).
+          if test -f central-ci/scripts/ci/macos_keychain_guard.py; then
             python3 central-ci/scripts/ci/macos_keychain_guard.py restore || cleanup_status=$?
           fi
           if test -f "${RUNNER_TEMP}/central-registry-auth/native-netrc.json"; then

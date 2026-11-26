@@ -5,6 +5,8 @@
 # exist only in this job (never in the lint/test/build job) and reach the release process as the
 # CI_APPLE_TEAM_ID / CI_APP_STORE_CONNECT_* variables its .ci/release.sh reads; their values are
 # redacted from the stage log. CI_INPUTS_JSON carries release_kind and the tag-derived build_identity.
+# The store credentials reach the release process only on the hosted class (macos-hosted); a macos-high-capacity
+# release (the persistent self-hosted Mac, prepare-only) never receives them.
 name: Central CI Xcode release stage
 
 "on":
@@ -124,6 +126,7 @@ jobs:
 
       # Per-run temporary directory (the runner deletes RUNNER_TEMP after the job) and the user keychain context
       # as found, restored in the cleanup step: a persistent Mac must not keep a run's temp files or keychains.
+      # The snapshot first recovers a killed previous job on this runner (macos_keychain_guard.py).
       - name: Isolate per-run temporary files and record the keychain context
         shell: bash
         run: |
@@ -205,10 +208,10 @@ jobs:
           CI_SECRET_TAILSCALE_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
           CI_SECRET_REGISTRY_USERNAME: ${{ secrets.FORGEJO_REGISTRY_USERNAME }}
           CI_SECRET_REGISTRY_READ_TOKEN: ${{ secrets.CIW_MAVEN_PACKAGE_READ_TOKEN }}
-          CI_RELEASE_SECRET_CI_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          CI_RELEASE_SECRET_CI_APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          CI_RELEASE_SECRET_CI_APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          CI_RELEASE_SECRET_CI_APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 }}
+          CI_RELEASE_SECRET_CI_APPLE_TEAM_ID: ${{ inputs.execution_class == 'macos-hosted' && secrets.APPLE_TEAM_ID || '' }}
+          CI_RELEASE_SECRET_CI_APP_STORE_CONNECT_KEY_ID: ${{ inputs.execution_class == 'macos-hosted' && secrets.APP_STORE_CONNECT_KEY_ID || '' }}
+          CI_RELEASE_SECRET_CI_APP_STORE_CONNECT_ISSUER_ID: ${{ inputs.execution_class == 'macos-hosted' && secrets.APP_STORE_CONNECT_ISSUER_ID || '' }}
+          CI_RELEASE_SECRET_CI_APP_STORE_CONNECT_API_KEY_P8_BASE64: ${{ inputs.execution_class == 'macos-hosted' && secrets.APP_STORE_CONNECT_API_KEY_P8_BASE64 || '' }}
           REPOSITORY: ${{ inputs.repository }}
           REQUEST_ID: ${{ inputs.request_id }}
           CENTRAL_EXECUTION_CLASS: ${{ inputs.execution_class }}
@@ -242,7 +245,8 @@ jobs:
         shell: bash
         run: |
           cleanup_status=0
-          if test -f "${RUNNER_TEMP}/central-keychain-state.json"; then
+          # Restores the recorded keychain context and deletes every keychain the job added (no-op without a record).
+          if test -f central-ci/scripts/ci/macos_keychain_guard.py; then
             python3 central-ci/scripts/ci/macos_keychain_guard.py restore || cleanup_status=$?
           fi
           if test -f "${RUNNER_TEMP}/central-registry-auth/native-netrc.json"; then

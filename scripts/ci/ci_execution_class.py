@@ -30,14 +30,19 @@ RUNS_ON = {
     HIGH_CAPACITY: ["self-hosted", "macOS", "ARM64", "macos-latest-xl"],
 }
 
-# Reviewed repository allow-list. Every repository not listed keeps the hosted class.
+ORGANIZATION = "StreamScapeTV"
+# Reviewed allow-list of repository names in ORGANIZATION (exact, case-sensitive). Every repository not
+# listed keeps the hosted class.
 REPOSITORY_CLASS = {
-    "StreamScapeTV/streamscape-media": HIGH_CAPACITY,
+    "streamscape-media": HIGH_CAPACITY,
 }
 
 
 def resolve(repository: str) -> str:
-    return REPOSITORY_CLASS.get(repository, HOSTED)
+    owner, _, name = repository.partition("/")
+    if owner != ORGANIZATION:
+        return HOSTED
+    return REPOSITORY_CLASS.get(name, HOSTED)
 
 
 def main(argv=None) -> int:
