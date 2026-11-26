@@ -146,7 +146,7 @@ jobs:
 
   # Release (lint, test, build, then release; lint never gates it): the repository's .ci/release.sh from a tag,
   # in its own job, the only one that receives the App Store Connect credentials.
-  # The store credentials go only to the hosted class: never to the persistent self-hosted macos-high-capacity Mac.
+  # The store credentials go only to the hosted class: never to the persistent macos-high-capacity Mac.
   release:
     needs: [plan, xcode]
     if: ${{ !cancelled() && needs.plan.result == 'success' && contains(fromJSON(needs.plan.outputs.stages), 'release') && needs.xcode.result == 'success' }}
